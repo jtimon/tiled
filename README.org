@@ -1,0 +1,5 @@
+* Tiled
+
+A text editor, windows manager, IDE, browser and agentic tool written
+in [[https://github.com/jtimon/til][til]] language.
+Inspired in [[https://savannah.gnu.org/projects/emacs/][emacs]], [[https://github.com/i3/i3][i3]], [[http://conkeror.org/][conkeror]] and [[https://github.com/anomalyco/opencode][opencode]].
