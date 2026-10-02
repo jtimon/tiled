@@ -6,13 +6,14 @@ Inspired in [[https://savannah.gnu.org/projects/emacs/][emacs]], [[https://githu
 
 ** Getting started
 
-Targets installed Til =0.0.1-5bc2070c4= with natural core/std imports (#413).
+Targets installed Til =0.0.1-b444d7223= with natural core/std imports (#413).
 See [[file:doc/build.org][build requirements and details]].
 From the repository root:
 
 #+begin_src sh
 til interpret make.til
 ./bin/tiled
+./bin/tilminal
 #+end_src
 
 With no user config, Tiled opens =*scratch*= using defaults. The working
@@ -21,7 +22,8 @@ config [[file:defaults/init.til][defaults/init.til]] can be copied to =~/.tiled/
 ** Documentation
 
 - [[file:doc/progress.org][Current progress and known limitations]]
-- [[file:doc/build.org][Building, running and the initial editor/terminal drafts]]
+- [[file:doc/build.org][Building and running Tiled and tilminal]]
+- [[file:doc/terminal.org][Standalone tilminal, shared terminal modules and tests]]
 - [[file:doc/configuration.org][Startup and user configuration]]
 - [[file:doc/architecture.org][Buffers, windows, frames and desktop hosting]]
 - [[file:doc/keybindings.org][Future command and keybinding design]]

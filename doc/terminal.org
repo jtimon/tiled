@@ -1,0 +1,104 @@
+* Tilminal and the shared terminal component
+
+[[file:../README.org][Tiled]] | [[file:build.org][Build and run]] | [[file:architecture.org][Architecture]]
+
+Tilminal is a standalone terminal emulator developed in this repository.
+Tiled will embed the same terminal component in its panes. There is one
+terminal implementation; terminal buffers inside the editor are the next
+integration milestone, not implemented by this migration.
+
+** Running
+
+Build both applications with installed Til =0.0.1-b444d7223=:
+
+#+begin_src sh
+til interpret make.til
+./bin/tilminal
+./bin/tilminal 'printf "hello\n"'
+#+end_src
+
+The default is an interactive =$SHELL= (=/bin/sh= if unset), or =COMSPEC=
+on Windows. The optional argument is one shell command. The shell inherits
+the caller's working directory; =cd= and shell variables persist. After a
+command exits, its final screen stays visible and the title reports its exit
+status. Escape is terminal input. Closing the window closes the session.
+
+Fonts are resolved through =fc-match monospace= from fontconfig, as in Tiled;
+install fontconfig and a monospace font. The standalone frontend currently
+uses 20-pixel glyphs. Neither its imports nor its font path need a Til source
+checkout, and launching from =bin/= works without changing the shell's cwd.
+
+** Source ownership and migration
+
+Migrated from Til commit =40eb0682e= (present in =b444d7223=), including its
+terminal tests. [[file:../src/terminal/LICENSE.txt][The original MIT license]] and the Unicode/wcwidth attribution
+in =text.til= are retained. Tiled's old =examples/tilminal.til= command runner
+has been replaced by the persistent-session implementation.
+
+- [[file:../src/tilminal.til][src/tilminal.til]]: standalone window, shell startup and lifecycle.
+- [[file:../src/terminal/session.til][session.til]] / [[file:../src/terminal/session.c][session.c]]: PTY/ConPTY transport, child ownership,
+  input queuing, resize, final-output draining and teardown.
+- [[file:../src/terminal/model.til][model.til]]: terminal screen grid, incremental escape parser, cursor,
+  scrolling regions, rendition, keypad modes and query replies.
+- [[file:../src/terminal/text.til][text.til]]: incremental UTF-8 and Unicode 17 scalar-width tables.
+- [[file:../src/terminal/view.til][view.til]]: rendering, glyph resources and current keyboard forwarding.
+
+The terminal component is ordinary shared source, independent of the editor
+model. Its host creates the window and owns the event loop. Til supplies
+core/std, mode gui and its runtime ABI; application-specific development and
+tests belong here. Compiler regressions formerly bundled with the terminal
+tests stay in Til: =test/link_objects.til= and =test/vec_clone_abi.til=.
+
+** Verification
+
+Run from this repository's root after building the applications:
+
+#+begin_src sh
+til interpret test/terminal_model.til
+til run -o tmp/check_terminal_model -c tmp/check_terminal_model.c test/terminal_model.til
+til run -o tmp/check_terminal_session -c tmp/check_terminal_session.c test/terminal_session.til /usr/local/bin/til
+til build -o tmp/check_terminal_gui -c tmp/check_terminal_gui.c test/terminal_gui.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_terminal_gui
+#+end_src
+
+Pass the installed compiler's absolute path to the session test if it is
+installed elsewhere. The test builds its helper under =tmp/=, exercises the
+real Til REPL and keeps its history under =tmp/=. It covers independent
+sessions, terminal detection, argv quoting, resizing, partial input/output,
+explicit startup failure, child exit, persistent shell cwd/environment and
+foreground Ctrl-C on POSIX.
+
+The GUI test needs Linux/X11, Xlib/XTest, =xwininfo= and =xvfb-run=. It launches
+the actual =bin/tilminal= with =bin/= as cwd, waits for a real window, types
+=ls= against a fixture directory and compares the rendered output pixels
+against a reference row rendered with the same font. The marker filename
+does not appear in the typed command, so echoed input cannot satisfy the
+assertion; a blank reference is rejected too. It then requests a normal
+window close and requires exit status zero. A second case verifies rendered
+wide/combining Unicode output, retained final screen and one-shot status.
+The test, pixel comparison and window-close handling are written in Til
+using X11 FFI declarations. No C test helper, OCR dependency or test-only
+application export is used. Failed checks
+attempt an ImageMagick screenshot at =tmp/terminal-gui-failure.png=.
+
+The migrated model passed interpreted, compiled and ASAN checks on Linux.
+The session suite passed normal and ASAN runs; GUI acceptance passed with
+normal binaries. Native Windows ConPTY and macOS PTY runs remain unverified.
+
+** Follow-ups
+
+- Reduce model/interpreter and test-build cost while retaining coverage.
+- Validate native ConPTY on Windows and PTYs on macOS, including frontend
+  font availability. Cross-compilation alone is not runtime validation.
+- Add scrollback/selection and alternate-screen support, then broaden
+  terminal compatibility beyond the current vt100 text profile.
+- Embed terminal buffers in Tiled: separate session/screen ownership from
+  view resources, retain hidden sessions, define multi-view resize policy,
+  and add terminal-aware buffer/exit lifecycle handling.
+- Move input dispatch to host-supplied ordered events and mapped modifiers.
+  The current view consumes global raylib queues and frame-time modifiers;
+  its bounded text queue can lose synthetic input bursts. The GUI test types
+  at keyboard speed. Tiled's editor already has the ordered input path to reuse.
+- Investigate Kitty graphics and other application-supplied inline graphics
+  after the terminal/session integration. Til's #408 retains the earlier
+  design discussion; subsequent terminal implementation work belongs here.

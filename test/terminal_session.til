@@ -1,0 +1,115 @@
+mode cli
+import("../src/terminal/session")
+import("../src/terminal/text")
+import("std/sys")
+
+require := func(ok: Bool, why: Str) { if ok.not() { panic("terminal session: ", why) } }
+wait_text := proc(s: TerminalSession, mut output: Str, text: Str) {
+    deadline := clock_ms() + 30000
+    while output.find(text) < 0 {
+        output = format(output, s.pump())
+        if clock_ms() > deadline { panic("waiting for ", text, ": ", output) }
+        if s.state() == 3 && output.find(text) < 0 { panic("early child exit: ", output) }
+        sleep_ms(5)
+    }
+}
+finish := proc(s: TerminalSession, mut output: Str) {
+    deadline := clock_ms() + 30000
+    while s.state() != 3 {
+        output = format(output, s.pump())
+        if clock_ms() > deadline { panic("child did not exit: ", output) }
+        sleep_ms(5)
+    }
+}
+
+main := proc(compiler: Str) {
+    mut child_path := "tmp/terminal_session_child"
+    if host_os() == "windows" { child_path = format(child_path, ".exe") }
+    build := Cmd.new(compiler, "build", "-o", child_path, "-c", "tmp/terminal_session_child.c", "test/terminal_session_child.til")
+    build.run_checked()
+    first := TerminalSession.new(child_path, "space dollar $ quote \" end")
+    second := TerminalSession.new(child_path, "second")
+    first.start(80, 24)
+    second.start(32, 8)
+    mut a := ""
+    mut b := ""
+    wait_text(first, a, "READY:space dollar $ quote \" end")
+    wait_text(second, b, "READY:second")
+    first.send(format("size", terminal_byte(13)))
+    second.send(format("size", terminal_byte(13)))
+    wait_text(first, a, "COLUMNS:80")
+    wait_text(second, b, "COLUMNS:32")
+    first.resize(53, 10)
+    first.send(format("size", terminal_byte(13), "hello", terminal_byte(13), "exit", terminal_byte(13)))
+    wait_text(first, a, "COLUMNS:53")
+    finish(first, a)
+    require(a.find("INPUT:hello") >= 0 && a.find("FINAL") >= 0, "final output drained")
+    require(first.status() == 0, "child status")
+    require(second.state() == 1, "instance isolation")
+    first.close()
+    second.close()
+    require(second.state() == 4, "close active child")
+
+    bad := TerminalSession.new("tmp/no-such-terminal-executable-408")
+    terminal_session_start(bad.handle, 80, 24)
+    require(terminal_session_error(bad.handle).len() > 0, "start failure is explicit")
+    terminal_session_close(bad.handle)
+
+    flood := TerminalSession.new(child_path, "flood")
+    flood.start(80, 24)
+    mut bulk := ""
+    finish(flood, bulk)
+    require(bulk.find("FLOOD_FINAL") >= 0 && flood.status() == 0, "bounded pumping drains final frame")
+    if host_os() != "windows" { require(bulk.len() > 100000, "large PTY output retained") }
+    flood.close()
+
+    input_child := TerminalSession.new(child_path, "input")
+    input_child.start(80, 24)
+    mut input_output := ""
+    wait_text(input_child, input_output, "RAW_READY")
+    mut payload := Str.with_capacity(100000)
+    for _ in 0..100000 { payload.push_str("x") }
+    input_child.send(payload)
+    finish(input_child, input_output)
+    require(input_output.find("INPUT_FINAL") >= 0 && input_child.status() == 0, "partial input writes retained")
+    input_child.close()
+
+    if host_os() != "windows" {
+        shell := TerminalSession.new("/bin/sh", "-i")
+        shell.start(80, 24)
+        shell.send("TERM408=kept\ncd tmp\nsh -c 'printf \"\\nJOB_READY\\n\"; exec sleep 30'\n")
+        mut output := ""
+        wait_text(shell, output, format("\nJOB_READY", terminal_byte(13), "\n"))
+        shell.send(terminal_byte(3))
+        shell.send("printf '\\n%s\\n' \"$TERM408\"\npwd\nexit\n")
+        finish(shell, output)
+        normalized := output.replace(terminal_byte(13), "")
+        require(normalized.find("\nkept\n") >= 0 && normalized.find("/tmp\n") >= 0, "persistent shell cwd/env after foreground Ctrl-C")
+        require(shell.status() == 0, "shell survives foreground interrupt")
+        shell.close()
+    }
+
+    // Drive the real editor with a terminal and terminal-query replies.
+    repl := TerminalSession.new(child_path, format("repl:", compiler))
+    repl.start(80, 24)
+    mut text := ""
+    wait_text(repl, text, "til[script]>")
+    text = ""
+    repl.send("1 + 2")
+    repl.send(terminal_byte(13))
+    deadline := clock_ms() + 30000
+    while text.find("\n3") < 0 || text.ends_with("til[script]> ").not() {
+        text = format(text, repl.pump())
+        if clock_ms() > deadline { panic("REPL did not evaluate and return to its prompt: ", text) }
+        sleep_ms(5)
+    }
+    repl.resize(40, 12)
+    repl.send(terminal_byte(12)) // Ctrl-L: redraw, not exit.
+    mut redrawn := ""
+    wait_text(repl, redrawn, "til[script]>")
+    repl.send(terminal_byte(4))
+    finish(repl, redrawn)
+    require(repl.status() == 0, "unmodified repl exits")
+    repl.close()
+    println("terminal session OK")
+}

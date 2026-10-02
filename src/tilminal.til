@@ -1,0 +1,56 @@
+mode gui
+
+import("std/sys")
+import("terminal/view")
+import("terminal/session")
+
+// Use the same system monospace selection as Tiled. No font path depends on
+// a Til source checkout, the executable's directory, or the shell's cwd.
+tilminal_font_path := proc() returns Str {
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace")
+    query.capture_out()
+    if query.run() != 0 { panic("cannot resolve terminal font; install fontconfig") }
+    path := query.out()
+    if path.len() == 0 { panic("fontconfig found no monospace font") }
+    return path
+}
+
+main := proc(args: ..Str) {
+    mut shell := get_env("SHELL")
+    windows := host_os() == "windows"
+    if windows {
+        shell = get_env("COMSPEC")
+        if shell.len() == 0 { shell = "cmd.exe" }
+    } else if shell.len() == 0 { shell = "/bin/sh" }
+    session := TerminalSession.new(shell)
+    if args.len() > 1 { panic("usage: tilminal [command]") }
+    if args.len() == 1 {
+        if windows { session.arg("/C") } else { session.arg("-c") }
+        session.arg(args[0])
+    } else if windows.not() { session.arg("-i") }
+
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE.cast(U32))
+    InitWindow(960, 640, "tilminal".c_str)
+    SetWindowMinSize(320, 200)
+    SetExitKey(0) // Escape belongs to the foreground terminal application.
+    SetTargetFPS(60)
+    font_path := tilminal_font_path()
+    mut view := TerminalView.new(font_path)
+    session.start(80, 24)
+    mut reported_exit := false
+    while WindowShouldClose().not() {
+        view.update(session, GetScreenWidth().cast(I64), GetScreenHeight().cast(I64), IsWindowFocused())
+        if view.ended && reported_exit.not() {
+            title := format("tilminal [exit ", session.status().to_str(), "]")
+            SetWindowTitle(title.c_str)
+            reported_exit = true
+        }
+        BeginDrawing()
+        ClearBackground(Color(r = 16, g = 18, b = 24, a = 255))
+        view.draw(0, 0, IsWindowFocused())
+        EndDrawing()
+    }
+    session.close()
+    view.close()
+    CloseWindow()
+}

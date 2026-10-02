@@ -4,7 +4,7 @@
 
 ** Implemented and exercised
 
-- [[file:../make.til][make.til]] targets installed Til =0.0.1-5bc2070c4= to build Tiled and
+- [[file:../make.til][make.til]] targets installed Til =0.0.1-b444d7223= to build Tiled and
   tilminal. The editor is imported by Tiled, with no separate editor example
   or build target.
 - Application, build-script, example and test imports use =std/sys= following
@@ -23,7 +23,13 @@
   gutter and status-bar spacing use font measurements. Headless previews
   checked the README at 20 px and 28 px. The default has since been increased
   to 28 px, both in the built-in fallback and =defaults/init.til=.
-- The copied [[file:../examples/tilminal.til][tilminal draft]] opens and runs simple commands such as =ls=.
+- [[file:terminal.org][Tilminal]] now lives here as a standalone persistent-shell terminal, with
+  reusable PTY/ConPTY, screen, text and rendering modules migrated from Til.
+  Its model and session tests passed, including ASAN. The permanent GUI test
+  launches from =bin/=, types =ls=, verifies rendered output pixels and closes
+  cleanly; it also verifies Unicode output and final exit status.
+- Before migration, all existing Tiled model and GUI checks passed with the
+  newly installed compiler, including buffer and unsaved-exit workflows.
 - Tiled was rebuilt after relocating its checkout to
   =/home/jt/sync/data_common/tilcorp/tiled= and launched successfully there.
 
@@ -205,5 +211,5 @@ terminate their test application; its output goes to =tmp/quit-app.log=.
   are planned; no command prompt or prefix suggestion menu is implemented.
 - Multiple OS frames (=C-x 5=) and
   [[file:architecture.org][desktop hosts]] remain future work.
-- Tilminal launches a new =sh -lc= for each command. =cd= therefore does not
-  persist between commands. A persistent shell/PTY is future work.
+- Terminal buffers in Tiled, scrollback/alternate screens, native platform
+  validation and inline graphics remain [[file:terminal.org][terminal follow-ups]].

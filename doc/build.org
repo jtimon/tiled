@@ -4,7 +4,7 @@
 
 ** Requirements
 
-Tiled currently targets installed Til version =0.0.1-5bc2070c4= (check with
+Tiled currently targets installed Til version =0.0.1-b444d7223= (check with
 =til -v=). The =til= executable must be on =PATH=, with its standard library
 and GUI support installed. Til's native build also requires a C compiler.
 
@@ -64,12 +64,12 @@ See [[file:configuration.org][startup and configuration]] for init-file loading 
 - [[file:../src/editor_input.til][src/editor_input.til]] and [[file:../src/editor_input.c][src/editor_input.c]]: a small GLFW callback bridge
   preserving key/text/close-request order and mapped, event-time modifiers. It links against Til's installed
   desktop raylib/GLFW backend; no Til checkout or GLFW headers are required.
-- [[file:../examples/tilminal.til][tilminal.til]]: basic GUI shell-command runner with captured output, plus
-  =help= and =clear=. Commands run synchronously through =sh -lc=; it does
-  not yet provide an interactive PTY terminal.
+- [[file:../src/tilminal.til][src/tilminal.til]]: standalone terminal with a persistent shell or one-shot command.
+- [[file:../src/terminal/][src/terminal/]]: reusable terminal screen, text, PTY/ConPTY session and renderer.
+  See [[file:terminal.org][terminal development and tests]].
 
-The editor and terminal began as copies from Til's =examples/= directory.
-The editor now has a separate buffer/view/layout model; the terminal draft
-remains unchanged. Their =std/= imports resolve against the installed
-Til distribution's matching support tree. Both applications use
-Til's =mode gui= support and currently have hard-coded keybindings.
+The applications began in Til's =examples/= directory and are now developed
+here. Tilminal's reusable terminal implementation replaces the old command
+runner. Their =std/= imports resolve against the installed Til distribution's
+matching support tree. Both applications use =mode gui=; embedded terminal
+buffers in Tiled remain the next integration step.
