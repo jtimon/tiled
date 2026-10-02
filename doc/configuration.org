@@ -40,6 +40,16 @@ startup.
 The separate [[file:../examples/init.til][examples/init.til]] is a [[file:keybindings.org][future keybinding API sketch]], not
 the working startup configuration.
 
+** Automatic backups (planned default)
+
+Tiled should create backups automatically by default, like Emacs. On the
+first save of an existing file in an editing session, preserve its previous
+on-disk contents before overwriting it, for example as =filename~=. A new
+file has no previous version to back up.
+
+This is a planned feature, not implemented by the current editor. Saved-file
+backups are distinct from auto-save/recovery of unsaved buffer edits.
+
 ** Current loading implementation
 
 For now, loading an init file uses the installed =til run=: Tiled generates
