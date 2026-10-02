@@ -4,16 +4,21 @@
 
 ** Requirements
 
-Tiled currently targets installed Til version =0.0.1-2827886a4= (check with
+Tiled currently targets installed Til version =0.0.1-5bc2070c4= (check with
 =til -v=). The =til= executable must be on =PATH=, with its standard library
 and GUI support installed. Til's native build also requires a C compiler.
 
 Til's =make install= installs its support tree under =<prefix>/lib/til/=
 (normally =/usr/local/lib/til/=). Core and the GUI prelude are loaded from
-that tree automatically. The =import("../src/std/sys")= spelling is resolved
-through Til's =<support-root>/lib/= import search path to the installed
-=src/std/sys.til=; it does not require a neighboring Til source checkout.
-A traced build verified installed core, std, GUI, C runtime and raylib paths.
+that tree automatically. Tiled uses =import("std/sys")= for system utilities.
+Til's =std/= and =core/= prefixes resolve directly against the selected
+compiler's support tree, independent of the application's directory and
+without local shadowing. No explicit core import is needed for the types
+and utilities already supplied by the core prelude.
+
+This requires the natural-import support from Til issue #413. For genuinely
+project-local modules named =std/= or =core/=, Til uses explicit relative
+imports such as =import("./std/example")=.
 
 The editor resolves its default monospace font through =fc-match= from
 fontconfig. Install fontconfig and a monospace font, or set an explicit
@@ -62,6 +67,6 @@ See [[file:configuration.org][startup and configuration]] for init-file loading 
 
 The editor and terminal began as copies from Til's =examples/= directory.
 The editor now has a separate buffer/view/layout model; the terminal draft
-remains unchanged. Their standard-library imports resolve through the
-installed Til distribution's =lib/= search path. Both applications use
+remains unchanged. Their =std/= imports resolve against the installed
+Til distribution's matching support tree. Both applications use
 Til's =mode gui= support and currently have hard-coded keybindings.

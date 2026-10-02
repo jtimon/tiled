@@ -4,7 +4,7 @@ mode cli
 // ImageMagick's import to capture the nested layout in tmp/splits.png.
 // "remapped" swaps left Control/Alt with xmodmap on the isolated X server,
 // after the editor opens, to verify that live modifier mappings are honored.
-import("../src/std/sys")
+import("std/sys")
 link("X11")
 link(":libXtst.so.6")
 

@@ -4,9 +4,12 @@
 
 ** Implemented and exercised
 
-- [[file:../make.til][make.til]] uses installed Til =0.0.1-2827886a4= to build Tiled and
+- [[file:../make.til][make.til]] targets installed Til =0.0.1-5bc2070c4= to build Tiled and
   tilminal. The editor is imported by Tiled, with no separate editor example
   or build target.
+- Application, build-script, example and test imports use =std/sys= following
+  Til #413. Reserved =std/= and =core/= imports resolve against the selected
+  compiler's support tree; core continues to load automatically.
 - [[file:../src/tiled.til][src/tiled.til]] provides a build-time =VERSION= and =-v=/=--version=.
 - Startup checks =~/.tiled/init.til=. A missing file prints the defaults
   notice and opens =*scratch*=. A working config lives at [[file:../defaults/init.til][defaults/init.til]].

@@ -1,6 +1,6 @@
 mode gui
 
-import("../src/std/sys")
+import("std/sys")
 import("editor")
 
 get_cwd_str := ext_proc() returns Str {}

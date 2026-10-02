@@ -3,7 +3,7 @@ mode cli
 // Run under xvfb-run. Uses Til mode gui's real file dialog to load a second
 // file, then exercises prompts through X11. Requires a GUI dialog provider
 // such as zenity. Optional "remapped" swaps Control/Alt on this X server.
-import("../src/std/sys")
+import("std/sys")
 link("X11")
 link(":libXtst.so.6")
 

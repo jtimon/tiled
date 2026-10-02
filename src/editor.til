@@ -1,6 +1,6 @@
 mode lib
 
-import("../src/std/sys")
+import("std/sys")
 import("editor_model")
 import("editor_input")
 import("editor_buffers")

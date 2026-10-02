@@ -1,6 +1,6 @@
 mode gui
 
-import("../src/std/sys")
+import("std/sys")
 
 push_line := func(mut lines: Vec(Str), text: Str) {
     lines.push(own text.clone())

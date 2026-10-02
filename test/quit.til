@@ -2,7 +2,7 @@ mode cli
 
 // X11 integration reproducer. Run under xvfb-run from the repository root.
 // Default: slower chords. "fast": press/release without holding for a frame.
-import("../src/std/sys")
+import("std/sys")
 link("X11")
 link(":libXtst.so.6")
 

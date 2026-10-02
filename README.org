@@ -6,7 +6,8 @@ Inspired in [[https://savannah.gnu.org/projects/emacs/][emacs]], [[https://githu
 
 ** Getting started
 
-Requires installed Til =0.0.1-2827886a4=. See [[file:doc/build.org][build requirements and details]].
+Targets installed Til =0.0.1-5bc2070c4= with natural core/std imports (#413).
+See [[file:doc/build.org][build requirements and details]].
 From the repository root:
 
 #+begin_src sh

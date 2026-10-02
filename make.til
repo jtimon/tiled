@@ -1,9 +1,9 @@
 mode cli
 
 // Run from the repository root: til interpret make.til
-// Til resolves this spelling via <installed support root>/lib/../src/std/sys.
+// std/ resolves against the installed compiler's matching support tree.
 // Core and GUI support are loaded from that same installed distribution.
-import("../src/std/sys")
+import("std/sys")
 
 build := proc(name: Str, source: Str) {
     cmd := Cmd.new()

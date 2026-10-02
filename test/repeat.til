@@ -2,7 +2,7 @@ mode cli
 
 // Run under xvfb-run from the repository root. These are real held X11 keys;
 // saved file contents verify movement, deletion and repeated text insertion.
-import("../src/std/sys")
+import("std/sys")
 link("X11")
 link(":libXtst.so.6")
 
