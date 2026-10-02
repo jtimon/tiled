@@ -13,7 +13,7 @@ init := func(mut config: TiledConfig) {
     config.font_size = 28
     // Empty means the system monospace font, resolved through fontconfig.
     // config.font_path = "/path/to/your/monospace.ttf"
-    config.scratch_text = "Welcome to Tiled!\n\nC-x 2: split top/bottom\nC-x 3: split side by side\nC-x o: focus next view\nC-x 0: close view\nC-x 1: keep only this view\nC-x C-f / Ctrl+O: open a file\nC-x C-s / Ctrl+S: save buffer\nC-x C-c: exit Tiled\n"
+    config.scratch_text = "Welcome to Tiled!\n\nC-x b: switch buffer\nC-x C-b: list buffers\nC-x k: kill buffer\nC-x 2: split top/bottom\nC-x 3: split side by side\nC-x o: focus next view\nC-x 0: close view\nC-x 1: keep only this view\nC-x C-f / Ctrl+O: open a file\nC-x C-s / Ctrl+S: save buffer\nC-x C-c: exit Tiled\n"
 
     // Optionally open a file instead of *scratch*:
     // config.initial_file = "/path/to/notes.org"

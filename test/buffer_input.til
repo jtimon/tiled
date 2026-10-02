@@ -1,0 +1,243 @@
+mode cli
+
+// Run under xvfb-run. Uses Til mode gui's real file dialog to load a second
+// file, then exercises prompts through X11. Requires a GUI dialog provider
+// such as zenity. Optional "remapped" swaps Control/Alt on this X server.
+import("../src/std/sys")
+link("X11")
+link(":libXtst.so.6")
+
+XOpenDisplay := ext_proc(name: I8) returns ref Dynamic {}
+XCloseDisplay := ext_proc(display: Dynamic) returns shallow I32 {}
+XSetInputFocus := ext_proc(display: Dynamic, shallow window: UPtr, shallow revert: I32, shallow time: UPtr) returns shallow I32 {}
+XKeysymToKeycode := ext_proc(display: Dynamic, shallow keysym: UPtr) returns shallow U8 {}
+XkbKeycodeToKeysym := ext_proc(display: Dynamic, shallow key: U8, shallow group: I32, shallow level: I32) returns shallow UPtr {}
+XTestFakeKeyEvent := ext_proc(display: Dynamic, shallow key: U32, shallow pressed: I32, shallow delay: UPtr) returns shallow I32 {}
+XFlush := ext_proc(display: Dynamic) returns shallow I32 {}
+get_cwd_str := ext_proc() returns Str {}
+
+send_key := proc(display: Dynamic, keysym: UPtr, pressed: I32) {
+    code := XKeysymToKeycode(display, keysym)
+    XTestFakeKeyEvent(display, code.cast(U32), pressed, 0)
+    XFlush(display)
+}
+
+tap := proc(display: Dynamic, keysym: UPtr) {
+    send_key(display, keysym, 1)
+    send_key(display, keysym, 0)
+}
+
+chord := proc(display: Dynamic, keysym: UPtr) {
+    // Separate a just-typed letter from a shortcut using that same key.
+    // GLFW otherwise interprets synthetic strokes at one timestamp as repeat.
+    sleep_ms(30)
+    send_key(display, 65507, 1)
+    tap(display, keysym)
+    send_key(display, 65507, 0)
+}
+
+prefix := proc(display: Dynamic, keysym: UPtr, control: Bool = false) {
+    chord(display, 120)
+    if control { chord(display, keysym) }
+    else { tap(display, keysym) }
+}
+
+type_text := proc(display: Dynamic, text: Str) {
+    for index in 0..text.len() {
+        symbol := text.get(index).cast(I64).cast(UPtr)
+        code := XKeysymToKeycode(display, symbol)
+        shifted := XkbKeycodeToKeysym(display, code, 0, 0) != symbol
+        if shifted { send_key(display, 65505, 1) }
+        tap(display, symbol)
+        if shifted { send_key(display, 65505, 0) }
+    }
+}
+
+choose := proc(display: Dynamic, command: UPtr, name: Str) {
+    prefix(display, command)
+    type_text(display, name)
+    tap(display, 65289) // Tab completes the selected match.
+    tap(display, 65293) // Enter, deliberately in the same burst as the text.
+    sleep_ms(150)
+}
+
+find_window := proc(title: Str) returns UPtr {
+    query := Cmd.new("xwininfo", "-root", "-tree", "-int")
+    query.capture_out()
+    if query.run() != 0 { panic("xwininfo failed") }
+    for line : Str in query.out().split("\n") {
+        if line.contains(format("\"", title, "\"")) {
+            fields := line.trim().split(" ")
+            return fields[0].to_i64().cast(UPtr)
+        }
+    }
+    return 0
+}
+
+require := proc(app: Cmd, pid: I64, condition: Bool, message: Str) {
+    if condition { return }
+    Cmd.new("import", "-window", "root", "tmp/buffer-input-failure.png").run()
+    windows := Cmd.new("xwininfo", "-root", "-tree", "-int")
+    windows.capture_out()
+    windows.run()
+    if !app.poll() {
+        Cmd.new("pkill", "-TERM", "-P", pid.to_str()).run()
+        Cmd.new("kill", "-TERM", pid.to_str()).run()
+    }
+    app.wait()
+    panic(message, "\n", windows.out(), "\n", File.readfile("tmp/buffer-input-app.log"))
+}
+
+wait_window := proc(app: Cmd, pid: I64, title: Str) returns UPtr {
+    mut window : UPtr = 0
+    for _ in 0..200 {
+        window = find_window(title)
+        if window != 0 || app.poll() { break }
+        sleep_ms(50)
+    }
+    require(app, pid, window != 0, format("window did not open: ", title))
+    return window
+}
+
+focus := proc(display: Dynamic, window: UPtr) {
+    for _ in 0..100 {
+        query := Cmd.new("xwininfo", "-id", window.to_str())
+        query.capture_out()
+        if query.run() == 0 && query.out().contains("Map State: IsViewable") { break }
+        sleep_ms(50)
+    }
+    XSetInputFocus(display, window, 2, 0)
+    XFlush(display)
+    sleep_ms(100)
+}
+
+main := proc(args: ..Str) {
+    base := format(get_cwd_str(), "/tmp/buffer-input-", process_id().to_str())
+    assert(mkdir_p(format(base, "/one")) == 0)
+    assert(mkdir_p(format(base, "/two")) == 0)
+    first := format(base, "/one/shared.txt")
+    second := format(base, "/two/shared.txt")
+    File.writefile(first, "alpha")
+    File.writefile(second, "beta")
+    display_name := get_env("DISPLAY")
+    ref display : Dynamic = XOpenDisplay(display_name.c_str)
+    if is_null(display) { panic("no X display; run under xvfb-run") }
+    app := Cmd.new("./bin/tiled", first)
+    app.env("HOME", format(base, "/home"))
+    app.stdout_to("tmp/buffer-input-app.log").stderr_to_stdout()
+    pid := app.start()
+    window := wait_window(app, pid, "Tiled - shared.txt")
+    focus(display, window)
+
+    // Load through the existing mode gui dialog, not a test-only editor API.
+    chord(display, 111)
+    mut dialog := wait_window(app, pid, "Open file")
+    // Installed Til 2827886a4 emits the helper's switch scrutinee call twice.
+    // Answer a repeated native chooser too; a fixed compiler needs one round.
+    for _ in 0..3 {
+        focus(display, dialog)
+        sleep_ms(200)
+        chord(display, 108) // GTK file chooser's location entry.
+        sleep_ms(100)
+        type_text(display, second)
+        tap(display, 65293)
+        sleep_ms(500)
+        dialog = 0
+        for _ in 0..20 {
+            dialog = find_window("Open file")
+            if dialog != 0 { break }
+            sleep_ms(50)
+        }
+        if dialog == 0 { break }
+    }
+    require(app, pid, find_window("Open file") == 0, "file dialog did not close")
+    focus(display, window)
+
+    for arg : Str in args {
+        if arg == "remapped" {
+            Cmd.new("xmodmap", "-e", "clear control", "-e", "clear mod1",
+                "-e", "keysym Control_L = Alt_L Meta_L", "-e", "keysym Alt_L = Control_L",
+                "-e", "add control = Control_L Control_R",
+                "-e", "add mod1 = Alt_L Alt_R Meta_L Meta_R").run_checked()
+            sleep_ms(100)
+        }
+    }
+    type_text(display, "b")
+    chord(display, 115)
+    sleep_ms(150)
+    require(app, pid, File.readfile(second) == "bbeta", format("second file was not loaded/saved: ", File.readfile(second)))
+
+    choose(display, 98, "one/shared")
+    tap(display, 65363) // Right, then edit the first buffer.
+    type_text(display, "x")
+    prefix(display, 51)
+    // Empty C-x b selects the previous buffer in this pane.
+    choose(display, 98, "")
+    type_text(display, "q")
+    chord(display, 115)
+    sleep_ms(150)
+    require(app, pid, File.readfile(second) == "bqbeta", "switch did not restore the pane's point")
+    prefix(display, 111)
+    prefix(display, 98, true) // C-x C-b: searchable buffer list.
+    sleep_ms(150)
+    for arg : Str in args {
+        if arg == "screenshot" {
+            Cmd.new("import", "-window", window.to_str(), "tmp/buffer-list.png").run_checked()
+        }
+    }
+    type_text(display, "two/shared")
+    tap(display, 65293)
+    type_text(display, "r")
+    choose(display, 98, "one/shared")
+    type_text(display, "z")
+    chord(display, 115)
+    sleep_ms(150)
+    require(app, pid, File.readfile(first) == "axzlpha", "list selection or independent point failed")
+
+    // An empty confirmation never discards edits; "no", C-g and Escape cancel.
+    choose(display, 107, "two/shared")
+    tap(display, 65293)
+    sleep_ms(30)
+    type_text(display, "no")
+    tap(display, 65293)
+    choose(display, 98, "no-such-buffer")
+    chord(display, 103)
+    prefix(display, 98)
+    type_text(display, "junk")
+    tap(display, 65307)
+    type_text(display, "c")
+    choose(display, 107, "two/shared")
+    chord(display, 103)
+    choose(display, 98, "two/shared")
+    chord(display, 115)
+    sleep_ms(150)
+    require(app, pid, File.readfile(second) == "brqbeta", "cancel discarded a modified buffer")
+    type_text(display, "d")
+    choose(display, 98, "one/shared")
+    choose(display, 107, "two/shared")
+    type_text(display, "yes")
+    tap(display, 65293)
+    chord(display, 115)
+    sleep_ms(150)
+    require(app, pid, File.readfile(first) == "axzclpha", "prompt text leaked into the document")
+    require(app, pid, File.readfile(second) == "brqbeta", "killing a buffer wrote its unsaved edits")
+
+    // Killing the last file, displayed in two panes, leaves usable scratch.
+    choose(display, 107, "")
+    wait_window(app, pid, "Tiled - *scratch*")
+    type_text(display, "s")
+    choose(display, 107, "")
+    type_text(display, "yes")
+    tap(display, 65293)
+    prefix(display, 99, true)
+    for _ in 0..100 {
+        if app.poll() { break }
+        sleep_ms(50)
+    }
+    require(app, pid, app.poll(), "editor did not quit after last-buffer replacement")
+    assert(app.wait() == 0)
+    XCloseDisplay(display)
+    File.remove(first)
+    File.remove(second)
+    println("PASS: fast buffer prompts, list, shared views, cancellation, dirty kill and last-buffer scratch")
+}

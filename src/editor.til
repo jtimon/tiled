@@ -3,6 +3,7 @@ mode lib
 import("../src/std/sys")
 import("editor_model")
 import("editor_input")
+import("editor_buffers")
 
 realpath_str := ext_proc(path: Str) returns Str {}
 
@@ -38,20 +39,10 @@ editor_draw_text := proc(font: Font, text: Str, x: I32, y: I32, size: I32, color
                size.to_f32(), 0, color)
 }
 
-editor_key_pressed := proc(key: I32) returns Bool {
-    return IsKeyPressed(key) || IsKeyPressedRepeat(key)
-}
-
 editor_file_path := proc(path: Str) returns Str {
     resolved := realpath_str(path)
     if resolved.len() == 0 { panic("cannot open file: ", path) }
     return resolved
-}
-
-editor_buffer_name := func(buffer: EditorBuffer) returns Str {
-    if buffer.filename.len() == 0 { return "*scratch*" }
-    start := (buffer.filename.rfind("/") + 1).to_usize()
-    return buffer.filename.substr(start, buffer.filename.len() - start).clone()
 }
 
 editor_save := proc(mut editor: EditorState) returns Bool {
@@ -167,6 +158,73 @@ editor_draw_view := proc(mut editor: EditorState, index: USize, font: Font, size
     }
 }
 
+editor_tail_text := func(font: Font, text: Str, size: I32, width: I32) returns Str {
+    if editor_text_width(font, text, size) <= width { return text.clone() }
+    mut first : USize = 0
+    while first < text.len() {
+        shortened := format("...", text.substr(first, text.len() - first))
+        if editor_text_width(font, shortened, size) <= width { return shortened }
+        first++
+    }
+    return "..."
+}
+
+editor_draw_minibuffer := proc(mini: Minibuffer, font: Font, size: I32, line_h: I32,
+                              width: I32, height: I32, footer_h: I32) {
+    matches := mini.matches()
+    mut rows := (height - footer_h) / line_h - 1
+    if rows > 8 { rows = 8 }
+    if rows < 0 { rows = 0 }
+    if rows > matches.len().to_i32() { rows = matches.len().to_i32() }
+    panel_y := height - footer_h - (rows + 1) * line_h
+    DrawRectangle(0, panel_y, width, height - panel_y, Color(r = 24, g = 28, b = 42, a = 255))
+    DrawRectangle(0, panel_y, width, 2, Color(r = 110, g = 130, b = 180, a = 255))
+    mut help := "Enter OK  Tab complete  Up/Down  C-g/Esc"
+    if mini.choices.len() == 0 { help = "Type yes to discard, no or C-g to cancel" }
+    else if matches.len() == 0 { help = "No matching buffer - edit the name or C-g to cancel" }
+    else { help = format((mini.selected + 1).to_str(), "/", matches.len().to_str(), "  ", help) }
+    if mini.hint.len() > 0 { help = mini.hint.clone() }
+    BeginScissorMode(8, panel_y, width - 16, line_h)
+    editor_draw_text(font, help, 8, panel_y + 4, size, Color(r = 155, g = 170, b = 200, a = 255))
+    EndScissorMode()
+    if rows > 0 {
+        first := (mini.selected / rows.to_usize()) * rows.to_usize()
+        mut row : I32 = 0
+        while row < rows {
+            index := first + row.to_usize()
+            if index >= matches.len() { break }
+            choice := mini.choices[matches[index]].clone()
+            y := panel_y + (row + 1) * line_h
+            if index == mini.selected {
+                DrawRectangle(0, y, width, line_h, Color(r = 55, g = 65, b = 95, a = 255))
+            }
+            marker_w := editor_text_width(font, choice.marker, size)
+            name_w := width / 2 - marker_w - 24
+            BeginScissorMode(8, y, width / 2 - 16, line_h)
+            editor_draw_text(font, format(choice.marker, editor_tail_text(font, choice.name, size, name_w)), 8, y + 2, size,
+                Color(r = 225, g = 225, b = 235, a = 255))
+            EndScissorMode()
+            BeginScissorMode(width / 2, y, width / 2 - 8, line_h)
+            editor_draw_text(font, editor_tail_text(font, choice.detail, size, width / 2 - 16),
+                width / 2, y + 2, size, Color(r = 155, g = 170, b = 200, a = 255))
+            EndScissorMode()
+            row = row + 1
+        }
+    }
+    before := format(mini.label, mini.input.substr(0, mini.cursor))
+    point := editor_text_width(font, before, size)
+    mut scroll : I32 = 0
+    if point > width - 24 { scroll = point - width + 24 }
+    y := height - footer_h
+    mut text_x : I32 = 8
+    text_x = text_x - scroll
+    BeginScissorMode(8, y, width - 16, footer_h)
+    editor_draw_text(font, format(mini.label, mini.input), text_x, y + 4, size,
+        Color(r = 240, g = 230, b = 190, a = 255))
+    DrawRectangle(text_x + point, y + 4, 2, line_h, Color(r = 255, g = 200, b = 0, a = 255))
+    EndScissorMode()
+}
+
 start_editor := proc(config: TiledConfig, args: ..Str) {
     font_size := config.font_size
     if font_size <= 0 { panic("config.font_size must be positive") }
@@ -183,10 +241,14 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
     mut status_msg := ""
     mut status_timer : I64 = 0
     mut prefix_pending := false
+    mut prompt := EditorBufferPrompt()
+    mut suppress_text := false
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE.cast(U32))
     InitWindow(config.width, config.height, "Tiled".c_str)
     editor_init_input()
+    // Escape cancels an active prompt; outside prompts it retains quit behavior.
+    SetExitKey(0)
     font := LoadFontEx(font_path.c_str, font_size, Option(ref I32).None, 0)
     if !IsFontValid(font) || font.texture.id == GetFontDefault().texture.id {
         panic("could not load font: ", font_path)
@@ -216,7 +278,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         height := GetScreenHeight()
         area := EditorRect(width = width, height = height - footer_h)
         editor.arrange(0, area)
-        if IsMouseButtonPressed(0) {
+        if !prompt.mini.active && IsMouseButtonPressed(0) {
             mouse := GetMousePosition()
             for index : USize in editor.views() {
                 ref rect : EditorRect = editor.nodes[index].rect
@@ -227,24 +289,45 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             }
         }
 
-        mut prefix_input := prefix_pending
-        mut shortcut_input := false
         mut quit := false
-        mut save := false
-        mut open := false
         mut mods : I32 = 0
         mut action : I32 = 0
         mut key := editor_next_key(mods, action)
         while key > 0 {
+            mut save := false
+            mut open := false
             // GLFW_MOD_CONTROL = 2, GLFW_MOD_ALT = 4. These are mapped
             // modifier flags, not the physical Control/Alt key identities.
             control := mods.band(2) != 0
             ctrl := mods.band(6) != 0
-            if ctrl { shortcut_input = true }
-            if action == 1 && (key < 340 || key > 347) {
-                if prefix_pending {
+            if action == 3 {
+                if !suppress_text && key >= 32 && key < 127 {
+                    typed := Str.from_byte(key.cast(I64).to_u8())
+                    if prompt.mini.active { prompt.mini.insert(typed) }
+                    else if !prefix_pending { editor.insert(typed) }
+                }
+            } else if key < 340 || key > 347 {
+                suppress_text = ctrl || prefix_pending
+                if control && key == 71 {
                     prefix_pending = false
-                    prefix_input = true
+                    prompt.cancel()
+                    status_msg = "Cancelled"
+                    status_timer = 2000
+                } else if prompt.mini.active {
+                    if key == 256 {
+                        prompt.cancel()
+                        status_msg = "Cancelled"
+                        status_timer = 2000
+                    } else if key == 257 && action == 1 && !ctrl {
+                        status_msg = prompt.accept(editor)
+                        status_timer = 2000
+                    } else if !ctrl {
+                        prompt.mini.key(key, mods.band(1) != 0)
+                    }
+                } else if key == 256 {
+                    quit = true
+                } else if prefix_pending && action == 1 {
+                    prefix_pending = false
                     status_msg = ""
                     if control && key == 67 {
                         quit = true
@@ -254,6 +337,12 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                         save = true
                     } else if control && key == 70 {
                         open = true
+                    } else if key == 66 {
+                        mut kind := BufferPromptKind.Switch
+                        if control { kind = BufferPromptKind.List }
+                        prompt.begin(editor, kind)
+                    } else if key == 75 {
+                        prompt.begin(editor, BufferPromptKind.Kill)
                     } else if key == 50 || key == 51 {
                         if !editor.split(key == 51, min_view_w, min_view_h) {
                             status_msg = "View too small to split"
@@ -269,49 +358,39 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                     }
                     status_timer = 2000
                     editor.arrange(0, area)
-                } else if control && key == 88 {
+                } else if !prefix_pending && action == 1 && control && key == 88 {
                     prefix_pending = true
-                    prefix_input = true
                     status_msg = "C-x"
                     status_timer = 0
-                } else if !prefix_input && ctrl && key == 83 {
+                } else if !prefix_pending && action == 1 && ctrl && key == 83 {
                     save = true
-                } else if !prefix_input && ctrl && key == 79 {
+                } else if !prefix_pending && action == 1 && ctrl && key == 79 {
                     open = true
+                } else if !prefix_pending {
+                    if key >= 262 && key <= 265 { editor.move_cursor(key) }
+                    if key == 268 || key == 269 { editor.move_cursor(key) }
+                    if key == 257 && !ctrl { editor.insert("\n") }
+                    if key == 259 { editor.backspace() }
+                    if key == 261 { editor.delete_forward() }
                 }
+            }
+            if quit { break }
+            if save && editor_save(editor) {
+                status_msg = "Saved!"
+                status_timer = 2000
+            }
+            if open && editor_open(editor) {
+                status_msg = "Opened!"
+                status_timer = 2000
             }
             key = editor_next_key(mods, action)
         }
-        // Drain raylib's duplicate press queue; text still uses its char queue.
+        // The ordered bridge owns keyboard dispatch. Drain raylib's copies.
         mut queued_key := GetKeyPressed()
         while queued_key > 0 { queued_key = GetKeyPressed() }
+        mut queued_char := GetCharPressed()
+        while queued_char > 0 { queued_char = GetCharPressed() }
         if quit { break }
-        if save && editor_save(editor) {
-            status_msg = "Saved!"
-            status_timer = 2000
-        }
-        if open && editor_open(editor) {
-            status_msg = "Opened!"
-            status_timer = 2000
-        }
-        if !prefix_input {
-            if editor_key_pressed(265) { editor.move_cursor(265) }
-            if editor_key_pressed(264) { editor.move_cursor(264) }
-            if editor_key_pressed(263) { editor.move_cursor(263) }
-            if editor_key_pressed(262) { editor.move_cursor(262) }
-            if editor_key_pressed(268) { editor.move_cursor(268) }
-            if editor_key_pressed(269) { editor.move_cursor(269) }
-            if editor_key_pressed(257) && !shortcut_input { editor.insert("\n") }
-            if editor_key_pressed(259) { editor.backspace() }
-            if editor_key_pressed(261) { editor.delete_forward() }
-            if !shortcut_input {
-                mut ch := GetCharPressed()
-                while ch > 0 {
-                    if ch >= 32 && ch < 127 { editor.insert(Str.from_byte(ch.cast(I64).to_u8())) }
-                    ch = GetCharPressed()
-                }
-            }
-        }
 
         BeginDrawing()
         ClearBackground(Color(r = 70, g = 70, b = 90, a = 255))
@@ -321,11 +400,12 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         SetWindowTitle(window_title.c_str)
         DrawRectangle(0, height - footer_h, width, footer_h, Color(r = 38, g = 38, b = 52, a = 255))
         BeginScissorMode(8, height - footer_h, width - 16, footer_h)
-        mut message := "C-x 2/3 Split  C-x o Focus  C-s Save"
+        mut message := "C-x b Buffers  C-x 2/3 Split  C-s Save"
         if status_msg.len() > 0 { message = status_msg.clone() }
         editor_draw_text(font, message, 8, height - footer_h + 4, font_size,
             Color(r = 160, g = 160, b = 180, a = 255))
         EndScissorMode()
+        if prompt.mini.active { editor_draw_minibuffer(prompt.mini, font, font_size, line_h, width, height, footer_h) }
         EndDrawing()
     }
     UnloadFont(font)

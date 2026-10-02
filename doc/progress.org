@@ -60,11 +60,53 @@ the loop even though the body changed its index. The focus traversal now
 performs that lookup explicitly in the body, re-reading the selected node
 on each step. The sibling-subtree promotion case remains in the model test.
 
+** Buffer commands and minibuffer
+
+=C-x b= switches by name, =C-x C-b= lists buffers with current/modified
+markers and filenames, and =C-x k= kills a chosen buffer. The shared
+minibuffer filters choices, completes with Tab, selects with arrows, and
+accepts Enter or cancels with =C-g=/Escape. Dirty-buffer deletion requires
+the full =yes= confirmation; cancelling preserves the edits. Killing affects
+every view of the buffer, without closing panes or writing/deleting files;
+the last buffer is replaced by an empty scratch buffer.
+
+Per-pane history restores points/scrolling when switching. It is copied on
+split, adjusted for shared edits, and pruned before a killed slot is reused.
+Same-basename files have full-path choice names. The input bridge now queues
+character callbacks alongside key callbacks to preserve order across prompt
+transitions, even when a command, text and Enter arrive in the same frame.
+
+[[file:../test/buffers.til][Model tests]] cover identity, hidden points, split histories, completion,
+missing matches, confirmation, shared kills, scratch replacement and reuse.
+[[file:../test/buffer_input.til][GUI tests]] load two same-basename files through the existing =mode gui=
+dialog, switch/edit/save in split panes, exercise cancellations and dirty
+kills, then check exact file contents and last-buffer replacement. Both
+normal and remapped-Control runs passed, as did the existing layout,
+remapped-split, fast-quit and nine held-key checks.
+
+#+begin_src sh
+til run -o tmp/check_buffers -c tmp/check_buffers.c test/buffers.til
+til build -o tmp/check_buffer_input -c tmp/check_buffer_input.c test/buffer_input.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_buffer_input
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_buffer_input remapped
+#+end_src
+
+The GUI test additionally needs =zenity= (GTK's file chooser) and =pkill=.
+=screenshot= captures =tmp/buffer-list.png= using ImageMagick; failed checks
+attempt a screenshot at =tmp/buffer-input-failure.png= and include the app
+log and X window tree. Run =remapped= only on the isolated test X server.
+
+The test exposed an existing installed-Til dialog issue: in generated C,
+=open_file_dialog= calls =tinyfd_openFileDialog= again when extracting the
+result of its =switch=. Selecting a file therefore opens a second chooser
+with Til =0.0.1-2827886a4=. The test answers repeated choosers; Tiled still
+uses the =mode gui= helper.
+
 ** Keyboard repeat
 
 Navigation and editing keys now handle both initial presses and the
-desktop's repeat events. Character insertion continues using raylib's
-text-input queue, which already includes repeated letters.
+desktop's repeat events. Character insertion uses GLFW's text callbacks,
+which already include repeated letters, through the ordered input bridge.
 
 [[file:../test/repeat.til][test/repeat.til]] holds actual X11 keys, saves the edited files, and checks
 their contents. It reproduced the Down-key failure before the change.
@@ -83,10 +125,11 @@ The old input loop paired queued =GetKeyPressed()= events with physical
 =IsKeyDown()= modifier state sampled later in the frame. That ignored
 =xmodmap= and missed quick chords when Control had already been released.
 
-The [[file:../src/editor_input.c][input bridge]] now chains raylib's GLFW callback and queues each key
-press with its OS-mapped modifiers. Prefixes and save/open shortcuts consume
-those event-time flags. The bridge preserves raylib's existing callback for
-text, held-key repeat and window handling. C glue is needed because Til
+The [[file:../src/editor_input.c][input bridge]] chains raylib's GLFW key and character callbacks and
+queues each key press/repeat with its OS-mapped modifiers, alongside text
+events. Prefixes and save/open shortcuts consume those event-time flags.
+The bridge preserves raylib's callbacks for its own state and window handling.
+C glue is needed because Til
 function values use a closure ABI rather than GLFW's plain C callback ABI.
 
 The reproducer is [[file:../test/quit.til][test/quit.til]], written in Til. It needs Linux/X11,
@@ -113,7 +156,7 @@ terminate their test application; its output goes to =tmp/quit-app.log=.
   current compiler, despite escaping the generated string literal.
 - Keybindings are hard-coded. The [[file:keybindings.org][command registry and M-x completion]]
   are planned; no command prompt or prefix suggestion menu is implemented.
-- Multiple OS frames (=C-x 5=), buffer selection by name (=C-x b=), and
+- Multiple OS frames (=C-x 5=) and
   [[file:architecture.org][desktop hosts]] remain future work.
 - Tilminal launches a new =sh -lc= for each command. =cd= therefore does not
   persist between commands. A persistent shell/PTY is future work.

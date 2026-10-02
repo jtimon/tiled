@@ -2,6 +2,7 @@ mode lib
 
 // Buffers own text. Leaf nodes own views; branch nodes own layout decisions.
 EditorBuffer := struct {
+    alive := true
     filename := ""
     text := ""
     dirty := false
@@ -28,7 +29,23 @@ EditorNode := struct {
     second : I32 = -1
     side_by_side := false
     view := EditorView()
+    history := Vec(EditorView).new()
     rect := EditorRect()
+}
+
+editor_buffer_name := func(buffer: EditorBuffer) returns Str {
+    if buffer.filename.len() == 0 { return "*scratch*" }
+    start := (buffer.filename.rfind("/") + 1).to_usize()
+    return buffer.filename.substr(start, buffer.filename.len() - start).clone()
+}
+
+editor_adjust_point := func(mut view: EditorView, start: USize, count: USize, added: USize) {
+    end := start + count
+    if view.cursor > end || (count > 0 && view.cursor == end) {
+        view.cursor = view.cursor - count + added
+    } else if view.cursor > start {
+        view.cursor = start
+    }
 }
 
 text_line_start := func(text: Str, cursor: USize) returns USize {
@@ -121,8 +138,9 @@ namespace:
         }
         // Copy before pushes, which may reallocate the node vector.
         view := self.nodes[index].view.clone()
-        first := self.add_node(EditorNode(parent = index.to_i32(), view = view.clone()))
-        second := self.add_node(EditorNode(parent = index.to_i32(), view = view.clone()))
+        history := self.nodes[index].history.clone()
+        first := self.add_node(EditorNode(parent = index.to_i32(), view = view.clone(), history = history.clone()))
+        second := self.add_node(EditorNode(parent = index.to_i32(), view = view.clone(), history = history.clone()))
         ref mut branch : EditorNode = self.nodes[index]
         branch.first = first.to_i32()
         branch.second = second.to_i32()
@@ -196,23 +214,108 @@ namespace:
 
     only_view := func(mut self: EditorState) {
         view := self.nodes[self.focused].view.clone()
+        history := self.nodes[self.focused].history.clone()
         mut nodes := Vec(EditorNode).new()
-        nodes.push(own EditorNode(view = view))
+        nodes.push(own EditorNode(view = view, history = history))
         self.nodes = nodes
         self.focused = 0
+    }
+
+    live_buffers := func(self: EditorState) returns Vec(USize) {
+        mut out := Vec(USize).new()
+        for id in 0..self.buffers.len() {
+            if self.buffers[id].alive { out.push(own id) }
+        }
+        return out
+    }
+
+    // Same-basename files use their full paths in the chooser. Scratch keeps
+    // its reserved display name even alongside a file named "*scratch*".
+    buffer_name := func(self: EditorState, id: USize) returns Str {
+        ref buffer : EditorBuffer = self.buffers[id]
+        name := editor_buffer_name(buffer)
+        if buffer.filename.len() == 0 { return name }
+        for other : USize in self.live_buffers() {
+            if other != id && editor_buffer_name(self.buffers[other]) == name {
+                return buffer.filename.clone()
+            }
+        }
+        return name
+    }
+
+    add_buffer := func(mut self: EditorState, filename: Str, text: Str) returns USize {
+        buffer := EditorBuffer(filename = filename.clone(), text = text.clone())
+        for id in 0..self.buffers.len() {
+            if !self.buffers[id].alive {
+                self.buffers.set(id, own buffer.clone())!
+                return id
+            }
+        }
+        id := self.buffers.len()
+        self.buffers.push(own buffer)
+        return id
+    }
+
+    select_buffer := func(mut self: EditorState, index: USize, id: USize) {
+        assert(self.buffers[id].alive)
+        ref mut node : EditorNode = self.nodes[index]
+        if node.view.buffer == id { return }
+        mut view := EditorView(buffer = id)
+        mut history := Vec(EditorView).new()
+        for saved : EditorView in node.history {
+            if saved.buffer == id { view = saved.clone() }
+            else { history.push(own saved.clone()) }
+        }
+        history.push(own node.view.clone())
+        node.history = history
+        node.view = view
+    }
+
+    switch_buffer := func(mut self: EditorState, id: USize) {
+        self.select_buffer(self.focused, id)
+    }
+
+    other_buffer := func(self: EditorState, index: USize) returns USize {
+        ref node : EditorNode = self.nodes[index]
+        if node.history.len() > 0 { return node.history[node.history.len() - 1].buffer }
+        for id : USize in self.live_buffers() {
+            if id != node.view.buffer { return id.clone() }
+        }
+        return node.view.buffer
     }
 
     show_buffer := func(mut self: EditorState, filename: Str, text: Str) {
         mut id : USize = 0
         while id < self.buffers.len() {
-            if filename.len() > 0 && self.buffers[id].filename == filename { break }
+            if self.buffers[id].alive && self.buffers[id].filename == filename { break }
             id++
         }
         if id == self.buffers.len() {
-            self.buffers.push(own EditorBuffer(filename = filename.clone(), text = text.clone()))
+            id = self.add_buffer(filename, text)
         }
-        ref mut node : EditorNode = self.nodes[self.focused]
-        node.view = EditorView(buffer = id)
+        self.switch_buffer(id)
+    }
+
+    // Killing a buffer never closes a view or writes its file. Every affected
+    // view selects another live buffer; an empty scratch replaces the last one.
+    kill_buffer := func(mut self: EditorState, id: USize, discard: Bool = false) returns Bool {
+        assert(self.buffers[id].alive)
+        if self.buffers[id].dirty && !discard { return false }
+        if self.live_buffers().len() == 1 { self.add_buffer("", "") }
+        for index : USize in self.views() {
+            if self.nodes[index].view.buffer == id {
+                replacement := self.other_buffer(index)
+                self.select_buffer(index, replacement)
+            }
+            mut history := Vec(EditorView).new()
+            for saved : EditorView in self.nodes[index].history {
+                if saved.buffer != id { history.push(own saved.clone()) }
+            }
+            ref mut node : EditorNode = self.nodes[index]
+            node.history = history
+        }
+        self.buffers.set(id, own EditorBuffer(alive = false))!
+        return true
     }
 
     move_cursor := func(mut self: EditorState, key: I32) {
@@ -253,11 +356,15 @@ namespace:
         mut i : USize = 0
         while i < self.nodes.len() {
             ref mut node : EditorNode = self.nodes[i]
-            if node.alive && node.first < 0 && node.view.buffer == id {
-                if node.view.cursor > end || (count > 0 && node.view.cursor == end) {
-                    node.view.cursor = node.view.cursor - count + inserted.len()
-                } else if node.view.cursor > start {
-                    node.view.cursor = start
+            if node.alive && node.first < 0 {
+                if node.view.buffer == id {
+                    editor_adjust_point(node.view, start, count, inserted.len())
+                }
+                for saved_index in 0..node.history.len() {
+                    ref mut saved : EditorView = node.history[saved_index]
+                    if saved.buffer == id {
+                        editor_adjust_point(saved, start, count, inserted.len())
+                    }
                 }
             }
             i++

@@ -1,0 +1,153 @@
+mode cli
+
+import("../src/editor_buffers")
+
+main := proc() {
+    mut editor := EditorState.new("/one/notes", "abcdef")
+    editor.move_cursor(262)
+    editor.move_cursor(262)
+    ref mut original : EditorNode = editor.nodes[0]
+    original.view.scroll_y = 3
+    original.view.scroll_x = 7
+    editor.show_buffer("/two/notes", "second")
+    assert(editor.live_buffers().len() == 2)
+    assert(editor.buffer_name(0) == "/one/notes")
+    assert(editor.buffer_name(1) == "/two/notes")
+    editor.move_cursor(262)
+    editor.switch_buffer(0)
+    assert(editor.nodes[0].view.cursor == 2)
+    assert(editor.nodes[0].view.scroll_y == 3)
+    assert(editor.nodes[0].view.scroll_x == 7)
+    assert(editor.other_buffer(0) == 1)
+    editor.switch_buffer(1)
+    assert(editor.nodes[0].view.cursor == 1)
+    editor.show_buffer("/one/notes", "must not replace the loaded text")
+    assert(editor.nodes[0].view.cursor == 2)
+    assert(editor.buffers[0].text == "abcdef")
+
+    // A pane's hidden points still track edits made in another pane.
+    editor.arrange(0, EditorRect(width = 1000, height = 800))
+    assert(editor.split(true, 200, 80))
+    left := editor.focused
+    editor.switch_buffer(1)
+    editor.next_view()
+    right := editor.focused
+    editor.move_cursor(268)
+    editor.insert("XX")
+    editor.next_view()
+    assert(editor.focused == left)
+    editor.switch_buffer(0)
+    assert(editor.nodes[left].view.cursor == 4)
+    assert(editor.nodes[right].view.cursor == 2)
+    editor.switch_buffer(1)
+    editor.only_view()
+    editor.switch_buffer(0)
+    assert(editor.nodes[0].view.cursor == 4)
+
+    // Choice names distinguish equal basenames and expose unsaved/file state.
+    choices := editor_buffer_choices(editor, 1)
+    assert(choices[0].id == 1)
+    assert(choices[1].marker.contains("*"))
+    assert(choices[1].detail == "/one/notes")
+    mut prompt := EditorBufferPrompt()
+    prompt.begin(editor, BufferPromptKind.Switch)
+    assert(prompt.mini.choices[prompt.mini.choice().to_usize()].id == 1)
+    prompt.mini.insert("two")
+    prompt.mini.key(258, false)
+    assert(prompt.mini.input == "/two/notes")
+    prompt.accept(editor)
+    assert(editor.nodes[0].view.buffer == 1)
+    assert(!prompt.mini.active)
+
+    prompt.begin(editor, BufferPromptKind.List)
+    prompt.mini.insert("missing")
+    prompt.accept(editor)
+    assert(prompt.mini.active && prompt.mini.hint == "No matching buffer")
+    assert(editor.nodes[0].view.buffer == 1)
+    prompt.cancel()
+    assert(!prompt.mini.active)
+
+    // Kill a dirty hidden buffer only after an explicit full "yes".
+    prompt.begin(editor, BufferPromptKind.Kill)
+    prompt.mini.insert("one")
+    prompt.accept(editor)
+    assert(prompt.kind.is(BufferPromptKind.ConfirmKill))
+    assert(editor.buffers[0].alive)
+    prompt.accept(editor)
+    assert(prompt.mini.active && editor.buffers[0].alive)
+    prompt.mini.insert("y")
+    prompt.accept(editor)
+    assert(editor.buffers[0].alive)
+    prompt.cancel()
+    assert(editor.buffers[0].text == "XXabcdef")
+    prompt.begin(editor, BufferPromptKind.Kill)
+    prompt.mini.insert("one")
+    prompt.accept(editor)
+    prompt.mini.insert("no")
+    prompt.accept(editor)
+    assert(!prompt.mini.active && editor.buffers[0].alive)
+    prompt.begin(editor, BufferPromptKind.Kill)
+    prompt.mini.insert("one")
+    prompt.accept(editor)
+    prompt.mini.insert("yes")
+    prompt.accept(editor)
+    assert(!editor.buffers[0].alive && editor.buffers[0].text.len() == 0)
+    assert(editor.nodes[0].view.buffer == 1)
+    assert(editor.nodes[0].history.len() == 0)
+    assert(editor.buffer_name(1) == "notes")
+
+    // Reusing a killed slot must not resurrect its old point or scroll state.
+    editor.show_buffer("/three/new", "new")
+    assert(editor.nodes[0].view.buffer == 0)
+    assert(editor.nodes[0].view.cursor == 0)
+    assert(editor.nodes[0].view.scroll_x == 0)
+    editor.arrange(0, EditorRect(width = 1000, height = 800))
+    assert(editor.split(false, 200, 80))
+    editor.insert("dirty")
+    assert(!editor.kill_buffer(0))
+    assert(editor.live_buffers().len() == 2)
+    assert(editor.kill_buffer(0, true))
+    for index : USize in editor.views() {
+        assert(editor.nodes[index].view.buffer == 1)
+        assert(editor.nodes[index].history.len() == 0)
+    }
+    assert(editor.kill_buffer(1))
+    assert(editor.live_buffers().len() == 1)
+    for index : USize in editor.views() {
+        id := editor.nodes[index].view.buffer
+        assert(editor.buffers[id].alive)
+        assert(editor.buffers[id].filename.len() == 0)
+        assert(editor.buffers[id].text.len() == 0 && !editor.buffers[id].dirty)
+        assert(editor.nodes[index].view.cursor == 0)
+    }
+    // Last-scratch replacement and repeated kills keep storage bounded.
+    for _ in 0..20 {
+        id := editor.nodes[editor.focused].view.buffer
+        assert(editor.kill_buffer(id))
+    }
+    assert(editor.buffers.len() == 2)
+
+    // Reusable minibuffer editing, selection, completion and exact-name choice.
+    mut mini := Minibuffer()
+    mut items := Vec(MinibufferChoice).new()
+    items.push(own MinibufferChoice(id = 10, name = "alphabet"))
+    items.push(own MinibufferChoice(id = 11, name = "alpha"))
+    mini.begin("Choose: ", items)
+    mini.key(265, false)
+    assert(mini.choice() == 1)
+    mini.key(264, false)
+    assert(mini.choice() == 0)
+    mini.insert("alpha")
+    assert(mini.choice() == 1)
+    mini.key(268, false)
+    mini.key(261, false)
+    assert(mini.input == "lpha")
+    mini.insert("a")
+    mini.key(269, false)
+    mini.key(259, false)
+    assert(mini.input == "alph")
+    mini.key(258, true)
+    mini.key(258, false)
+    assert(mini.input == "alpha")
+    println("PASS: buffer identity, per-pane history, shared kills, confirmation and minibuffer completion")
+}

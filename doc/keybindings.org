@@ -68,7 +68,9 @@ side by side, and a horizontal divider places it above and below.
 view without discarding its buffer.
 
 The editor already implements hard-coded [[file:configuration.org][bindings]] for splitting, focus,
-closing views and open/save. See [[file:architecture.org][the buffer/window/frame model]] for =C-x 2= and =C-x 3=
+closing views, open/save, buffer switching/listing and buffer killing. Its
+minibuffer supplies filtering/completion and =C-g= cancellation for buffer
+commands. See [[file:architecture.org][the buffer/window/frame model]] for =C-x 2= and =C-x 3=
 behavior, and [[file:progress.org][progress]] for mapped-modifier and fast-prefix checks.
 The configurable command/keymap API above remains a proposal.
 

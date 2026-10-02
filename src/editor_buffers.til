@@ -1,0 +1,88 @@
+mode lib
+
+import("editor_model")
+import("minibuffer")
+
+BufferPromptKind := enum { None, Switch, List, Kill, ConfirmKill }
+
+editor_buffer_choices := func(editor: EditorState, preferred: USize) returns Vec(MinibufferChoice) {
+    mut ids := Vec(USize).new()
+    ids.push(own preferred)
+    for id : USize in editor.live_buffers() {
+        if id != preferred { ids.push(own id.clone()) }
+    }
+    mut choices := Vec(MinibufferChoice).new()
+    current := editor.nodes[editor.focused].view.buffer
+    for id : USize in ids {
+        ref buffer : EditorBuffer = editor.buffers[id]
+        mut flags := "  "
+        if id == current { flags = "> " }
+        if buffer.dirty { flags = format(flags, "* ") }
+        else { flags = format(flags, "  ") }
+        mut filename := buffer.filename.clone()
+        if filename.len() == 0 { filename = "[no file]" }
+        choices.push(own MinibufferChoice(id = id, name = editor.buffer_name(id),
+            marker = flags, detail = filename))
+    }
+    return choices
+}
+
+EditorBufferPrompt := struct {
+    mini := Minibuffer()
+    kind := BufferPromptKind.None
+    target : USize = 0
+
+namespace:
+    begin := func(mut self: EditorBufferPrompt, editor: EditorState, kind: BufferPromptKind) {
+        self.kind = kind
+        mut preferred := editor.nodes[editor.focused].view.buffer
+        mut label := "Switch buffer: "
+        if kind.is(BufferPromptKind.Switch) { preferred = editor.other_buffer(editor.focused) }
+        if kind.is(BufferPromptKind.List) { label = "Buffers: " }
+        if kind.is(BufferPromptKind.Kill) { label = "Kill buffer: " }
+        self.mini.begin(label, editor_buffer_choices(editor, preferred))
+    }
+
+    cancel := func(mut self: EditorBufferPrompt) {
+        self.mini.active = false
+        self.kind = BufferPromptKind.None
+    }
+
+    accept := func(mut self: EditorBufferPrompt, mut editor: EditorState) returns Str {
+        if self.kind.is(BufferPromptKind.ConfirmKill) {
+            if self.mini.input == "no" {
+                self.cancel()
+                return "Cancelled"
+            }
+            if self.mini.input != "yes" {
+                self.mini.hint = "Type yes to discard, no or C-g to cancel"
+                return ""
+            }
+            name := editor.buffer_name(self.target)
+            assert(editor.kill_buffer(self.target, true))
+            self.cancel()
+            return format("Killed ", name)
+        }
+        selected := self.mini.choice()
+        if selected < 0 {
+            self.mini.hint = "No matching buffer"
+            return ""
+        }
+        id := self.mini.choices[selected.to_usize()].id
+        name := editor.buffer_name(id)
+        if self.kind.is(BufferPromptKind.Kill) {
+            if !editor.kill_buffer(id) {
+                self.target = id
+                self.kind = BufferPromptKind.ConfirmKill
+                self.mini.begin(format("Discard unsaved edits in ", name, "? (yes/no): "),
+                    Vec(MinibufferChoice).new())
+                return ""
+            }
+            self.cancel()
+            return format("Killed ", name)
+        }
+        editor.switch_buffer(id)
+        self.cancel()
+        return format("Buffer: ", name)
+    }
+}

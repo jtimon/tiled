@@ -51,8 +51,10 @@ See [[file:configuration.org][startup and configuration]] for init-file loading 
 - [[file:../src/editor.til][src/editor.til]]: GUI text editing, file open/save, cursor movement and
   line numbers. It is imported by [[file:../src/tiled.til][src/tiled.til]]; run =bin/tiled= to use it.
 - [[file:../src/editor_model.til][src/editor_model.til]]: buffers, independent views and the split-layout tree.
+- [[file:../src/minibuffer.til][src/minibuffer.til]]: reusable prompt text, filtering, selection and completion.
+- [[file:../src/editor_buffers.til][src/editor_buffers.til]]: buffer choices, switching/listing and kill confirmation.
 - [[file:../src/editor_input.til][src/editor_input.til]] and [[file:../src/editor_input.c][src/editor_input.c]]: a small GLFW callback bridge
-  preserving mapped, event-time modifiers. It links against Til's installed
+  preserving key/text order and mapped, event-time modifiers. It links against Til's installed
   desktop raylib/GLFW backend; no Til checkout or GLFW headers are required.
 - [[file:../examples/tilminal.til][tilminal.til]]: basic GUI shell-command runner with captured output, plus
   =help= and =clear=. Commands run synchronously through =sh -lc=; it does

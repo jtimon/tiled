@@ -43,9 +43,21 @@ clicking a pane also focuses it. Each pane clips its own text and has a
 mode line, with the focused pane highlighted. Layouts adapt to resizing.
 
 Opening a file changes only the focused view's buffer. Opening an already
-loaded file reuses its buffer, including unsaved edits. Buffer selection by
-name (=C-x b=) is future work. =C-x 5= is deferred until Tiled supports
-multiple OS-level frames.
+loaded file reuses its buffer, including unsaved edits. =C-x b= switches
+buffers by name and =C-x C-b= lists them. Views remember cursor/scroll state
+for previously displayed buffers. Shared edits adjust remembered points too.
+Splits copy that history; focus and switching then evolve independently.
+
+=C-x k= kills a buffer after confirmation if it is modified. All live views
+and their histories stop referring to it before its storage can be reused.
+Affected views select another buffer, with a fresh scratch buffer when the
+last one is killed. Stable buffer slots keep other buffers' identities intact.
+=C-x 5= is deferred until Tiled supports multiple OS-level frames.
+
+[[file:../src/minibuffer.til][The minibuffer model]] handles prompt text, filtering, selection and completion.
+[[file:../src/editor_buffers.til][Buffer commands]] supply candidates and interpret acceptance/confirmation.
+The GUI draws the prompt and dispatches an ordered stream of key and text
+events, so a prompt's opening key cannot become its first input character.
 
 Desktop placement and editor splitting can eventually share layout
 operations without treating external windows as buffers.

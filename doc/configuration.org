@@ -48,6 +48,44 @@ their buffers. See [[file:architecture.org][the layout model]] for details.
 Very small views refuse further splits. =C-x 5= and additional OS windows
 are deferred.
 
+** Buffers and the minibuffer
+
+| Binding | Action                                      |
+|---------+---------------------------------------------|
+| C-x b   | Switch the focused pane to a loaded buffer   |
+| C-x C-b | List loaded buffers and select one           |
+| C-x k   | Kill a buffer, defaulting to the current one |
+
+These commands open a minibuffer at the bottom of the window. Type any part
+of a buffer name or filename to filter the choices (case-sensitive). Up/Down
+select a match, Tab completes its name, and Enter accepts the highlighted
+choice. Shift+Tab selects the previous match. Left/Right, Home/End,
+Backspace and Delete edit the prompt. =C-g= or Escape cancels it without
+changing the document. Mouse clicks do not change the target pane while a
+prompt is active.
+
+An empty =C-x b= followed by Enter selects that pane's previous buffer, or
+another loaded buffer if it has no history. Switching restores the pane's
+own cursor and scroll position for that buffer. Split panes inherit the
+existing history, then maintain independent positions; hidden positions
+also track shared edits made in another pane.
+
+The buffer list shows =>= for the current buffer, =*= for unsaved edits,
+and the filename (=[no file]= for scratch). Files sharing a basename are
+identified by their full paths. Long names/paths are displayed with a
+leading ellipsis, preserving their ends; completion inserts the full name
+in the minibuffer. A query with no matches stays open with an explanation;
+it does not create a new buffer. Open files with =C-x C-f= or =Ctrl+O=,
+which use Til's =mode gui= file dialog.
+
+=C-x k= asks which buffer to kill. A modified buffer requires typing =yes=
+and Enter to discard its edits; =no=, =C-g= or Escape cancels. Empty input
+and a single =y= do not confirm. Killing never writes or deletes the file.
+If the buffer is displayed in several panes, each switches to another live
+buffer while keeping the layout. Killing the last buffer creates an empty
+=*scratch*= buffer. This is distinct from =C-x 0=, which closes just a view
+and keeps its buffer.
+
 ** Init file
 
 [[file:../defaults/init.til][defaults/init.til]] is the working configuration to copy when ready.
