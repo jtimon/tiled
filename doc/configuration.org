@@ -10,9 +10,15 @@
 No ~/.tiled/init.til file found; using defaults.
 #+end_example
 
-It then opens an empty =*scratch*= buffer in an 800x600 window. Scratch has
-no filename; =Ctrl+S= opens the save dialog. =Ctrl+O= opens an existing file.
+It then opens an empty =*scratch*= buffer in the left half of the current
+monitor, using its full height. Scratch has no filename; =Ctrl+S= opens the
+save dialog. =Ctrl+O= opens an existing file.
 A filename passed on the command line opens that file instead of scratch.
+
+Holding an arrow key, Backspace, Delete or Enter repeats the action using
+the desktop's keyboard repeat delay and rate. Held letters repeat through
+the normal text-input stream. Home and End also accept repeat events;
+command shortcuts such as save and open respond only to the initial press.
 
 =C-x C-c= is the intended exit binding: press Ctrl+X, then Ctrl+C. Its
 current implementation has a [[file:progress.org][known quick-chord input bug]]; the window's
@@ -21,24 +27,59 @@ continuation is consumed and cancels the prefix.
 
 ** Init file
 
-[[file:../init.til][init.til]] at the repository root is the working example to copy when ready.
+[[file:../defaults/init.til][defaults/init.til]] is the working configuration to copy when ready.
 From the repository root:
 
 #+begin_src sh
 mkdir -p ~/.tiled
-cp init.til ~/.tiled/init.til
+cp defaults/init.til ~/.tiled/init.til
 #+end_src
 
 It defines =init(mut config: TiledConfig)=, which runs before the editor
-opens. The supported fields are =width=, =height=, =scratch_text= and
-=initial_file=. A command-line filename takes precedence over
-=initial_file=. If neither specifies a file, Tiled opens scratch.
+opens. The supported fields are =width=, =height=, =maximized=, =tile_left=, =scratch_text=,
+=initial_file=, =font_path= and =font_size=. A command-line filename takes
+precedence over =initial_file=. If neither specifies a file, Tiled opens scratch.
 Errors in an existing init file are reported and stop startup rather than
 silently loading defaults. =-v= and =--version= bypass configuration and GUI
 startup.
 
-The separate [[file:../examples/init.til][examples/init.til]] is a [[file:keybindings.org][future keybinding API sketch]], not
+The separate [[file:keybindings.til][keybindings.til]] is a [[file:keybindings.org][future keybinding API sketch]], not
 the working startup configuration.
+
+** Window size
+
+=tile_left= defaults to =true= and =maximized= to =false=. Tiled initially
+sizes itself to half the current monitor's width and its full height, then
+positions itself at that monitor's left edge. This places Tiled's own OS
+window; it does not split the editor into multiple internal views.
+
+=maximized= takes precedence when enabled. With both options set to =false=,
+=width= and =height= specify the initial window size: the built-in fallback
+is 800x600, while =defaults/init.til= uses 1000x700. The window remains
+resizable and movable by the surrounding desktop.
+
+** Font
+
+By default, Tiled uses the system's =monospace= font, resolved with
+=fc-match= from fontconfig, with =font_size= set to =28= pixels. On the initial
+development machine this selects DejaVu Sans Mono. Set =font_path= to a
+TrueType/OpenType font file to use a specific font without fontconfig:
+
+#+begin_src til
+config.font_size = 32
+config.font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+#+end_src
+
+Font size must be positive. Text, cursor placement, line numbers and the
+status bar use the loaded font's measurements. The font is rasterized at
+the requested size rather than scaling raylib's default bitmap font.
+
+Change =config.font_size= in =~/.tiled/init.til= and restart Tiled to apply
+it. Both the built-in fallback and [[file:../defaults/init.til][defaults/init.til]] use 28 px, so the
+larger font also applies before you create a user configuration.
+
+For reference, [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Fonts.html][Emacs defaults to a 10-point monospace font]] on graphical
+displays. Tiled's current size setting is in pixels, not points.
 
 ** Automatic backups (planned default)
 

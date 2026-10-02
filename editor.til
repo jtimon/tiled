@@ -1,21 +1,51 @@
 mode lib
 
-import("../src/std/file")
+import("../src/std/sys")
 
 TiledConfig := struct {
     width : I32 = 800
     height : I32 = 600
+    maximized := false
+    tile_left := true
     initial_file := ""
     scratch_text := ""
+    font_path := ""
+    font_size : I32 = 28
+}
+
+editor_font_path := proc(config: TiledConfig) returns Str {
+    if config.font_path.len() > 0 { return config.font_path.clone() }
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace")
+    query.capture_out()
+    if query.run() != 0 {
+        panic("could not resolve the monospace font; install fontconfig or set config.font_path")
+    }
+    path := query.out()
+    if path.len() == 0 { panic("fontconfig found no monospace font") }
+    return path
+}
+
+editor_text_width := func(font: Font, text: Str, size: I32) returns I32 {
+    return MeasureTextEx(font, text.c_str, size.to_f32(), 0).x.to_i64().to_i32()
+}
+
+editor_draw_text := proc(font: Font, text: Str, x: I32, y: I32, size: I32, color: Color) {
+    DrawTextEx(font, text.c_str, Vector2(x = x.to_f32(), y = y.to_f32()),
+               size.to_f32(), 0, color)
+}
+
+// Use the desktop's repeat delay/rate for navigation and editing keys.
+// Text entry uses GetCharPressed(), which already receives repeated characters.
+editor_key_pressed := proc(key: I32) returns Bool {
+    return IsKeyPressed(key) || IsKeyPressedRepeat(key)
 }
 
 start_editor := proc(config: TiledConfig, args: ..Str) {
-    font_size : I32 = 16
-    char_w : I32 = 9
-    line_h : I32 = 18
-    left_margin : I32 = 50
-    top_margin : I32 = 4
-    status_h : I32 = 24
+    font_size := config.font_size
+    if font_size <= 0 { panic("config.font_size must be positive") }
+    font_path := editor_font_path(config)
+    if !File.is_file(font_path) { panic("font file not found: ", font_path) }
+    top_margin : I32 = 8
 
     // Parse filename from args
     mut filename := config.initial_file.clone()
@@ -57,7 +87,22 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE.cast(U32))
     InitWindow(config.width, config.height, "Tiled".c_str)
-    SetWindowMinSize(400, 200)
+    font := LoadFontEx(font_path.c_str, font_size, Option(ref I32).None, 0)
+    if !IsFontValid(font) || font.texture.id == GetFontDefault().texture.id {
+        panic("could not load font: ", font_path)
+    }
+    SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR)
+    line_h := MeasureTextEx(font, "Mg".c_str, font_size.to_f32(), 0).y.to_i64().to_i32() + 6
+    status_h := line_h * 2 + 8
+    SetWindowMinSize(400, status_h + top_margin + line_h)
+    if config.maximized {
+        MaximizeWindow()
+    } else if config.tile_left {
+        monitor := GetCurrentMonitor()
+        origin := GetMonitorPosition(monitor)
+        SetWindowSize(GetMonitorWidth(monitor) / 2, GetMonitorHeight(monitor))
+        SetWindowPosition(origin.x.to_i64().to_i32(), origin.y.to_i64().to_i32())
+    }
     SetTargetFPS(60)
 
     while !WindowShouldClose() {
@@ -138,19 +183,17 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         }
 
         // Arrow keys
-        if !prefix_input && (IsKeyPressed(265) || (IsKeyDown(265) && IsKeyDown(265))) {
+        if !prefix_input && editor_key_pressed(265) {
             // Up
-            if IsKeyPressed(265) {
-                if cursor_y > 0 {
-                    cursor_y = cursor_y - 1
-                    ref line : Str = lines[cursor_y.to_usize()]
-                    if cursor_x > line.len().to_i32() {
-                        cursor_x = line.len().to_i32()
-                    }
+            if cursor_y > 0 {
+                cursor_y = cursor_y - 1
+                ref line : Str = lines[cursor_y.to_usize()]
+                if cursor_x > line.len().to_i32() {
+                    cursor_x = line.len().to_i32()
                 }
             }
         }
-        if !prefix_input && IsKeyPressed(264) {
+        if !prefix_input && editor_key_pressed(264) {
             // Down
             if cursor_y < lines.len().to_i32() - 1 {
                 cursor_y = cursor_y + 1
@@ -160,7 +203,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                 }
             }
         }
-        if !prefix_input && IsKeyPressed(263) {
+        if !prefix_input && editor_key_pressed(263) {
             // Left
             if cursor_x > 0 {
                 cursor_x = cursor_x - 1
@@ -172,7 +215,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                 }
             }
         }
-        if !prefix_input && IsKeyPressed(262) {
+        if !prefix_input && editor_key_pressed(262) {
             // Right
             ref cur_line : Str = lines[cursor_y.to_usize()]
             if cursor_x < cur_line.len().to_i32() {
@@ -186,17 +229,17 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         }
 
         // Home
-        if !prefix_input && IsKeyPressed(268) {
+        if !prefix_input && editor_key_pressed(268) {
             cursor_x = 0
         }
         // End
-        if !prefix_input && IsKeyPressed(269) {
+        if !prefix_input && editor_key_pressed(269) {
             ref line : Str = lines[cursor_y.to_usize()]
             cursor_x = line.len().to_i32()
         }
 
         // Enter
-        if !prefix_input && IsKeyPressed(257) {
+        if !prefix_input && editor_key_pressed(257) {
             if !ctrl {
                 ref cur_line : Str = lines[cursor_y.to_usize()]
                 // Split line at cursor
@@ -224,7 +267,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         }
 
         // Backspace
-        if !prefix_input && IsKeyPressed(259) {
+        if !prefix_input && editor_key_pressed(259) {
             if cursor_x > 0 {
                 ref cur_line : Str = lines[cursor_y.to_usize()]
                 new_line := format(cur_line.substr(0, cursor_x.to_usize() - 1), cur_line.substr(cursor_x.to_usize(), cur_line.len() - cursor_x.to_usize()))
@@ -272,7 +315,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         }
 
         // Delete key
-        if !prefix_input && IsKeyPressed(261) {
+        if !prefix_input && editor_key_pressed(261) {
             ref cur_line : Str = lines[cursor_y.to_usize()]
             if cursor_x < cur_line.len().to_i32() {
                 cursor_x_u := cursor_x.to_usize()
@@ -346,6 +389,8 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         // Dynamic window dimensions
         w := GetScreenWidth()
         h := GetScreenHeight()
+        line_count_text := lines.len().to_str()
+        left_margin := editor_text_width(font, line_count_text, font_size) + 20
         visible_lines := (h - status_h - top_margin) / line_h
 
         // Scroll to keep cursor visible
@@ -367,19 +412,20 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             if line_idx < lines.len().to_i32() {
                 // Line number
                 lnum := (line_idx + 1).to_str()
-                DrawText(lnum.c_str, left_margin - lnum.len().to_i32() * char_w - 4,
-                         top_margin + row * line_h, font_size, Color(r = 80, g = 80, b = 100, a = 255))
+                editor_draw_text(font, lnum, left_margin - editor_text_width(font, lnum, font_size) - 10,
+                                 top_margin + row * line_h, font_size, Color(r = 110, g = 110, b = 130, a = 255))
 
                 // Line text
                 ref line : Str = lines[line_idx.to_usize()]
                 if line.len() > 0 {
-                    DrawText(line.c_str, left_margin, top_margin + row * line_h,
-                             font_size, Color(r = 200, g = 200, b = 200, a = 255))
+                    editor_draw_text(font, line, left_margin, top_margin + row * line_h,
+                                     font_size, Color(r = 220, g = 220, b = 220, a = 255))
                 }
 
                 // Cursor
                 if line_idx == cursor_y {
-                    cx := left_margin + cursor_x * char_w
+                    before_cursor := line.substr(0, cursor_x.to_usize()).clone()
+                    cx := left_margin + editor_text_width(font, before_cursor, font_size)
                     cy := top_margin + row * line_h
                     DrawRectangle(cx, cy, 2, line_h, Color(r = 255, g = 200, b = 0, a = 255))
                 }
@@ -398,22 +444,28 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         SetWindowTitle(window_title.c_str)
         mut title := disp_name
         if dirty { title = format(title, " *") }
-        DrawText(title.c_str, 8, sy + 4, font_size, Color(r = 220, g = 220, b = 220, a = 255))
 
-        // Cursor position
+        // Measure and reserve the right-hand column instead of overlapping it.
         pos_str := format("Ln ", (cursor_y + 1).to_str(), " Col ", (cursor_x + 1).to_str())
-        DrawText(pos_str.c_str, w - 140, sy + 4, font_size, Color(r = 180, g = 180, b = 180, a = 255))
+        pos_x := w - editor_text_width(font, pos_str, font_size) - 8
+        BeginScissorMode(8, sy, pos_x - 16, line_h + 4)
+        editor_draw_text(font, title, 8, sy + 4, font_size, Color(r = 220, g = 220, b = 220, a = 255))
+        EndScissorMode()
+        editor_draw_text(font, pos_str, pos_x, sy + 4, font_size, Color(r = 180, g = 180, b = 180, a = 255))
 
-        // Status message
+        // A separate row for messages/help keeps the filename and position clear.
+        BeginScissorMode(8, sy + line_h + 4, w - 16, line_h)
         if status_msg.len() > 0 {
-            DrawText(status_msg.c_str, w / 2 - 40, sy + 4, font_size, Color(r = 0, g = 255, b = 0, a = 255))
+            editor_draw_text(font, status_msg, 8, sy + line_h + 4, font_size, Color(r = 120, g = 220, b = 140, a = 255))
+        } else {
+            editor_draw_text(font, "C-o Open   C-s Save   C-x C-c Quit", 8, sy + line_h + 4,
+                             font_size, Color(r = 160, g = 160, b = 180, a = 255))
         }
-
-        // Help
-        DrawText("Ctrl+O=Open  Ctrl+S=Save  C-x C-c=Quit".c_str, w - 400, sy + 4, 14, Color(r = 120, g = 120, b = 140, a = 255))
+        EndScissorMode()
 
         EndDrawing()
     }
 
+    UnloadFont(font)
     CloseWindow()
 }

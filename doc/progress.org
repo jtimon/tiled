@@ -4,19 +4,42 @@
 
 ** Implemented and exercised
 
-- [[file:../make.til][make.til]] uses installed Til =0.0.1-2827886a4= to build Tiled, the
-  standalone editor and tilminal. All three compile successfully.
+- [[file:../make.til][make.til]] uses installed Til =0.0.1-2827886a4= to build Tiled and
+  tilminal. The editor is imported by Tiled, with no separate editor example
+  or build target.
 - [[file:../tiled.til][tiled.til]] provides a build-time =VERSION= and =-v=/=--version=.
 - Startup checks =~/.tiled/init.til=. A missing file prints the defaults
-  notice and opens =*scratch*=. A working example lives at [[file:../init.til][init.til]].
+  notice and opens =*scratch*=. A working config lives at [[file:../defaults/init.til][defaults/init.til]].
 - Startup checks exercised the copied example, configured window size and
   initial file, command-line file precedence, failing init code, and version
   output bypassing init. An init path containing spaces worked.
 - The shared [[file:../editor.til][editor]] opens a GUI window and supports basic editing and
   file dialogs. The editor and save dialog were manually exercised.
+- The editor now loads a system monospace font instead of raylib's default
+  bitmap font. [[file:configuration.org][Font path and size]] are configurable; text, cursor,
+  gutter and status-bar spacing use font measurements. Headless previews
+  checked the README at 20 px and 28 px. The default has since been increased
+  to 28 px, both in the built-in fallback and =defaults/init.til=.
 - The copied [[file:../examples/tilminal.til][tilminal draft]] opens and runs simple commands such as =ls=.
 - Tiled was rebuilt after relocating its checkout to
   =/home/jt/sync/data_common/tilcorp/tiled= and launched successfully there.
+
+** Keyboard repeat
+
+Navigation and editing keys now handle both initial presses and the
+desktop's repeat events. Character insertion continues using raylib's
+text-input queue, which already includes repeated letters.
+
+[[file:../test/repeat.til][test/repeat.til]] holds actual X11 keys, saves the edited files, and checks
+their contents. It reproduced the Down-key failure before the change.
+After rebuilding, checks passed for Down, Up, Right, Left, Backspace,
+Delete, letters and Enter. It uses the same X11 test dependencies listed
+below. Run from the repository root after building Tiled:
+
+#+begin_src sh
+til build -o tmp/check_repeat -c tmp/check_repeat.c test/repeat.til
+xvfb-run -a ./tmp/check_repeat
+#+end_src
 
 ** Open: unreliable quit sequence
 

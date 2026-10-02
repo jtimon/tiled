@@ -1,11 +1,18 @@
 mode lib
 
-// Example: copy this file to ~/.tiled/init.til.
+// Default user configuration: copy this file to ~/.tiled/init.til.
 // Tiled supplies TiledConfig and calls init(config) before opening its window.
 // The command-line filename takes precedence over config.initial_file.
 init := func(mut config: TiledConfig) {
+    config.maximized = false
+    config.tile_left = true
+    // Dimensions used when both maximized and tile_left are false.
     config.width = 1000
     config.height = 700
+    // Font size in pixels; increase or decrease this to suit your display.
+    config.font_size = 28
+    // Empty means the system monospace font, resolved through fontconfig.
+    // config.font_path = "/path/to/your/monospace.ttf"
     config.scratch_text = "Welcome to Tiled!\n\nCtrl+O: open a file\nCtrl+S: save this buffer\nC-x C-c: exit Tiled\n"
 
     // Optionally open a file instead of *scratch*:

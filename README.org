@@ -15,7 +15,7 @@ til interpret make.til
 #+end_src
 
 With no user config, Tiled opens =*scratch*= using defaults. The working
-example [[file:init.til][init.til]] can be copied to =~/.tiled/init.til= when ready.
+config [[file:defaults/init.til][defaults/init.til]] can be copied to =~/.tiled/init.til= when ready.
 
 ** Documentation
 

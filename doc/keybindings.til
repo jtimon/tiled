@@ -1,4 +1,4 @@
-// Example user configuration, intended for ~/.tiled/init.til.
+// Future keybinding design. See defaults/init.til for the working config.
 // Design sketch: the tiled module and its command/keymap API are proposed,
 // not implemented yet. Tiled loads this file and calls init().
 import("tiled")

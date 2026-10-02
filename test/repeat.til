@@ -1,0 +1,138 @@
+mode cli
+
+// Run under xvfb-run from the repository root. These are real held X11 keys;
+// saved file contents verify movement, deletion and repeated text insertion.
+import("../src/std/sys")
+link("X11")
+link(":libXtst.so.6")
+
+XOpenDisplay := ext_proc(name: I8) returns ref Dynamic {}
+XCloseDisplay := ext_proc(display: Dynamic) returns shallow I32 {}
+XSetInputFocus := ext_proc(display: Dynamic, shallow window: UPtr, shallow revert: I32, shallow time: UPtr) returns shallow I32 {}
+XKeysymToKeycode := ext_proc(display: Dynamic, shallow keysym: UPtr) returns shallow U8 {}
+XTestFakeKeyEvent := ext_proc(display: Dynamic, shallow key: U32, shallow pressed: I32, shallow delay: UPtr) returns shallow I32 {}
+XFlush := ext_proc(display: Dynamic) returns shallow I32 {}
+get_cwd_str := ext_proc() returns Str {}
+
+send_key := proc(display: Dynamic, keysym: UPtr, pressed: I32) {
+    code := XKeysymToKeycode(display, keysym)
+    XTestFakeKeyEvent(display, code.cast(U32), pressed, 0)
+    XFlush(display)
+}
+
+tap_key := proc(display: Dynamic, keysym: UPtr) {
+    send_key(display, keysym, 1)
+    sleep_ms(50)
+    send_key(display, keysym, 0)
+    sleep_ms(50)
+}
+
+find_window := proc() returns UPtr {
+    query := Cmd.new("xwininfo", "-root", "-tree", "-int")
+    query.capture_out()
+    if query.run() != 0 { panic("xwininfo failed") }
+    output := query.out()
+    lines := output.split("\n")
+    for line : Str in lines {
+        if line.contains("\"Tiled - ") {
+            fields := line.trim().split(" ")
+            ref id : Str = fields[0]
+            return id.to_i64().cast(UPtr)
+        }
+    }
+    return 0
+}
+
+check_repeat := proc(display: Dynamic, name: Str, keysym: UPtr, input: Str) {
+    path := format("tmp/repeat-", process_id().to_str(), "-", name, ".txt")
+    log_path := format("tmp/repeat-", name, ".log")
+    File.writefile(path, input)
+    app := Cmd.new("./bin/tiled", path)
+    app.env("HOME", format(get_cwd_str(), "/tmp/repeat-home-", process_id().to_str()))
+    app.stdout_to(log_path).stderr_to_stdout()
+    pid := app.start()
+    mut window : UPtr = 0
+    mut tries : I64 = 0
+    while window == 0 && tries < 100 {
+        sleep_ms(50)
+        window = find_window()
+        tries++
+        if app.poll() { break }
+    }
+    if window == 0 {
+        if !app.poll() { Cmd.new("kill", "-TERM", pid.to_str()).run() }
+        app.wait()
+        panic("editor did not open: ", File.readfile(log_path))
+    }
+    XSetInputFocus(display, window, 2, 0)
+    XFlush(display)
+    sleep_ms(100)
+
+    // X11 keysyms: End=65367, Down=65364, Escape=65307, Control_L=65507.
+    if name == "left" || name == "backspace" { tap_key(display, 65367) }
+    if name == "up" {
+        mut i : I64 = 0
+        while i < 20 {
+            tap_key(display, 65364)
+            i++
+        }
+    }
+    send_key(display, keysym, 1)
+    // Longer than Xvfb's default repeat delay, with time for several repeats.
+    sleep_ms(1500)
+    send_key(display, keysym, 0)
+    sleep_ms(100)
+
+    // Mark the resulting cursor position for navigation cases.
+    if name == "down" || name == "up" || name == "left" || name == "right" {
+        tap_key(display, 120)
+    }
+    send_key(display, 65507, 1)
+    tap_key(display, 115)
+    send_key(display, 65507, 0)
+    sleep_ms(100)
+    tap_key(display, 65307)
+    tries = 0
+    while !app.poll() && tries < 100 {
+        sleep_ms(50)
+        tries++
+    }
+    if !app.poll() {
+        Cmd.new("kill", "-TERM", pid.to_str()).run()
+        app.wait()
+        panic("editor did not close")
+    }
+    assert(app.wait() == 0)
+    saved := File.readfile(path)
+    File.remove(path)
+    if name == "down" { assert(saved.find("x") / 11 > 1) }
+    if name == "up" { assert(saved.find("x") >= 0 && saved.find("x") / 11 < 19) }
+    if name == "right" { assert(saved.find("x") > 1) }
+    if name == "left" { assert(saved.find("x") >= 0 && saved.find("x") < 79) }
+    if name == "backspace" || name == "delete" { assert(saved.len() < input.len() - 1) }
+    if name == "letter" { assert(saved.len() > 1 && saved.contains("xx")) }
+    if name == "enter" { assert(saved.split("\n").len() > 2) }
+    println("PASS: held ", name)
+}
+
+main := proc() {
+    display_name := get_env("DISPLAY")
+    ref display : Dynamic = XOpenDisplay(display_name.c_str)
+    if is_null(display) { panic("no X display; run under xvfb-run") }
+    mut lines := ""
+    mut i : I64 = 0
+    while i < 40 {
+        lines = format(lines, "0123456789\n")
+        i++
+    }
+    text := "01234567890123456789012345678901234567890123456789012345678901234567890123456789"
+    check_repeat(display, "down", 65364, lines)
+    check_repeat(display, "up", 65362, lines)
+    check_repeat(display, "right", 65363, text)
+    check_repeat(display, "left", 65361, text)
+    check_repeat(display, "backspace", 65288, text)
+    check_repeat(display, "delete", 65535, text)
+    check_repeat(display, "letter", 120, "")
+    check_repeat(display, "enter", 65293, "")
+    XCloseDisplay(display)
+}

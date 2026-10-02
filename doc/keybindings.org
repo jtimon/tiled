@@ -2,9 +2,9 @@
 
 [[file:../README.org][Tiled]] | [[file:build.org][Build and run]] | [[file:configuration.org][Startup and configuration]]
 
-[[file:../examples/init.til][examples/init.til]] is the earlier design sketch for named commands and
+[[file:keybindings.til][keybindings.til]] is the earlier design sketch for named commands and
 keymaps. Its =tiled= module and command/keymap API are proposals, not
-implemented features. Use the root [[file:../init.til][init.til]] for the working
+implemented features. Use [[file:../defaults/init.til][defaults/init.til]] for the working
 [[file:configuration.org][startup configuration]].
 
 The starting combination is i3-style window management, Vim's =h/j/k/l=

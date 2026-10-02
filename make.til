@@ -19,6 +19,5 @@ main := proc() {
     if mkdir_p("bin") != 0 { panic("could not create bin/") }
     if mkdir_p("gen") != 0 { panic("could not create gen/") }
     build("tiled", "tiled.til")
-    build("editor", "examples/editor.til")
     build("tilminal", "examples/tilminal.til")
 }
