@@ -1,0 +1,67 @@
+* Application, desktop and layout model
+
+[[file:../README.org][Tiled]] | [[file:progress.org][Progress]] | [[file:keybindings.org][Commands and keybindings]]
+
+This is the proposed model. The current program has one editor buffer and
+one GUI window; splits and window management are not implemented.
+
+** Buffers, windows and frames
+
+Use Emacs's distinction when discussing the editor:
+
+- A buffer owns content, such as a document or scratch text, independently
+  of where it is displayed.
+- An editor window (also called a view) displays a buffer. Cursor and scroll
+  state belong to that view, so several views can display the same buffer.
+- A frame is an OS-level window containing editor windows and their layout.
+- An external client is another application's window, such as Firefox,
+  managed by Tiled's desktop host. Its lifecycle differs from an editor
+  view; a shared layout model should preserve that distinction.
+- A workspace groups a layout of views or external clients, depending on
+  the host.
+
+The intended Emacs-style split bindings are:
+
+| Binding | Result                         | Divider    |
+|---------+--------------------------------+------------|
+| C-x 2   | One view above the other       | Horizontal |
+| C-x 3   | Views side by side             | Vertical   |
+| C-x 0   | Close the current view         |            |
+| C-x 1   | Keep only the current view     |            |
+| C-x o   | Focus the next view            |            |
+
+Splitting a view can initially show the same buffer in both views. Closing
+a view does not discard its buffer. Desktop placement and editor splitting
+can share layout operations without treating external windows as buffers.
+
+** Hosting modes
+
+- Application: an ordinary OS window under the user's existing desktop,
+  containing Tiled's own views. This is where the current editor starts.
+- Window manager: on X11, Tiled manages application windows on an existing
+  display, handling placement, focus, workspaces and global shortcuts.
+- Nested desktop: an X server such as Xephyr supplies an outer window;
+  the same Tiled window manager runs inside it. External applications
+  launched against that display appear inside the nested desktop.
+
+Commands, configuration, keymaps and layout policy should be shared across
+hosts. The launch interface for the future desktop hosts is still a design
+question, not an implemented set of flags.
+
+** What mode gui provides
+
+Til's =mode gui= currently supplies raylib, tinyfiledialogs and helpers for
+drawing, input and dialogs. It is useful for our own editor views and UI.
+It does not supply a window manager or embed another application's window
+inside a raylib pane.
+
+Launching Firefox is a process operation. Firefox connects to a display;
+that display's window manager controls its window. Containing Firefox in
+an outer desktop window requires a nested display server/compositor, rather
+than merely launching it from a raylib program. A separate Firefox instance
+and profile may be needed when testing a different display.
+
+X11 window management will need Xlib or XCB integration. Under Wayland,
+Tiled would need to be a compositor, potentially using an existing
+compositor library. Xephyr is a proposed first environment for developing
+and testing an X11 host.

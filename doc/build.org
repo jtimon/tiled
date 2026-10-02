@@ -1,0 +1,51 @@
+* Building and running Tiled
+
+[[file:../README.org][Tiled]] | [[file:configuration.org][Startup and configuration]] | [[file:keybindings.org][Keybinding design]]
+
+** Requirements
+
+Tiled currently targets installed Til version =0.0.1-2827886a4= (check with
+=til -v=). The =til= executable must be on =PATH=, with its standard library
+and GUI support installed. Til's native build also requires a C compiler.
+
+=tiled.til='s =VERSION= constant follows Til's =0.0.1-<short git revision>=
+pattern, computed at build time. Building it requires Git and a checkout of
+this repository.
+
+** Build and run
+
+From the repository root:
+
+#+begin_src sh
+til interpret make.til
+#+end_src
+
+This builds =bin/tiled=, =bin/editor= and =bin/tilminal= sequentially, using
+the installed compiler. Generated C goes under =gen/=. These build outputs
+are ignored by Git. The proposed [[file:../examples/init.til][examples/init.til]] keybinding configuration
+is not built yet.
+
+#+begin_src sh
+./bin/tiled
+./bin/tiled README.org
+./bin/tiled -v
+./bin/editor README.org
+./bin/tilminal
+#+end_src
+
+See [[file:configuration.org][startup and configuration]] for init-file loading and scratch buffers.
+
+** Initial drafts
+
+- [[file:../editor.til][editor.til]]: basic GUI text editing, file open/save, cursor movement and
+  line numbers. [[file:../examples/editor.til][examples/editor.til]] launches it with default settings,
+  without loading the user's init file.
+- [[file:../examples/tilminal.til][tilminal.til]]: basic GUI shell-command runner with captured output, plus
+  =help= and =clear=. Commands run synchronously through =sh -lc=; it does
+  not yet provide an interactive PTY terminal.
+
+Both originated in the local Til checkout's =examples/= directory. The
+editor is now a shared module used by Tiled and the standalone demo; the
+terminal draft remains unchanged. Their standard-library imports resolve
+through the installed Til distribution's =lib/= search path. Both use
+Til's =mode gui= support and their original hard-coded keybindings.

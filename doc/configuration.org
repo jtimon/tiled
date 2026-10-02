@@ -1,0 +1,51 @@
+* Startup and user configuration
+
+[[file:../README.org][Tiled]] | [[file:build.org][Build and run]] | [[file:keybindings.org][Keybinding design]]
+
+** Default startup
+
+=tiled= checks =$HOME/.tiled/init.til= at startup. If it is absent, it prints:
+
+#+begin_example
+No ~/.tiled/init.til file found; using defaults.
+#+end_example
+
+It then opens an empty =*scratch*= buffer in an 800x600 window. Scratch has
+no filename; =Ctrl+S= opens the save dialog. =Ctrl+O= opens an existing file.
+A filename passed on the command line opens that file instead of scratch.
+
+=C-x C-c= is the intended exit binding: press Ctrl+X, then Ctrl+C. Its
+current implementation has a [[file:progress.org][known quick-chord input bug]]; the window's
+close button works. =C-g= cancels a recognized pending =C-x=; an unrecognized
+continuation is consumed and cancels the prefix.
+
+** Init file
+
+[[file:../init.til][init.til]] at the repository root is the working example to copy when ready.
+From the repository root:
+
+#+begin_src sh
+mkdir -p ~/.tiled
+cp init.til ~/.tiled/init.til
+#+end_src
+
+It defines =init(mut config: TiledConfig)=, which runs before the editor
+opens. The supported fields are =width=, =height=, =scratch_text= and
+=initial_file=. A command-line filename takes precedence over
+=initial_file=. If neither specifies a file, Tiled opens scratch.
+Errors in an existing init file are reported and stop startup rather than
+silently loading defaults. =-v= and =--version= bypass configuration and GUI
+startup.
+
+The separate [[file:../examples/init.til][examples/init.til]] is a [[file:keybindings.org][future keybinding API sketch]], not
+the working startup configuration.
+
+** Current loading implementation
+
+For now, loading an init file uses the installed =til run=: Tiled generates
+a temporary entry point under this checkout's ignored =tmp/= directory,
+imports the editor and user config, and compiles/runs them in a child
+process. It removes that entry point, generated C and executable on return.
+Keep the source checkout at its build-time location; this development
+loader requires the installed compiler at startup. Lua-style in-process
+embedding is tracked in [[https://github.com/jtimon/til/blob/master/issues/open/370.org][Til issue #370]].

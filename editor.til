@@ -1,0 +1,419 @@
+mode lib
+
+import("../src/std/file")
+
+TiledConfig := struct {
+    width : I32 = 800
+    height : I32 = 600
+    initial_file := ""
+    scratch_text := ""
+}
+
+start_editor := proc(config: TiledConfig, args: ..Str) {
+    font_size : I32 = 16
+    char_w : I32 = 9
+    line_h : I32 = 18
+    left_margin : I32 = 50
+    top_margin : I32 = 4
+    status_h : I32 = 24
+
+    // Parse filename from args
+    mut filename := config.initial_file.clone()
+    if args.len() > 0 {
+        ref a : Str = args[0]
+        filename = a.clone()
+    }
+
+    // Lines buffer
+    mut lines := Vec(Str).new()
+
+    // A scratch buffer has no filename: saving it asks for one.
+    if filename.len() > 0 {
+        content := File.readfile(filename)
+        if content.len() > 0 {
+            parts := content.split("\n")
+            for p : Str in parts {
+                lines.push(own p.clone())
+            }
+        } else {
+            lines.push(own "")
+        }
+    } else if config.scratch_text.len() > 0 {
+        parts := config.scratch_text.split("\n")
+        for p : Str in parts {
+            lines.push(own p.clone())
+        }
+    } else {
+        lines.push(own "")
+    }
+
+    mut cursor_x : I32 = 0
+    mut cursor_y : I32 = 0
+    mut scroll_y : I32 = 0
+    mut dirty := false
+    mut status_msg := ""
+    mut status_timer : I64 = 0
+    mut quit_prefix := false
+
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE.cast(U32))
+    InitWindow(config.width, config.height, "Tiled".c_str)
+    SetWindowMinSize(400, 200)
+    SetTargetFPS(60)
+
+    while !WindowShouldClose() {
+        dt := GetFrameTime()
+        if status_timer > 0 {
+            status_timer = status_timer - (dt * 1000).to_i64()
+            if status_timer <= 0 {
+                status_msg = ""
+                status_timer = 0
+            }
+        }
+
+        // 341/345 = KEY_LEFT/RIGHT_CONTROL, 342/346 = KEY_LEFT/RIGHT_ALT
+        control := IsKeyDown(341) || IsKeyDown(345)
+        ctrl := control || IsKeyDown(342) || IsKeyDown(346)
+
+        // C-x C-c: two successive chords, with Control held or re-pressed.
+        // Consume the prefix and its continuation, including C-g to cancel.
+        mut prefix_input := quit_prefix
+        mut quit := false
+        mut key := GetKeyPressed()
+        while key > 0 {
+            // Modifier presses are not a continuation of the prefix.
+            if key < 340 || key > 347 {
+                if quit_prefix {
+                    quit_prefix = false
+                    prefix_input = true
+                    status_msg = ""
+                    if control && key == 67 { quit = true }
+                } else if control && key == 88 {
+                    quit_prefix = true
+                    prefix_input = true
+                    status_msg = "C-x"
+                    status_timer = 0
+                }
+            }
+            key = GetKeyPressed()
+        }
+        if quit { break }
+
+        // Ctrl+S = save
+        if !prefix_input && ctrl && IsKeyPressed(83) {
+            if filename.len() == 0 {
+                filename = save_file_dialog("Save file", "")
+            }
+            if filename.len() > 0 {
+                content := join(lines, "\n")
+                File.writefile(filename, content)
+                dirty = false
+                status_msg = "Saved!"
+                status_timer = 2000
+            }
+        }
+
+        // Ctrl+O = open file
+        if !prefix_input && ctrl && IsKeyPressed(79) {
+            path := open_file_dialog("Open file", "")
+            if path.len() > 0 {
+                filename = path
+                mut new_lines := Vec(Str).new()
+                content := File.readfile(filename)
+                if content.len() > 0 {
+                    parts := content.split("\n")
+                    for p : Str in parts {
+                        new_lines.push(own p.clone())
+                    }
+                } else {
+                    new_lines.push(own "")
+                }
+                lines = new_lines
+                cursor_x = 0
+                cursor_y = 0
+                scroll_y = 0
+                dirty = false
+                status_msg = "Opened!"
+                status_timer = 2000
+            }
+        }
+
+        // Arrow keys
+        if !prefix_input && (IsKeyPressed(265) || (IsKeyDown(265) && IsKeyDown(265))) {
+            // Up
+            if IsKeyPressed(265) {
+                if cursor_y > 0 {
+                    cursor_y = cursor_y - 1
+                    ref line : Str = lines[cursor_y.to_usize()]
+                    if cursor_x > line.len().to_i32() {
+                        cursor_x = line.len().to_i32()
+                    }
+                }
+            }
+        }
+        if !prefix_input && IsKeyPressed(264) {
+            // Down
+            if cursor_y < lines.len().to_i32() - 1 {
+                cursor_y = cursor_y + 1
+                ref line : Str = lines[cursor_y.to_usize()]
+                if cursor_x > line.len().to_i32() {
+                    cursor_x = line.len().to_i32()
+                }
+            }
+        }
+        if !prefix_input && IsKeyPressed(263) {
+            // Left
+            if cursor_x > 0 {
+                cursor_x = cursor_x - 1
+            } else {
+                if cursor_y > 0 {
+                    cursor_y = cursor_y - 1
+                    ref line : Str = lines[cursor_y.to_usize()]
+                    cursor_x = line.len().to_i32()
+                }
+            }
+        }
+        if !prefix_input && IsKeyPressed(262) {
+            // Right
+            ref cur_line : Str = lines[cursor_y.to_usize()]
+            if cursor_x < cur_line.len().to_i32() {
+                cursor_x = cursor_x + 1
+            } else {
+                if cursor_y < lines.len().to_i32() - 1 {
+                    cursor_y = cursor_y + 1
+                    cursor_x = 0
+                }
+            }
+        }
+
+        // Home
+        if !prefix_input && IsKeyPressed(268) {
+            cursor_x = 0
+        }
+        // End
+        if !prefix_input && IsKeyPressed(269) {
+            ref line : Str = lines[cursor_y.to_usize()]
+            cursor_x = line.len().to_i32()
+        }
+
+        // Enter
+        if !prefix_input && IsKeyPressed(257) {
+            if !ctrl {
+                ref cur_line : Str = lines[cursor_y.to_usize()]
+                // Split line at cursor
+                before := cur_line.substr(0, cursor_x.to_usize()).clone()
+                after := cur_line.substr(cursor_x.to_usize(), cur_line.len() - cursor_x.to_usize()).clone()
+
+                // Replace current line with before
+                mut new_lines := Vec(Str).new()
+                mut i : USize = 0
+                while i < lines.len() {
+                    if i == cursor_y.to_usize() {
+                        new_lines.push(own before.clone())
+                        new_lines.push(own after.clone())
+                    } else {
+                        ref l : Str = lines[i]
+                        new_lines.push(own l.clone())
+                    }
+                    i++
+                }
+                lines = new_lines
+                cursor_y = cursor_y + 1
+                cursor_x = 0
+                dirty = true
+            }
+        }
+
+        // Backspace
+        if !prefix_input && IsKeyPressed(259) {
+            if cursor_x > 0 {
+                ref cur_line : Str = lines[cursor_y.to_usize()]
+                new_line := format(cur_line.substr(0, cursor_x.to_usize() - 1), cur_line.substr(cursor_x.to_usize(), cur_line.len() - cursor_x.to_usize()))
+                mut new_lines := Vec(Str).new()
+                mut i : USize = 0
+                while i < lines.len() {
+                    if i == cursor_y.to_usize() {
+                        new_lines.push(own new_line.clone())
+                    } else {
+                        ref l : Str = lines[i]
+                        new_lines.push(own l.clone())
+                    }
+                    i++
+                }
+                lines = new_lines
+                cursor_x = cursor_x - 1
+                dirty = true
+            } else {
+                if cursor_y > 0 {
+                    // Merge with previous line
+                    ref prev_line : Str = lines[(cursor_y - 1).to_usize()]
+                    ref cur_line : Str = lines[cursor_y.to_usize()]
+                    new_x := prev_line.len().to_i32()
+                    merged := format(prev_line, cur_line)
+
+                    mut new_lines := Vec(Str).new()
+                    mut i : USize = 0
+                    while i < lines.len() {
+                        if i == (cursor_y - 1).to_usize() {
+                            new_lines.push(own merged.clone())
+                        } else {
+                            if i != cursor_y.to_usize() {
+                                ref l : Str = lines[i]
+                                new_lines.push(own l.clone())
+                            }
+                        }
+                        i++
+                    }
+                    lines = new_lines
+                    cursor_y = cursor_y - 1
+                    cursor_x = new_x
+                    dirty = true
+                }
+            }
+        }
+
+        // Delete key
+        if !prefix_input && IsKeyPressed(261) {
+            ref cur_line : Str = lines[cursor_y.to_usize()]
+            if cursor_x < cur_line.len().to_i32() {
+                cursor_x_u := cursor_x.to_usize()
+                next_x_u := cursor_x_u + 1
+                new_line := format(cur_line.substr(0, cursor_x_u), cur_line.substr(next_x_u, cur_line.len() - next_x_u))
+                mut new_lines := Vec(Str).new()
+                mut i : USize = 0
+                while i < lines.len() {
+                    if i == cursor_y.to_usize() {
+                        new_lines.push(own new_line.clone())
+                    } else {
+                        ref l : Str = lines[i]
+                        new_lines.push(own l.clone())
+                    }
+                    i++
+                }
+                lines = new_lines
+                dirty = true
+            } else {
+                if cursor_y < lines.len().to_i32() - 1 {
+                    // Merge with next line
+                    merged := format(cur_line, lines[(cursor_y + 1).to_usize()])
+
+                    mut new_lines := Vec(Str).new()
+                    mut i : USize = 0
+                    while i < lines.len() {
+                        if i == cursor_y.to_usize() {
+                            new_lines.push(own merged.clone())
+                        } else {
+                            if i != (cursor_y + 1).to_usize() {
+                                ref l : Str = lines[i]
+                                new_lines.push(own l.clone())
+                            }
+                        }
+                        i++
+                    }
+                    lines = new_lines
+                    dirty = true
+                }
+            }
+        }
+
+        // Character input (ASCII only, skip if ctrl held)
+        if !prefix_input && !ctrl {
+            mut ch := GetCharPressed()
+            while ch > 0 {
+                if ch >= 32 && ch < 127 {
+                    // Insert character at cursor
+                    ch_str := Str.from_byte(ch.cast(I64).to_u8())
+                    ref cur_line : Str = lines[cursor_y.to_usize()]
+                    new_line := format(cur_line.substr(0, cursor_x.to_usize()), ch_str, cur_line.substr(cursor_x.to_usize(), cur_line.len() - cursor_x.to_usize()))
+                    mut new_lines := Vec(Str).new()
+                    mut i : USize = 0
+                    while i < lines.len() {
+                        if i == cursor_y.to_usize() {
+                            new_lines.push(own new_line.clone())
+                        } else {
+                            ref l : Str = lines[i]
+                            new_lines.push(own l.clone())
+                        }
+                        i++
+                    }
+                    lines = new_lines
+                    cursor_x = cursor_x + 1
+                    dirty = true
+                }
+                ch = GetCharPressed()
+            }
+        }
+
+        // Dynamic window dimensions
+        w := GetScreenWidth()
+        h := GetScreenHeight()
+        visible_lines := (h - status_h - top_margin) / line_h
+
+        // Scroll to keep cursor visible
+        if cursor_y < scroll_y {
+            scroll_y = cursor_y
+        }
+        if cursor_y >= scroll_y + visible_lines {
+            scroll_y = cursor_y - visible_lines + 1
+        }
+
+        // Draw
+        BeginDrawing()
+        ClearBackground(Color(r = 30, g = 30, b = 40, a = 255))
+
+        // Text area
+        mut row : I32 = 0
+        while row < visible_lines {
+            line_idx := scroll_y + row
+            if line_idx < lines.len().to_i32() {
+                // Line number
+                lnum := (line_idx + 1).to_str()
+                DrawText(lnum.c_str, left_margin - lnum.len().to_i32() * char_w - 4,
+                         top_margin + row * line_h, font_size, Color(r = 80, g = 80, b = 100, a = 255))
+
+                // Line text
+                ref line : Str = lines[line_idx.to_usize()]
+                if line.len() > 0 {
+                    DrawText(line.c_str, left_margin, top_margin + row * line_h,
+                             font_size, Color(r = 200, g = 200, b = 200, a = 255))
+                }
+
+                // Cursor
+                if line_idx == cursor_y {
+                    cx := left_margin + cursor_x * char_w
+                    cy := top_margin + row * line_h
+                    DrawRectangle(cx, cy, 2, line_h, Color(r = 255, g = 200, b = 0, a = 255))
+                }
+            }
+            row++
+        }
+
+        // Status bar
+        sy := h - status_h
+        DrawRectangle(0, sy, w, status_h, Color(r = 50, g = 50, b = 70, a = 255))
+
+        // Filename
+        mut disp_name := filename
+        if filename.len() == 0 { disp_name = "*scratch*" }
+        window_title := format("Tiled - ", disp_name)
+        SetWindowTitle(window_title.c_str)
+        mut title := disp_name
+        if dirty { title = format(title, " *") }
+        DrawText(title.c_str, 8, sy + 4, font_size, Color(r = 220, g = 220, b = 220, a = 255))
+
+        // Cursor position
+        pos_str := format("Ln ", (cursor_y + 1).to_str(), " Col ", (cursor_x + 1).to_str())
+        DrawText(pos_str.c_str, w - 140, sy + 4, font_size, Color(r = 180, g = 180, b = 180, a = 255))
+
+        // Status message
+        if status_msg.len() > 0 {
+            DrawText(status_msg.c_str, w / 2 - 40, sy + 4, font_size, Color(r = 0, g = 255, b = 0, a = 255))
+        }
+
+        // Help
+        DrawText("Ctrl+O=Open  Ctrl+S=Save  C-x C-c=Quit".c_str, w - 400, sy + 4, 14, Color(r = 120, g = 120, b = 140, a = 255))
+
+        EndDrawing()
+    }
+
+    CloseWindow()
+}

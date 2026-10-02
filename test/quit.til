@@ -1,0 +1,93 @@
+mode cli
+
+// X11 integration reproducer. Run under xvfb-run from the repository root.
+// Default: slower chords. "fast": reproduce the unresolved modifier-state bug.
+import("../src/std/sys")
+link("X11")
+link(":libXtst.so.6")
+
+XOpenDisplay := ext_proc(name: I8) returns ref Dynamic {}
+XCloseDisplay := ext_proc(display: Dynamic) returns shallow I32 {}
+XSetInputFocus := ext_proc(display: Dynamic, shallow window: UPtr, shallow revert: I32, shallow time: UPtr) returns shallow I32 {}
+XKeysymToKeycode := ext_proc(display: Dynamic, shallow keysym: UPtr) returns shallow U8 {}
+XTestFakeKeyEvent := ext_proc(display: Dynamic, shallow key: U32, shallow pressed: I32, shallow delay: UPtr) returns shallow I32 {}
+XFlush := ext_proc(display: Dynamic) returns shallow I32 {}
+get_cwd_str := ext_proc() returns Str {}
+
+send_key := proc(display: Dynamic, keysym: UPtr, pressed: I32) {
+    code := XKeysymToKeycode(display, keysym)
+    XTestFakeKeyEvent(display, code.cast(U32), pressed, 0)
+    XFlush(display)
+}
+
+find_window := proc() returns UPtr {
+    query := Cmd.new("xwininfo", "-root", "-tree", "-int")
+    query.capture_out()
+    if query.run() != 0 { panic("xwininfo failed") }
+    lines := query.out().split("\n")
+    for line : Str in lines {
+        if line.contains("\"Tiled - ") {
+            fields := line.trim().split(" ")
+            ref id : Str = fields[0]
+            return id.to_i64().cast(UPtr)
+        }
+    }
+    return 0
+}
+
+main := proc(args: ..Str) {
+    display_name := get_env("DISPLAY")
+    ref display : Dynamic = XOpenDisplay(display_name.c_str)
+    if is_null(display) { panic("no X display") }
+    app := Cmd.new("./bin/tiled")
+    app.env("HOME", format(get_cwd_str(), "/tmp/quit-home-", process_id().to_str()))
+    app.stdout_to("tmp/quit-app.log").stderr_to_stdout()
+    pid := app.start()
+    mut window : UPtr = 0
+    mut tries : I64 = 0
+    while window == 0 && tries < 100 {
+        sleep_ms(50)
+        window = find_window()
+        tries++
+    }
+    if window == 0 {
+        Cmd.new("kill", "-TERM", pid.to_str()).run()
+        app.wait()
+        panic("editor did not open: ", File.readfile("tmp/quit-app.log"))
+    }
+    XSetInputFocus(display, window, 2, 0)
+    XFlush(display)
+    sleep_ms(100)
+    mut fast := false
+    if args.len() > 0 {
+        ref arg : Str = args[0]
+        fast = arg == "fast"
+    }
+    // Left Control = 65507, x = 120, c = 99.
+    send_key(display, 65507, 1)
+    send_key(display, 120, 1)
+    if !fast { sleep_ms(100) }
+    send_key(display, 120, 0)
+    send_key(display, 65507, 0)
+    sleep_ms(100)
+    send_key(display, 65507, 1)
+    send_key(display, 99, 1)
+    if !fast { sleep_ms(100) }
+    send_key(display, 99, 0)
+    send_key(display, 65507, 0)
+    tries = 0
+    while !app.poll() && tries < 40 {
+        sleep_ms(50)
+        tries++
+    }
+    if !app.poll() {
+        Cmd.new("kill", "-TERM", pid.to_str()).run()
+        app.wait()
+        XCloseDisplay(display)
+        panic("C-x C-c did not exit")
+    }
+    status := app.wait()
+    XCloseDisplay(display)
+    assert(status == 0)
+    println("PASS: C-x C-c exits")
+}

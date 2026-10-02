@@ -1,0 +1,82 @@
+// Example user configuration, intended for ~/.tiled/init.til.
+// Design sketch: the tiled module and its command/keymap API are proposed,
+// not implemented yet. Tiled loads this file and calls init().
+import("tiled")
+
+// Register ordinary Til procedures as interactive commands.
+// Starting a process happens when invoked, not when the binding is defined.
+terminal := proc() {
+    tiled.spawn("xterm")
+}
+
+launcher := proc() {
+    tiled.spawn("dmenu_run")
+}
+
+init := proc() {
+    tiled.modifier("Super")
+    tiled.command("terminal", terminal)
+    tiled.command("launcher", launcher)
+
+    // bind(keymap, keys, command_name, ...command_arguments)
+    // Mod is the modifier above. '+' means a chord; spaces separate chords.
+    // Command names and arguments are stored for later invocation.
+
+    // Desktop: i3-style operations with Vim directions.
+    tiled.bind("wm", "Mod+Return", "terminal")
+    tiled.bind("wm", "Mod+d", "launcher")
+    tiled.bind("wm", "Mod+x", "execute-command")
+    tiled.bind("wm", "Mod+Shift+c", "reload-config")
+    tiled.bind("wm", "Mod+Shift+q", "close-window")
+
+    tiled.bind("wm", "Mod+h", "focus", "left")
+    tiled.bind("wm", "Mod+j", "focus", "down")
+    tiled.bind("wm", "Mod+k", "focus", "up")
+    tiled.bind("wm", "Mod+l", "focus", "right")
+    tiled.bind("wm", "Mod+Shift+h", "move", "left")
+    tiled.bind("wm", "Mod+Shift+j", "move", "down")
+    tiled.bind("wm", "Mod+Shift+k", "move", "up")
+    tiled.bind("wm", "Mod+Shift+l", "move", "right")
+
+    // Orientation describes the new divider: vertical means side by side.
+    tiled.bind("wm", "Mod+v", "split", "vertical")
+    tiled.bind("wm", "Mod+b", "split", "horizontal")
+    tiled.bind("wm", "Mod+f", "toggle-fullscreen")
+    tiled.bind("wm", "Mod+space", "toggle-floating")
+    tiled.bind("wm", "Mod+t", "layout", "tabbed")
+    tiled.bind("wm", "Mod+e", "layout", "split")
+
+    // A small starting set; add more workspace names and bindings as needed.
+    tiled.bind("wm", "Mod+1", "workspace", "1")
+    tiled.bind("wm", "Mod+2", "workspace", "2")
+    tiled.bind("wm", "Mod+3", "workspace", "3")
+    tiled.bind("wm", "Mod+4", "workspace", "4")
+    tiled.bind("wm", "Mod+Shift+1", "move-to-workspace", "1")
+    tiled.bind("wm", "Mod+Shift+2", "move-to-workspace", "2")
+    tiled.bind("wm", "Mod+Shift+3", "move-to-workspace", "3")
+    tiled.bind("wm", "Mod+Shift+4", "move-to-workspace", "4")
+
+    // Temporary desktop mode: bare keys resize rather than reach the client.
+    // Resize amounts are pixels; tiling layouts adjust the relevant divider.
+    tiled.bind("wm", "Mod+r", "enter-mode", "resize")
+    tiled.bind("resize", "h", "resize", "width", "-10")
+    tiled.bind("resize", "j", "resize", "height", "10")
+    tiled.bind("resize", "k", "resize", "height", "-10")
+    tiled.bind("resize", "l", "resize", "width", "10")
+    tiled.bind("resize", "Return", "leave-mode")
+    tiled.bind("resize", "Escape", "leave-mode")
+    tiled.bind("resize", "C+g", "leave-mode")
+
+    // Editor only: Emacs-style prefixes, never desktop-wide grabs.
+    // C = Control, M = Alt/Meta. Prefixes are inferred from the sequences.
+    tiled.bind("editor", "M+x", "execute-command")
+    tiled.bind("editor", "C+g", "cancel")
+    tiled.bind("editor", "C+x C+f", "find-file")
+    tiled.bind("editor", "C+x C+s", "save-buffer")
+    tiled.bind("editor", "C+x b", "switch-buffer")
+    tiled.bind("editor", "C+x 2", "split-view", "horizontal")
+    tiled.bind("editor", "C+x 3", "split-view", "vertical")
+    tiled.bind("editor", "C+x 0", "close-view")
+    tiled.bind("editor", "C+x 1", "only-view")
+    tiled.bind("editor", "C+x o", "next-view")
+}

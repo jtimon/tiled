@@ -1,0 +1,13 @@
+mode lib
+
+// Example: copy this file to ~/.tiled/init.til.
+// Tiled supplies TiledConfig and calls init(config) before opening its window.
+// The command-line filename takes precedence over config.initial_file.
+init := func(mut config: TiledConfig) {
+    config.width = 1000
+    config.height = 700
+    config.scratch_text = "Welcome to Tiled!\n\nCtrl+O: open a file\nCtrl+S: save this buffer\nC-x C-c: exit Tiled\n"
+
+    // Optionally open a file instead of *scratch*:
+    // config.initial_file = "/path/to/notes.org"
+}

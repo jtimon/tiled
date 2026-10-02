@@ -3,3 +3,24 @@
 A text editor, windows manager, IDE, browser and agentic tool written
 in [[https://github.com/jtimon/til][til]] language.
 Inspired in [[https://savannah.gnu.org/projects/emacs/][emacs]], [[https://github.com/i3/i3][i3]], [[http://conkeror.org/][conkeror]] and [[https://github.com/anomalyco/opencode][opencode]].
+
+** Getting started
+
+Requires installed Til =0.0.1-2827886a4=. See [[file:doc/build.org][build requirements and details]].
+From the repository root:
+
+#+begin_src sh
+til interpret make.til
+./bin/tiled
+#+end_src
+
+With no user config, Tiled opens =*scratch*= using defaults. The working
+example [[file:init.til][init.til]] can be copied to =~/.tiled/init.til= when ready.
+
+** Documentation
+
+- [[file:doc/progress.org][Current progress and known limitations]]
+- [[file:doc/build.org][Building, running and the initial editor/terminal drafts]]
+- [[file:doc/configuration.org][Startup and user configuration]]
+- [[file:doc/architecture.org][Buffers, windows, frames and desktop hosting]]
+- [[file:doc/keybindings.org][Future command and keybinding design]]

@@ -1,0 +1,61 @@
+* Progress checkpoint
+
+[[file:../README.org][Tiled]] | [[file:build.org][Build and run]] | [[file:configuration.org][Configuration]] | [[file:architecture.org][Architecture]]
+
+** Implemented and exercised
+
+- [[file:../make.til][make.til]] uses installed Til =0.0.1-2827886a4= to build Tiled, the
+  standalone editor and tilminal. All three compile successfully.
+- [[file:../tiled.til][tiled.til]] provides a build-time =VERSION= and =-v=/=--version=.
+- Startup checks =~/.tiled/init.til=. A missing file prints the defaults
+  notice and opens =*scratch*=. A working example lives at [[file:../init.til][init.til]].
+- Startup checks exercised the copied example, configured window size and
+  initial file, command-line file precedence, failing init code, and version
+  output bypassing init. An init path containing spaces worked.
+- The shared [[file:../editor.til][editor]] opens a GUI window and supports basic editing and
+  file dialogs. The editor and save dialog were manually exercised.
+- The copied [[file:../examples/tilminal.til][tilminal draft]] opens and runs simple commands such as =ls=.
+- Tiled was rebuilt after relocating its checkout to
+  =/home/jt/sync/data_common/tilcorp/tiled= and launched successfully there.
+
+** Open: unreliable quit sequence
+
+=C-x C-c= has an initial implementation, but it is not reliable. The user
+reported that it did not close the window. The window-manager close button
+worked.
+
+A Til/X11 reproducer confirmed that slower Ctrl+X, Ctrl+C chords exit, while
+quick press/release chords can leave the application running. The editor
+reads queued =GetKeyPressed()= events but pairs them with =IsKeyDown()=
+modifier state sampled later in the frame. Control may already be released
+when the queued key is handled. The input path needs event-time modifiers;
+no fix for that has landed in this checkpoint. Remapped Control keys have
+not been verified.
+
+The reproducer is [[file:../test/quit.til][test/quit.til]], written in Til. It needs Linux/X11,
+=xvfb-run=, =xwininfo=, Xlib development/link support and =libXtst.so.6=.
+From the repository root, after building Tiled:
+
+#+begin_src sh
+til build -o tmp/check_quit -c tmp/check_quit.c test/quit.til
+xvfb-run -a ./tmp/check_quit
+xvfb-run -a ./tmp/check_quit fast
+#+end_src
+
+The first run passed; the =fast= run reproduced the failure. It is a bug
+reproducer, not an all-passing test suite. Both runs close or terminate
+their test application; its output goes to =tmp/quit-app.log=.
+
+** Current limitations and next design work
+
+- Init loading still compiles/runs a temporary child program. It does not
+  embed an interpreter in the running host. Findings and acceptance checks
+  were added to [[https://github.com/jtimon/til/blob/master/issues/open/370.org][Til issue #370]] for Lua-style embedding.
+- An init path containing a double quote failed import resolution with the
+  current compiler, despite escaping the generated string literal.
+- Keybindings are hard-coded. The [[file:keybindings.org][command registry and M-x completion]]
+  are planned; no command prompt or prefix suggestion menu is implemented.
+- [[file:architecture.org][Buffers, views, frames, splits and desktop hosts]] need distinct models.
+  =C-x 2= and =C-x 3= are proposed bindings, not working editor features yet.
+- Tilminal launches a new =sh -lc= for each command. =cd= therefore does not
+  persist between commands. A persistent shell/PTY is future work.

@@ -1,0 +1,79 @@
+mode gui
+
+import("../src/std/sys")
+import("editor")
+
+get_cwd_str := ext_proc() returns Str {}
+
+// The development build keeps its source modules alongside the executable.
+get_source_root := macro() returns shallow Str {
+    return get_cwd_str()
+}
+
+SOURCE_ROOT := get_source_root()
+
+BASE_VERSION := "0.0.1-"
+
+get_version := macro() returns shallow Str {
+    mut hash : Str = ""
+    status := run_cmd(hash, "git", "rev-parse", "--short", "HEAD")
+    if status != 0 { panic("cannot derive the Tiled version from git") }
+    return format(BASE_VERSION, hash.replace("\n", ""))
+}
+
+VERSION := get_version()
+
+// Paths become Til string literals, not shell commands.
+quote_path := func(path: Str) returns Str {
+    escaped := path.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
+    return format("\"", escaped, "\"")
+}
+
+load_init := proc(path: Str, args: ..Str) {
+    // Compile an entry point importing the user's file as real Til code.
+    // A separate name per process keeps simultaneous sessions independent.
+    tmp_dir := format(SOURCE_ROOT, "/tmp")
+    if mkdir_p(tmp_dir) != 0 { panic("could not create ", tmp_dir) }
+    stem := format(tmp_dir, "/tiled-init-", process_id().to_str())
+    source := format(stem, ".til")
+    generated_c := format(stem, ".c")
+    editor_path := format(SOURCE_ROOT, "/editor")
+    File.writefile(source, format(
+        "mode gui\nimport(", quote_path(editor_path), ")\n",
+        "import(", quote_path(path.strip_suffix(".til")), ")\n",
+        "main := proc(args: ..Str) {\n",
+        "    mut config := TiledConfig()\n",
+        "    init(config)\n",
+        "    start_editor(config, ..args)\n",
+        "}\n"))
+    cmd := Cmd.new("til", "run", "-o", stem, "-c", generated_c, source)
+    for arg : Str in args { cmd.arg(arg) }
+    status := cmd.run()
+    File.remove(source)
+    File.remove(generated_c)
+    File.remove(stem)
+    if status != 0 { exit(1) }
+}
+
+main := proc(args: ..Str) {
+    if args.len() == 1 {
+        ref arg : Str = args[0]
+        if arg == "-v" || arg == "--version" {
+            println(VERSION)
+            return
+        }
+    }
+    if args.len() > 1 { panic("usage: tiled [-v|--version|FILE]") }
+
+    home := get_env("HOME")
+    if home.len() > 0 {
+        path := format(home, "/.tiled/init.til")
+        if File.exists(path) {
+            println("Loading ", path)
+            load_init(path, ..args)
+            return
+        }
+    }
+    println("No ~/.tiled/init.til file found; using defaults.")
+    start_editor(TiledConfig(), ..args)
+}

@@ -1,0 +1,77 @@
+* Future keybinding API sketch
+
+[[file:../README.org][Tiled]] | [[file:build.org][Build and run]] | [[file:configuration.org][Startup and configuration]]
+
+[[file:../examples/init.til][examples/init.til]] is the earlier design sketch for named commands and
+keymaps. Its =tiled= module and command/keymap API are proposals, not
+implemented features. Use the root [[file:../init.til][init.til]] for the working
+[[file:configuration.org][startup configuration]].
+
+The starting combination is i3-style window management, Vim's =h/j/k/l=
+directions, and Emacs-style named commands and editor prefix keys.
+
+** Commands first
+
+Interactive commands should be discoverable independently of keybindings.
+Procedures defined in init code or imported files can be explicitly exposed
+as commands; helper functions need not appear in the command list. A binding
+is an optional shortcut to the same command, not what makes it callable.
+
+- =tiled.command(name, procedure)= registers a zero-argument Til procedure as
+  an interactive command. The example registers a terminal and a launcher;
+  their external programs can be changed in the procedures.
+- Built-in commands use the same registry. =execute-command= opens a prompt
+  listing commands available in the current context and requests any arguments.
+- =tiled.bind(keymap, keys, command_name, ...arguments)= records a command
+  invocation; it does not run the command while loading the configuration.
+  Arguments in this initial sketch are strings, validated by the command.
+- =tiled.spawn(program)= starts a program asynchronously.
+- =tiled.modifier("Super")= defines the =Mod= alias used in bindings.
+
+** Command prompt and completion
+
+=M-x= (usually Alt+X) should open the command prompt. It lists available
+commands, descriptions and assigned shortcuts, including commands with no
+keybinding. Typing a name filters suggestions; arrows select, Enter runs,
+and =C-g= cancels. Commands can then prompt for required arguments.
+
+For example, =C-x C-c= and selecting =quit= through =M-x= should invoke the
+same command. This requires a command registry shared by built-in and user
+commands; it is not implemented by the current init loader.
+
+=C-x= is a keymap prefix, distinct from the command prompt. Optional
+which-key-style hints could show its available continuations. Name-based
+completion belongs in the command prompt. Suggestions should initially be
+on demand rather than constantly appearing while editing.
+
+** Keymaps and scope
+
+- =wm= is active in window-manager mode. Its shortcuts operate on desktop
+  windows; ordinary unbound input goes to the focused application.
+- =editor= is active when a Tiled editor view has focus, in either application
+  or window-manager mode. Its shortcuts operate on buffers and editor views.
+  In window-manager mode, matching =wm= shortcuts take precedence.
+- =resize= is a temporary desktop keymap entered with =Mod+r=. It captures
+  input until =Return=, =Escape= or =C+g= leaves the mode. Unmatched keys are
+  consumed in this mode rather than sent to the focused application.
+- =+= joins simultaneous keys; spaces separate successive chords. Thus
+  =C+x C+f= means Control-x followed by Control-f. =C= means Control,
+  =M= means Alt/Meta, and =Shift= is explicit.
+- Prefix sequences are inferred from bindings. =C+g= cancels a pending editor
+  prefix; an invalid continuation cancels it and is consumed.
+
+=split= prepares the placement of the next desktop window; =split-view=
+creates another editor view immediately. A vertical divider places content
+side by side, and a horizontal divider places it above and below.
+=move-to-workspace= moves the focused window without switching workspaces.
+=close-window= requests an application close; =close-view= removes an editor
+view without discarding its buffer.
+
+See [[file:architecture.org][the buffer/window/frame model]] for the intended =C-x 2= and =C-x 3=
+split behavior, and [[file:progress.org][progress]] for the current quit-sequence failure.
+
+** References
+
+- [[https://github.com/i3/i3/blob/next/etc/config][i3's default configuration]]: launching, focus/movement, workspaces and resize mode.
+- [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Key-Bindings.html][Emacs keybindings]]: named commands and prefix keymaps.
+- [[https://github.com/jtimon/til/blob/master/scratch.til][Til syntax example]]: imports, declarations, procedures and calls.

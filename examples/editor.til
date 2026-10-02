@@ -1,0 +1,8 @@
+mode gui
+
+import("../editor")
+
+// Standalone editor demo, without user configuration.
+main := proc(args: ..Str) {
+    start_editor(TiledConfig(), ..args)
+}
