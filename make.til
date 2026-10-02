@@ -1,6 +1,8 @@
 mode cli
 
 // Run from the repository root: til interpret make.til
+// Til resolves this spelling via <installed support root>/lib/../src/std/sys.
+// Core and GUI support are loaded from that same installed distribution.
 import("../src/std/sys")
 
 build := proc(name: Str, source: Str) {
@@ -18,6 +20,6 @@ build := proc(name: Str, source: Str) {
 main := proc() {
     if mkdir_p("bin") != 0 { panic("could not create bin/") }
     if mkdir_p("gen") != 0 { panic("could not create gen/") }
-    build("tiled", "tiled.til")
+    build("tiled", "src/tiled.til")
     build("tilminal", "examples/tilminal.til")
 }

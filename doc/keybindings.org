@@ -67,8 +67,10 @@ side by side, and a horizontal divider places it above and below.
 =close-window= requests an application close; =close-view= removes an editor
 view without discarding its buffer.
 
-See [[file:architecture.org][the buffer/window/frame model]] for the intended =C-x 2= and =C-x 3=
-split behavior, and [[file:progress.org][progress]] for the current quit-sequence failure.
+The editor already implements hard-coded [[file:configuration.org][bindings]] for splitting, focus,
+closing views and open/save. See [[file:architecture.org][the buffer/window/frame model]] for =C-x 2= and =C-x 3=
+behavior, and [[file:progress.org][progress]] for mapped-modifier and fast-prefix checks.
+The configurable command/keymap API above remains a proposal.
 
 ** References
 

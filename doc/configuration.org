@@ -20,10 +20,33 @@ the desktop's keyboard repeat delay and rate. Held letters repeat through
 the normal text-input stream. Home and End also accept repeat events;
 command shortcuts such as save and open respond only to the initial press.
 
-=C-x C-c= is the intended exit binding: press Ctrl+X, then Ctrl+C. Its
-current implementation has a [[file:progress.org][known quick-chord input bug]]; the window's
-close button works. =C-g= cancels a recognized pending =C-x=; an unrecognized
+=C-x C-c= exits: press Ctrl+X, then Ctrl+C. Shortcuts use the OS-mapped
+modifiers captured with each key press, including Control remapped with
+=xmodmap=. =C-g= cancels a recognized pending =C-x=; an unrecognized
 continuation is consumed and cancels the prefix.
+
+** Internal tiling
+
+These commands operate on views inside the existing Tiled window:
+
+| Binding | Action                                  |
+|---------+-----------------------------------------|
+| C-x 2   | Split the focused view top/bottom        |
+| C-x 3   | Split the focused view side by side      |
+| C-x o   | Focus the next view in layout order      |
+| C-x 0   | Close the focused view, keeping at least one |
+| C-x 1   | Keep only the focused view               |
+| C-x C-f | Open a file in the focused view          |
+| C-x C-s | Save the focused view's buffer           |
+
+Press Ctrl+X, then the continuation. =Ctrl+O= and =Ctrl+S= remain available
+for open/save. Clicking a pane changes focus. A split initially displays
+the same buffer in both views, with independent cursor and scroll state.
+Opening another file affects only the focused view; closing views keeps
+their buffers. See [[file:architecture.org][the layout model]] for details.
+
+Very small views refuse further splits. =C-x 5= and additional OS windows
+are deferred.
 
 ** Init file
 

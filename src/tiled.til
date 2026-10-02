@@ -5,7 +5,7 @@ import("editor")
 
 get_cwd_str := ext_proc() returns Str {}
 
-// The development build keeps its source modules alongside the executable.
+// The development build retains its source checkout for user-config loading.
 get_source_root := macro() returns shallow Str {
     return get_cwd_str()
 }
@@ -37,7 +37,7 @@ load_init := proc(path: Str, args: ..Str) {
     stem := format(tmp_dir, "/tiled-init-", process_id().to_str())
     source := format(stem, ".til")
     generated_c := format(stem, ".c")
-    editor_path := format(SOURCE_ROOT, "/editor")
+    editor_path := format(SOURCE_ROOT, "/src/editor")
     File.writefile(source, format(
         "mode gui\nimport(", quote_path(editor_path), ")\n",
         "import(", quote_path(path.strip_suffix(".til")), ")\n",

@@ -1,0 +1,334 @@
+mode lib
+
+import("../src/std/sys")
+import("editor_model")
+import("editor_input")
+
+realpath_str := ext_proc(path: Str) returns Str {}
+
+TiledConfig := struct {
+    width : I32 = 800
+    height : I32 = 600
+    maximized := false
+    tile_left := true
+    initial_file := ""
+    scratch_text := ""
+    font_path := ""
+    font_size : I32 = 28
+}
+
+editor_font_path := proc(config: TiledConfig) returns Str {
+    if config.font_path.len() > 0 { return config.font_path.clone() }
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace")
+    query.capture_out()
+    if query.run() != 0 {
+        panic("could not resolve the monospace font; install fontconfig or set config.font_path")
+    }
+    path := query.out()
+    if path.len() == 0 { panic("fontconfig found no monospace font") }
+    return path
+}
+
+editor_text_width := func(font: Font, text: Str, size: I32) returns I32 {
+    return MeasureTextEx(font, text.c_str, size.to_f32(), 0).x.to_i64().to_i32()
+}
+
+editor_draw_text := proc(font: Font, text: Str, x: I32, y: I32, size: I32, color: Color) {
+    DrawTextEx(font, text.c_str, Vector2(x = x.to_f32(), y = y.to_f32()),
+               size.to_f32(), 0, color)
+}
+
+editor_key_pressed := proc(key: I32) returns Bool {
+    return IsKeyPressed(key) || IsKeyPressedRepeat(key)
+}
+
+editor_file_path := proc(path: Str) returns Str {
+    resolved := realpath_str(path)
+    if resolved.len() == 0 { panic("cannot open file: ", path) }
+    return resolved
+}
+
+editor_buffer_name := func(buffer: EditorBuffer) returns Str {
+    if buffer.filename.len() == 0 { return "*scratch*" }
+    start := (buffer.filename.rfind("/") + 1).to_usize()
+    return buffer.filename.substr(start, buffer.filename.len() - start).clone()
+}
+
+editor_save := proc(mut editor: EditorState) returns Bool {
+    id := editor.nodes[editor.focused].view.buffer
+    ref mut buffer : EditorBuffer = editor.buffers[id]
+    if buffer.filename.len() == 0 {
+        path := save_file_dialog("Save file", "")
+        if path.len() == 0 { return false }
+        buffer.filename = path
+    }
+    File.writefile(buffer.filename, buffer.text)
+    buffer.filename = editor_file_path(buffer.filename)
+    buffer.dirty = false
+    return true
+}
+
+editor_open := proc(mut editor: EditorState) returns Bool {
+    selected := open_file_dialog("Open file", "")
+    if selected.len() == 0 { return false }
+    path := editor_file_path(selected)
+    editor.show_buffer(path, File.readfile(path))
+    return true
+}
+
+editor_draw_view := proc(mut editor: EditorState, index: USize, font: Font, size: I32, line_h: I32) {
+    ref mut node : EditorNode = editor.nodes[index]
+    ref mut view : EditorView = node.view
+    ref buffer : EditorBuffer = editor.buffers[view.buffer]
+    rect := node.rect.clone()
+    if rect.width <= 0 || rect.height <= 0 { return }
+    DrawRectangle(rect.x, rect.y, rect.width, rect.height, Color(r = 30, g = 30, b = 40, a = 255))
+    active := index == editor.focused
+    mode_h := line_h + 8
+    mut text_h := rect.height - mode_h
+    if text_h < 0 { text_h = 0 }
+    mut visible := (text_h - 8) / line_h
+    if visible < 1 { visible = 1 }
+    lines := buffer.text.split("\n")
+    cursor_row := text_row(buffer.text, view.cursor)
+    start := text_line_start(buffer.text, view.cursor)
+    column := view.cursor - start
+    before_cursor := buffer.text.substr(start, column).clone()
+    cursor_px := editor_text_width(font, before_cursor, size)
+    gutter := editor_text_width(font, lines.len().to_str(), size) + 20
+    mut text_w := rect.width - gutter - 8
+    if text_w < 1 { text_w = 1 }
+
+    if cursor_row < view.scroll_y { view.scroll_y = cursor_row }
+    if cursor_row >= view.scroll_y + visible { view.scroll_y = cursor_row - visible + 1 }
+    if cursor_px < view.scroll_x { view.scroll_x = cursor_px }
+    if cursor_px >= view.scroll_x + text_w - 2 { view.scroll_x = cursor_px - text_w + 2 }
+    if view.scroll_x < 0 { view.scroll_x = 0 }
+
+    // Gutter and text have separate clips, so long/scrolled lines cannot bleed
+    // into a sibling view or cover their own line numbers.
+    BeginScissorMode(rect.x, rect.y, rect.width, text_h)
+    mut row : I32 = 0
+    while row < visible {
+        line_index := view.scroll_y + row
+        if line_index < lines.len().to_i32() {
+            number := (line_index + 1).to_str()
+            editor_draw_text(font, number, rect.x + gutter - editor_text_width(font, number, size) - 10,
+                rect.y + 8 + row * line_h, size, Color(r = 110, g = 110, b = 130, a = 255))
+        }
+        row = row + 1
+    }
+    EndScissorMode()
+
+    if rect.width > gutter {
+        BeginScissorMode(rect.x + gutter, rect.y, rect.width - gutter, text_h)
+        row = 0
+        while row < visible {
+            line_index := view.scroll_y + row
+            if line_index < lines.len().to_i32() {
+                ref line : Str = lines[line_index.to_usize()]
+                y := rect.y + 8 + row * line_h
+                editor_draw_text(font, line, rect.x + gutter - view.scroll_x, y,
+                    size, Color(r = 220, g = 220, b = 220, a = 255))
+                if line_index == cursor_row {
+                    mut color := Color(r = 100, g = 100, b = 120, a = 255)
+                    if active { color = Color(r = 255, g = 200, b = 0, a = 255) }
+                    DrawRectangle(rect.x + gutter + cursor_px - view.scroll_x, y, 2, line_h, color)
+                }
+            }
+            row = row + 1
+        }
+        EndScissorMode()
+    }
+
+    sy := rect.y + text_h
+    BeginScissorMode(rect.x, rect.y, rect.width, rect.height)
+    mut background := Color(r = 38, g = 38, b = 52, a = 255)
+    if active { background = Color(r = 60, g = 60, b = 85, a = 255) }
+    DrawRectangle(rect.x, sy, rect.width, mode_h, background)
+    if active { DrawRectangle(rect.x, sy, rect.width, 2, Color(r = 255, g = 200, b = 0, a = 255)) }
+    EndScissorMode()
+    mut name := editor_buffer_name(buffer)
+    if buffer.dirty { name = format(name, " *") }
+    position := format("Ln ", (cursor_row + 1).to_str(), " Col ", (column + 1).to_str())
+    position_w := editor_text_width(font, position, size)
+    mut name_w := rect.width - 16
+    if rect.width > position_w + 100 { name_w = rect.width - position_w - 32 }
+    if name_w > 0 {
+        BeginScissorMode(rect.x + 8, sy, name_w, rect.height - text_h)
+        editor_draw_text(font, name, rect.x + 8, sy + 4, size, Color(r = 220, g = 220, b = 220, a = 255))
+        EndScissorMode()
+    }
+    if rect.width > position_w + 100 {
+        BeginScissorMode(rect.x, sy, rect.width, rect.height - text_h)
+        editor_draw_text(font, position, rect.x + rect.width - position_w - 8, sy + 4,
+            size, Color(r = 180, g = 180, b = 180, a = 255))
+        EndScissorMode()
+    }
+}
+
+start_editor := proc(config: TiledConfig, args: ..Str) {
+    font_size := config.font_size
+    if font_size <= 0 { panic("config.font_size must be positive") }
+    font_path := editor_font_path(config)
+    if !File.is_file(font_path) { panic("font file not found: ", font_path) }
+    mut filename := config.initial_file.clone()
+    if args.len() > 0 { filename = args[0].clone() }
+    mut text := config.scratch_text.clone()
+    if filename.len() > 0 {
+        filename = editor_file_path(filename)
+        text = File.readfile(filename)
+    }
+    mut editor := EditorState.new(filename, text)
+    mut status_msg := ""
+    mut status_timer : I64 = 0
+    mut prefix_pending := false
+
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE.cast(U32))
+    InitWindow(config.width, config.height, "Tiled".c_str)
+    editor_init_input()
+    font := LoadFontEx(font_path.c_str, font_size, Option(ref I32).None, 0)
+    if !IsFontValid(font) || font.texture.id == GetFontDefault().texture.id {
+        panic("could not load font: ", font_path)
+    }
+    SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR)
+    line_h := MeasureTextEx(font, "Mg".c_str, font_size.to_f32(), 0).y.to_i64().to_i32() + 6
+    footer_h := line_h + 8
+    min_view_h := line_h * 2 + 16
+    min_view_w := font_size * 8 + 40
+    SetWindowMinSize(400, min_view_h + footer_h)
+    if config.maximized {
+        MaximizeWindow()
+    } else if config.tile_left {
+        monitor := GetCurrentMonitor()
+        origin := GetMonitorPosition(monitor)
+        SetWindowSize(GetMonitorWidth(monitor) / 2, GetMonitorHeight(monitor))
+        SetWindowPosition(origin.x.to_i64().to_i32(), origin.y.to_i64().to_i32())
+    }
+    SetTargetFPS(60)
+
+    while !WindowShouldClose() {
+        if status_timer > 0 {
+            status_timer = status_timer - (GetFrameTime() * 1000).to_i64()
+            if status_timer <= 0 { status_msg = "" }
+        }
+        width := GetScreenWidth()
+        height := GetScreenHeight()
+        area := EditorRect(width = width, height = height - footer_h)
+        editor.arrange(0, area)
+        if IsMouseButtonPressed(0) {
+            mouse := GetMousePosition()
+            for index : USize in editor.views() {
+                ref rect : EditorRect = editor.nodes[index].rect
+                if mouse.x >= rect.x.to_f32() && mouse.x < (rect.x + rect.width).to_f32() &&
+                   mouse.y >= rect.y.to_f32() && mouse.y < (rect.y + rect.height).to_f32() {
+                    editor.focused = index
+                }
+            }
+        }
+
+        mut prefix_input := prefix_pending
+        mut shortcut_input := false
+        mut quit := false
+        mut save := false
+        mut open := false
+        mut mods : I32 = 0
+        mut action : I32 = 0
+        mut key := editor_next_key(mods, action)
+        while key > 0 {
+            // GLFW_MOD_CONTROL = 2, GLFW_MOD_ALT = 4. These are mapped
+            // modifier flags, not the physical Control/Alt key identities.
+            control := mods.band(2) != 0
+            ctrl := mods.band(6) != 0
+            if ctrl { shortcut_input = true }
+            if action == 1 && (key < 340 || key > 347) {
+                if prefix_pending {
+                    prefix_pending = false
+                    prefix_input = true
+                    status_msg = ""
+                    if control && key == 67 {
+                        quit = true
+                    } else if control && key == 71 {
+                        status_msg = ""
+                    } else if control && key == 83 {
+                        save = true
+                    } else if control && key == 70 {
+                        open = true
+                    } else if key == 50 || key == 51 {
+                        if !editor.split(key == 51, min_view_w, min_view_h) {
+                            status_msg = "View too small to split"
+                        }
+                    } else if key == 79 {
+                        editor.next_view()
+                    } else if key == 48 {
+                        if !editor.close_view() { status_msg = "Cannot close the only view" }
+                    } else if key == 49 {
+                        editor.only_view()
+                    } else {
+                        status_msg = "Undefined C-x sequence"
+                    }
+                    status_timer = 2000
+                    editor.arrange(0, area)
+                } else if control && key == 88 {
+                    prefix_pending = true
+                    prefix_input = true
+                    status_msg = "C-x"
+                    status_timer = 0
+                } else if !prefix_input && ctrl && key == 83 {
+                    save = true
+                } else if !prefix_input && ctrl && key == 79 {
+                    open = true
+                }
+            }
+            key = editor_next_key(mods, action)
+        }
+        // Drain raylib's duplicate press queue; text still uses its char queue.
+        mut queued_key := GetKeyPressed()
+        while queued_key > 0 { queued_key = GetKeyPressed() }
+        if quit { break }
+        if save && editor_save(editor) {
+            status_msg = "Saved!"
+            status_timer = 2000
+        }
+        if open && editor_open(editor) {
+            status_msg = "Opened!"
+            status_timer = 2000
+        }
+        if !prefix_input {
+            if editor_key_pressed(265) { editor.move_cursor(265) }
+            if editor_key_pressed(264) { editor.move_cursor(264) }
+            if editor_key_pressed(263) { editor.move_cursor(263) }
+            if editor_key_pressed(262) { editor.move_cursor(262) }
+            if editor_key_pressed(268) { editor.move_cursor(268) }
+            if editor_key_pressed(269) { editor.move_cursor(269) }
+            if editor_key_pressed(257) && !shortcut_input { editor.insert("\n") }
+            if editor_key_pressed(259) { editor.backspace() }
+            if editor_key_pressed(261) { editor.delete_forward() }
+            if !shortcut_input {
+                mut ch := GetCharPressed()
+                while ch > 0 {
+                    if ch >= 32 && ch < 127 { editor.insert(Str.from_byte(ch.cast(I64).to_u8())) }
+                    ch = GetCharPressed()
+                }
+            }
+        }
+
+        BeginDrawing()
+        ClearBackground(Color(r = 70, g = 70, b = 90, a = 255))
+        for index : USize in editor.views() { editor_draw_view(editor, index, font, font_size, line_h) }
+        active_buffer := editor.nodes[editor.focused].view.buffer
+        window_title := format("Tiled - ", editor_buffer_name(editor.buffers[active_buffer]))
+        SetWindowTitle(window_title.c_str)
+        DrawRectangle(0, height - footer_h, width, footer_h, Color(r = 38, g = 38, b = 52, a = 255))
+        BeginScissorMode(8, height - footer_h, width - 16, footer_h)
+        mut message := "C-x 2/3 Split  C-x o Focus  C-s Save"
+        if status_msg.len() > 0 { message = status_msg.clone() }
+        editor_draw_text(font, message, 8, height - footer_h + 4, font_size,
+            Color(r = 160, g = 160, b = 180, a = 255))
+        EndScissorMode()
+        EndDrawing()
+    }
+    UnloadFont(font)
+    editor_close_input()
+    CloseWindow()
+}

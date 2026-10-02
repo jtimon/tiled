@@ -1,0 +1,121 @@
+mode cli
+
+import("../src/editor_model")
+
+main := proc() {
+    mut editor := EditorState.new("notes", "abc\ndef\nghi")
+    editor.arrange(0, EditorRect(width = 1000, height = 800))
+    assert(editor.split(false, 200, 80))
+    editor.arrange(0, EditorRect(width = 1000, height = 800))
+    top := editor.focused
+    editor.next_view()
+    bottom := editor.focused
+    assert(editor.nodes[top].rect.width == 1000)
+    assert(editor.nodes[top].rect.height == 398)
+    assert(editor.nodes[bottom].rect.y == 402)
+    assert(editor.nodes[bottom].view.buffer == editor.nodes[top].view.buffer)
+
+    // Points and scrolling belong to views, while edits belong to the buffer.
+    editor.move_cursor(262)
+    ref mut bottom_node : EditorNode = editor.nodes[bottom]
+    bottom_node.view.scroll_y = 2
+    assert(editor.nodes[top].view.cursor == 0)
+    assert(editor.nodes[top].view.scroll_y == 0)
+    editor.insert("X")
+    assert(editor.buffers[0].text == "aXbc\ndef\nghi")
+    assert(editor.nodes[bottom].view.cursor == 2)
+    assert(editor.nodes[top].view.cursor == 0)
+    editor.next_view()
+    editor.insert("Y")
+    assert(editor.buffers[0].text == "YaXbc\ndef\nghi")
+    assert(editor.nodes[bottom].view.cursor == 3)
+
+    // Split only the focused top pane, leaving the bottom pane intact.
+    assert(editor.split(true, 200, 80))
+    editor.arrange(0, EditorRect(width = 1000, height = 800))
+    left := editor.focused
+    editor.next_view()
+    right := editor.focused
+    assert(editor.nodes[left].rect.width == 498)
+    assert(editor.nodes[right].rect.x == 502)
+    assert(editor.nodes[right].rect.height == 398)
+    editor.next_view()
+    assert(editor.focused == bottom)
+    editor.next_view()
+    assert(editor.focused == left)
+
+    // Closing a nested leaf promotes its sibling without losing the other branch.
+    assert(editor.close_view())
+    editor.arrange(0, EditorRect(width = 1000, height = 800))
+    assert(editor.views().len() == 2)
+    assert(editor.nodes[editor.focused].rect.width == 1000)
+    assert(editor.nodes[bottom].rect.y == 402)
+    editor.next_view()
+    assert(editor.focused == bottom)
+
+    // Opening another buffer changes only the focused view.
+    editor.show_buffer("other", "123")
+    assert(editor.buffers.len() == 2)
+    editor.next_view()
+    assert(editor.nodes[editor.focused].view.buffer == 0)
+    editor.next_view()
+    editor.insert("Z")
+    assert(editor.buffers[1].text == "Z123")
+    assert(editor.buffers[0].text == "YaXbc\ndef\nghi")
+    editor.only_view()
+    assert(editor.nodes.len() == 1)
+    assert(editor.nodes[0].view.buffer == 1)
+    assert(editor.buffers.len() == 2)
+    assert(!editor.close_view())
+
+    // Repeated split/close cycles reuse storage rather than accumulating nodes.
+    mut i : I64 = 0
+    while i < 100 {
+        editor.arrange(0, EditorRect(width = 1000, height = 800))
+        assert(editor.split(true, 200, 80))
+        assert(editor.close_view())
+        i++
+    }
+    assert(editor.nodes.len() == 3)
+    editor.arrange(0, EditorRect(width = 300, height = 100))
+    assert(!editor.split(true, 200, 80))
+    assert(!editor.split(false, 200, 80))
+
+    // Deleting a newline keeps other views' points attached to surviving text.
+    mut shared := EditorState.new("", "ab\ncd")
+    shared.arrange(0, EditorRect(width = 800, height = 600))
+    assert(shared.split(false, 200, 80))
+    first := shared.focused
+    shared.next_view()
+    second := shared.focused
+    ref mut second_node : EditorNode = shared.nodes[second]
+    second_node.view.cursor = 4
+    shared.next_view()
+    ref mut first_node : EditorNode = shared.nodes[first]
+    first_node.view.cursor = 3
+    shared.backspace()
+    assert(shared.buffers[0].text == "abcd")
+    assert(shared.nodes[first].view.cursor == 2)
+    assert(shared.nodes[second].view.cursor == 3)
+    shared.delete_forward()
+    assert(shared.buffers[0].text == "abd")
+    assert(shared.nodes[second].view.cursor == 2)
+
+    // Promote an entire sibling subtree when the other root child closes.
+    mut promoted := EditorState.new("", "text")
+    promoted.arrange(0, EditorRect(width = 1001, height = 801))
+    assert(promoted.split(true, 200, 80))
+    promoted.arrange(0, EditorRect(width = 1001, height = 801))
+    assert(promoted.split(false, 200, 80))
+    promoted.next_view()
+    promoted.next_view()
+    assert(promoted.close_view())
+    promoted.arrange(0, EditorRect(width = 1001, height = 801))
+    assert(promoted.views().len() == 2)
+    assert(promoted.nodes[promoted.focused].rect.width == 1001)
+    promoted.next_view()
+    assert(promoted.close_view())
+    assert(promoted.views().len() == 1)
+    assert(!promoted.close_view())
+    println("PASS: nested layouts, focus, shared buffers, view points and closing")
+}

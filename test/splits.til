@@ -1,0 +1,144 @@
+mode cli
+
+// Run under xvfb-run from the repository root. Optional "screenshot" uses
+// ImageMagick's import to capture the nested layout in tmp/splits.png.
+// "remapped" swaps left Control/Alt with xmodmap on the isolated X server,
+// after the editor opens, to verify that live modifier mappings are honored.
+import("../src/std/sys")
+link("X11")
+link(":libXtst.so.6")
+
+XOpenDisplay := ext_proc(name: I8) returns ref Dynamic {}
+XCloseDisplay := ext_proc(display: Dynamic) returns shallow I32 {}
+XSetInputFocus := ext_proc(display: Dynamic, shallow window: UPtr, shallow revert: I32, shallow time: UPtr) returns shallow I32 {}
+XKeysymToKeycode := ext_proc(display: Dynamic, shallow keysym: UPtr) returns shallow U8 {}
+XTestFakeKeyEvent := ext_proc(display: Dynamic, shallow key: U32, shallow pressed: I32, shallow delay: UPtr) returns shallow I32 {}
+XFlush := ext_proc(display: Dynamic) returns shallow I32 {}
+get_cwd_str := ext_proc() returns Str {}
+
+send_key := proc(display: Dynamic, keysym: UPtr, pressed: I32) {
+    code := XKeysymToKeycode(display, keysym)
+    XTestFakeKeyEvent(display, code.cast(U32), pressed, 0)
+    XFlush(display)
+}
+
+tap := proc(display: Dynamic, keysym: UPtr) {
+    send_key(display, keysym, 1)
+    sleep_ms(50)
+    send_key(display, keysym, 0)
+    sleep_ms(50)
+}
+
+prefix := proc(display: Dynamic, keysym: UPtr, control: Bool) {
+    send_key(display, 65507, 1)
+    tap(display, 120)
+    send_key(display, 65507, 0)
+    sleep_ms(50)
+    if control { send_key(display, 65507, 1) }
+    tap(display, keysym)
+    if control { send_key(display, 65507, 0) }
+    sleep_ms(50)
+}
+
+find_window := proc() returns UPtr {
+    query := Cmd.new("xwininfo", "-root", "-tree", "-int")
+    query.capture_out()
+    if query.run() != 0 { panic("xwininfo failed") }
+    output := query.out()
+    lines := output.split("\n")
+    for line : Str in lines {
+        if line.contains("\"Tiled - ") {
+            fields := line.trim().split(" ")
+            ref id : Str = fields[0]
+            return id.to_i64().cast(UPtr)
+        }
+    }
+    return 0
+}
+
+main := proc(args: ..Str) {
+    path := format("tmp/splits-", process_id().to_str(), ".txt")
+    File.writefile(path, "ab\ncd\n")
+    display_name := get_env("DISPLAY")
+    ref display : Dynamic = XOpenDisplay(display_name.c_str)
+    if is_null(display) { panic("no X display; run under xvfb-run") }
+    app := Cmd.new("./bin/tiled", path)
+    app.env("HOME", format(get_cwd_str(), "/tmp/splits-home-", process_id().to_str()))
+    app.stdout_to("tmp/splits-app.log").stderr_to_stdout()
+    pid := app.start()
+    mut window : UPtr = 0
+    mut tries : I64 = 0
+    while window == 0 && tries < 100 {
+        sleep_ms(50)
+        window = find_window()
+        tries++
+        if app.poll() { break }
+    }
+    if window == 0 {
+        if !app.poll() { Cmd.new("kill", "-TERM", pid.to_str()).run() }
+        app.wait()
+        panic("editor did not open: ", File.readfile("tmp/splits-app.log"))
+    }
+    XSetInputFocus(display, window, 2, 0)
+    XFlush(display)
+    sleep_ms(100)
+
+    mut screenshot := false
+    for arg : Str in args {
+        if arg == "screenshot" { screenshot = true }
+        if arg == "remapped" {
+            Cmd.new("xmodmap", "-e", "clear control", "-e", "clear mod1",
+                "-e", "keysym Control_L = Alt_L Meta_L",
+                "-e", "keysym Alt_L = Control_L",
+                "-e", "add control = Control_L Control_R",
+                "-e", "add mod1 = Alt_L Alt_R Meta_L Meta_R").run_checked()
+            sleep_ms(100)
+        }
+    }
+
+    // Lower-case markers avoid relying on the synthetic keyboard's Shift map.
+    prefix(display, 51, false)  // C-x 3: split left/right, keep left focused.
+    tap(display, 97)           // a
+    prefix(display, 111, false)
+    tap(display, 98)           // b at the right view's independent point.
+    tap(display, 65364)        // Down
+    tap(display, 99)           // c
+    prefix(display, 50, false) // C-x 2: split only the right view top/bottom.
+    tap(display, 100)          // d
+    prefix(display, 111, false)
+    tap(display, 101)          // e
+    if screenshot {
+        Cmd.new("import", "-window", window.to_str(), "tmp/splits.png").run_checked()
+    }
+    prefix(display, 48, false) // Close bottom-right; top-right expands.
+    tap(display, 102)          // f
+    prefix(display, 111, false)
+    tap(display, 103)          // g in the original left view.
+    prefix(display, 49, false) // Keep only that view.
+    prefix(display, 111, false)
+    tap(display, 104)          // h
+    prefix(display, 48, false) // Last view must stay open.
+    tap(display, 105)          // i
+    prefix(display, 103, true) // C-x C-g: cancel without inserting prefix keys.
+    tap(display, 106)          // j
+    prefix(display, 115, true) // C-x C-s
+    prefix(display, 99, true)  // C-x C-c
+
+    tries = 0
+    while !app.poll() && tries < 100 {
+        sleep_ms(50)
+        tries++
+    }
+    if !app.poll() {
+        Cmd.new("kill", "-TERM", pid.to_str()).run()
+        app.wait()
+        XCloseDisplay(display)
+        panic("editor did not close")
+    }
+    assert(app.wait() == 0)
+    XCloseDisplay(display)
+    saved := File.readfile(path)
+    File.remove(path)
+    if saved != "baghijab\nccedfd\n" { panic("unexpected shared-buffer edits: ", saved) }
+    println("PASS: C-x splits, focus, close/only, independent points, shared edits and save")
+}

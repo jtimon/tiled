@@ -8,11 +8,18 @@ Tiled currently targets installed Til version =0.0.1-2827886a4= (check with
 =til -v=). The =til= executable must be on =PATH=, with its standard library
 and GUI support installed. Til's native build also requires a C compiler.
 
+Til's =make install= installs its support tree under =<prefix>/lib/til/=
+(normally =/usr/local/lib/til/=). Core and the GUI prelude are loaded from
+that tree automatically. The =import("../src/std/sys")= spelling is resolved
+through Til's =<support-root>/lib/= import search path to the installed
+=src/std/sys.til=; it does not require a neighboring Til source checkout.
+A traced build verified installed core, std, GUI, C runtime and raylib paths.
+
 The editor resolves its default monospace font through =fc-match= from
 fontconfig. Install fontconfig and a monospace font, or set an explicit
 =font_path= in your [[file:configuration.org][user configuration]].
 
-=tiled.til='s =VERSION= constant follows Til's =0.0.1-<short git revision>=
+=src/tiled.til='s =VERSION= constant follows Til's =0.0.1-<short git revision>=
 pattern, computed at build time. Building it requires Git and a checkout of
 this repository.
 
@@ -38,17 +45,21 @@ is not built yet.
 
 See [[file:configuration.org][startup and configuration]] for init-file loading and scratch buffers.
 
-** Initial drafts
+** Source layout
 
-- [[file:../editor.til][editor.til]]: basic GUI text editing, file open/save, cursor movement and
-  line numbers. It is imported by [[file:../tiled.til][tiled.til]]; run =bin/tiled= to use it.
+- [[file:../src/tiled.til][src/tiled.til]]: startup, version reporting and user configuration loading.
+- [[file:../src/editor.til][src/editor.til]]: GUI text editing, file open/save, cursor movement and
+  line numbers. It is imported by [[file:../src/tiled.til][src/tiled.til]]; run =bin/tiled= to use it.
+- [[file:../src/editor_model.til][src/editor_model.til]]: buffers, independent views and the split-layout tree.
+- [[file:../src/editor_input.til][src/editor_input.til]] and [[file:../src/editor_input.c][src/editor_input.c]]: a small GLFW callback bridge
+  preserving mapped, event-time modifiers. It links against Til's installed
+  desktop raylib/GLFW backend; no Til checkout or GLFW headers are required.
 - [[file:../examples/tilminal.til][tilminal.til]]: basic GUI shell-command runner with captured output, plus
   =help= and =clear=. Commands run synchronously through =sh -lc=; it does
   not yet provide an interactive PTY terminal.
 
-Both originated in the local Til checkout's =examples/= directory. The
-editor is now a module used by Tiled; the redundant standalone editor
-example and build target have been removed. The
-terminal draft remains unchanged. Their standard-library imports resolve
-through the installed Til distribution's =lib/= search path. Both use
-Til's =mode gui= support and their original hard-coded keybindings.
+The editor and terminal began as copies from Til's =examples/= directory.
+The editor now has a separate buffer/view/layout model; the terminal draft
+remains unchanged. Their standard-library imports resolve through the
+installed Til distribution's =lib/= search path. Both applications use
+Til's =mode gui= support and currently have hard-coded keybindings.

@@ -77,10 +77,12 @@ check_repeat := proc(display: Dynamic, name: Str, keysym: UPtr, input: Str) {
             i++
         }
     }
+    if name == "control-enter" { send_key(display, 65507, 1) }
     send_key(display, keysym, 1)
     // Longer than Xvfb's default repeat delay, with time for several repeats.
     sleep_ms(1500)
     send_key(display, keysym, 0)
+    if name == "control-enter" { send_key(display, 65507, 0) }
     sleep_ms(100)
 
     // Mark the resulting cursor position for navigation cases.
@@ -112,6 +114,7 @@ check_repeat := proc(display: Dynamic, name: Str, keysym: UPtr, input: Str) {
     if name == "backspace" || name == "delete" { assert(saved.len() < input.len() - 1) }
     if name == "letter" { assert(saved.len() > 1 && saved.contains("xx")) }
     if name == "enter" { assert(saved.split("\n").len() > 2) }
+    if name == "control-enter" { assert(saved == input) }
     println("PASS: held ", name)
 }
 
@@ -134,5 +137,6 @@ main := proc() {
     check_repeat(display, "delete", 65535, text)
     check_repeat(display, "letter", 120, "")
     check_repeat(display, "enter", 65293, "")
+    check_repeat(display, "control-enter", 65293, "unchanged")
     XCloseDisplay(display)
 }

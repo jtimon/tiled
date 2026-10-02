@@ -7,13 +7,13 @@
 - [[file:../make.til][make.til]] uses installed Til =0.0.1-2827886a4= to build Tiled and
   tilminal. The editor is imported by Tiled, with no separate editor example
   or build target.
-- [[file:../tiled.til][tiled.til]] provides a build-time =VERSION= and =-v=/=--version=.
+- [[file:../src/tiled.til][src/tiled.til]] provides a build-time =VERSION= and =-v=/=--version=.
 - Startup checks =~/.tiled/init.til=. A missing file prints the defaults
   notice and opens =*scratch*=. A working config lives at [[file:../defaults/init.til][defaults/init.til]].
 - Startup checks exercised the copied example, configured window size and
   initial file, command-line file precedence, failing init code, and version
   output bypassing init. An init path containing spaces worked.
-- The shared [[file:../editor.til][editor]] opens a GUI window and supports basic editing and
+- The shared [[file:../src/editor.til][editor]] opens a GUI window and supports basic editing and
   file dialogs. The editor and save dialog were manually exercised.
 - The editor now loads a system monospace font instead of raylib's default
   bitmap font. [[file:configuration.org][Font path and size]] are configurable; text, cursor,
@@ -23,6 +23,42 @@
 - The copied [[file:../examples/tilminal.til][tilminal draft]] opens and runs simple commands such as =ls=.
 - Tiled was rebuilt after relocating its checkout to
   =/home/jt/sync/data_common/tilcorp/tiled= and launched successfully there.
+
+** Internal splits
+
+Application sources live in =src/=: [[file:../src/tiled.til][startup]], [[file:../src/editor.til][GUI/input]], and
+[[file:../src/editor_model.til][buffers/views/layout]]. =C-x 2= and =C-x 3= split the focused view;
+=C-x o= changes focus, =C-x 0= closes a view, and =C-x 1= keeps only it.
+The model supports multiple buffers, shared edits and independent points
+and scrolling. =C-x C-f= opens a buffer in the focused pane; =C-x C-s= saves
+it. Existing Ctrl+O/Ctrl+S bindings remain available.
+
+[[file:../test/layout.til][Model tests]] check geometry, nested splits, traversal, subtree promotion,
+shared edits, buffer isolation, cursor adjustment and node reuse. The
+[[file:../test/splits.til][X11 integration test]] types split/focus/close sequences, edits from three
+views of one buffer, saves and checks the exact file contents. It also
+checks that closing the last view is refused and prefix keys do not enter
+the document. It uses the same X11 dependencies as the keyboard tests.
+
+#+begin_src sh
+til run -o tmp/check_layout -c tmp/check_layout.c test/layout.til
+til build -o tmp/check_splits -c tmp/check_splits.c test/splits.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_splits
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_splits remapped
+#+end_src
+
+Passing =screenshot= to =check_splits= additionally captures =tmp/splits.png=
+using ImageMagick's =import=. This preview shows the nested panes, shared
+contents, independent cursor locations and highlighted focus.
+The =remapped= run uses =xmodmap= to swap left Control/Alt after the window
+opens. Run it only on an isolated X server, as above. The same exact shared
+buffer contents and successful exit verify the mapped prefix commands.
+
+The nested-close test exposed a compiler lowering issue in installed Til
+=0.0.1-2827886a4=: a vector lookup in a while condition was emitted before
+the loop even though the body changed its index. The focus traversal now
+performs that lookup explicitly in the body, re-reading the selected node
+on each step. The sibling-subtree promotion case remains in the model test.
 
 ** Keyboard repeat
 
@@ -41,19 +77,17 @@ til build -o tmp/check_repeat -c tmp/check_repeat.c test/repeat.til
 xvfb-run -a ./tmp/check_repeat
 #+end_src
 
-** Open: unreliable quit sequence
+** Mapped modifiers and fast prefix sequences
 
-=C-x C-c= has an initial implementation, but it is not reliable. The user
-reported that it did not close the window. The window-manager close button
-worked.
+The old input loop paired queued =GetKeyPressed()= events with physical
+=IsKeyDown()= modifier state sampled later in the frame. That ignored
+=xmodmap= and missed quick chords when Control had already been released.
 
-A Til/X11 reproducer confirmed that slower Ctrl+X, Ctrl+C chords exit, while
-quick press/release chords can leave the application running. The editor
-reads queued =GetKeyPressed()= events but pairs them with =IsKeyDown()=
-modifier state sampled later in the frame. Control may already be released
-when the queued key is handled. The input path needs event-time modifiers;
-no fix for that has landed in this checkpoint. Remapped Control keys have
-not been verified.
+The [[file:../src/editor_input.c][input bridge]] now chains raylib's GLFW callback and queues each key
+press with its OS-mapped modifiers. Prefixes and save/open shortcuts consume
+those event-time flags. The bridge preserves raylib's existing callback for
+text, held-key repeat and window handling. C glue is needed because Til
+function values use a closure ABI rather than GLFW's plain C callback ABI.
 
 The reproducer is [[file:../test/quit.til][test/quit.til]], written in Til. It needs Linux/X11,
 =xvfb-run=, =xwininfo=, Xlib development/link support and =libXtst.so.6=.
@@ -65,9 +99,10 @@ xvfb-run -a ./tmp/check_quit
 xvfb-run -a ./tmp/check_quit fast
 #+end_src
 
-The first run passed; the =fast= run reproduced the failure. It is a bug
-reproducer, not an all-passing test suite. Both runs close or terminate
-their test application; its output goes to =tmp/quit-app.log=.
+Both slow and =fast= quit checks now pass, along with normal/remapped split
+sequences and nine held-key checks, including Control+Enter suppression.
+Both quit runs close or
+terminate their test application; its output goes to =tmp/quit-app.log=.
 
 ** Current limitations and next design work
 
@@ -78,7 +113,7 @@ their test application; its output goes to =tmp/quit-app.log=.
   current compiler, despite escaping the generated string literal.
 - Keybindings are hard-coded. The [[file:keybindings.org][command registry and M-x completion]]
   are planned; no command prompt or prefix suggestion menu is implemented.
-- [[file:architecture.org][Buffers, views, frames, splits and desktop hosts]] need distinct models.
-  =C-x 2= and =C-x 3= are proposed bindings, not working editor features yet.
+- Multiple OS frames (=C-x 5=), buffer selection by name (=C-x b=), and
+  [[file:architecture.org][desktop hosts]] remain future work.
 - Tilminal launches a new =sh -lc= for each command. =cd= therefore does not
   persist between commands. A persistent shell/PTY is future work.

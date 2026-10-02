@@ -1,0 +1,8 @@
+mode lib
+
+// C glue is needed because Til function values use a closure ABI, whereas
+// GLFW takes a plain C callback. GLFW comes from installed raylib.
+link_c("editor_input.c")
+editor_init_input := ext_proc() {}
+editor_next_key := ext_proc(mut mods: I32, mut action: I32) returns shallow I32 {}
+editor_close_input := ext_proc() {}

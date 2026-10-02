@@ -2,8 +2,9 @@
 
 [[file:../README.org][Tiled]] | [[file:progress.org][Progress]] | [[file:keybindings.org][Commands and keybindings]]
 
-This is the proposed model. The current program has one editor buffer and
-one GUI window; splits and window management are not implemented.
+The editor now has separate buffers, views and a binary split-layout tree,
+implemented in [[file:../src/editor_model.til][src/editor_model.til]]. It displays them inside one GUI window.
+Desktop window management and multiple OS-level frames remain future work.
 
 ** Buffers, windows and frames
 
@@ -20,7 +21,7 @@ Use Emacs's distinction when discussing the editor:
 - A workspace groups a layout of views or external clients, depending on
   the host.
 
-The intended Emacs-style split bindings are:
+The current Emacs-style split bindings are:
 
 | Binding | Result                         | Divider    |
 |---------+--------------------------------+------------|
@@ -30,9 +31,24 @@ The intended Emacs-style split bindings are:
 | C-x 1   | Keep only the current view     |            |
 | C-x o   | Focus the next view            |            |
 
-Splitting a view can initially show the same buffer in both views. Closing
-a view does not discard its buffer. Desktop placement and editor splitting
-can share layout operations without treating external windows as buffers.
+Splitting a view shows the same buffer in both views, initially copying the
+cursor and scroll positions. Subsequent navigation is independent. Shared
+edits update all views and adjust other views' cursor positions to track
+the surrounding text. Closing a view does not discard its buffer.
+
+Splits can be nested: only the focused view is divided. Closing it promotes
+its sibling subtree, and closing the last view is refused. =C-x 1= preserves
+the focused view and its buffer. Focus cycles in layout order with =C-x o=;
+clicking a pane also focuses it. Each pane clips its own text and has a
+mode line, with the focused pane highlighted. Layouts adapt to resizing.
+
+Opening a file changes only the focused view's buffer. Opening an already
+loaded file reuses its buffer, including unsaved edits. Buffer selection by
+name (=C-x b=) is future work. =C-x 5= is deferred until Tiled supports
+multiple OS-level frames.
+
+Desktop placement and editor splitting can eventually share layout
+operations without treating external windows as buffers.
 
 ** Hosting modes
 

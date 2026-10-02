@@ -1,0 +1,284 @@
+mode lib
+
+// Buffers own text. Leaf nodes own views; branch nodes own layout decisions.
+EditorBuffer := struct {
+    filename := ""
+    text := ""
+    dirty := false
+}
+
+EditorView := struct {
+    buffer : USize = 0
+    cursor : USize = 0
+    scroll_y : I32 = 0
+    scroll_x : I32 = 0
+}
+
+EditorRect := struct {
+    x : I32 = 0
+    y : I32 = 0
+    width : I32 = 0
+    height : I32 = 0
+}
+
+EditorNode := struct {
+    alive := true
+    parent : I32 = -1
+    first : I32 = -1
+    second : I32 = -1
+    side_by_side := false
+    view := EditorView()
+    rect := EditorRect()
+}
+
+text_line_start := func(text: Str, cursor: USize) returns USize {
+    mut pos := cursor
+    while pos > 0 {
+        if text.get(pos - 1) == '\n' { break }
+        pos--
+    }
+    return pos
+}
+
+text_line_end := func(text: Str, cursor: USize) returns USize {
+    mut pos := cursor
+    while pos < text.len() {
+        if text.get(pos) == '\n' { break }
+        pos++
+    }
+    return pos
+}
+
+text_row := func(text: Str, cursor: USize) returns I32 {
+    mut row : I32 = 0
+    mut i : USize = 0
+    while i < cursor {
+        if text.get(i) == '\n' { row = row + 1 }
+        i++
+    }
+    return row
+}
+
+EditorState := struct {
+    buffers : Vec(EditorBuffer)
+    nodes : Vec(EditorNode)
+    focused : USize = 0
+
+namespace:
+    new := func(filename: Str, text: Str) returns EditorState {
+        mut buffers := Vec(EditorBuffer).new()
+        buffers.push(own EditorBuffer(filename = filename.clone(), text = text.clone()))
+        mut nodes := Vec(EditorNode).new()
+        nodes.push(own EditorNode())
+        return EditorState(buffers = buffers, nodes = nodes)
+    }
+
+    add_node := func(mut self: EditorState, node: EditorNode) returns USize {
+        mut i : USize = 0
+        while i < self.nodes.len() {
+            if !self.nodes[i].alive {
+                self.nodes.set(i, own node.clone())!
+                return i
+            }
+            i++
+        }
+        self.nodes.push(own node.clone())
+        return i
+    }
+
+    arrange := func(mut self: EditorState, index: USize, rect: EditorRect) {
+        ref mut placed : EditorNode = self.nodes[index]
+        placed.rect = rect.clone()
+        first := self.nodes[index].first
+        second := self.nodes[index].second
+        if first < 0 { return }
+        if self.nodes[index].side_by_side {
+            mut gap : I32 = 4
+            if rect.width < gap { gap = rect.width }
+            half := (rect.width - gap) / 2
+            self.arrange(first.to_usize(), EditorRect(x = rect.x, y = rect.y,
+                width = half, height = rect.height))
+            self.arrange(second.to_usize(), EditorRect(x = rect.x + half + gap, y = rect.y,
+                width = rect.width - half - gap, height = rect.height))
+        } else {
+            mut gap : I32 = 4
+            if rect.height < gap { gap = rect.height }
+            half := (rect.height - gap) / 2
+            self.arrange(first.to_usize(), EditorRect(x = rect.x, y = rect.y,
+                width = rect.width, height = half))
+            self.arrange(second.to_usize(), EditorRect(x = rect.x, y = rect.y + half + gap,
+                width = rect.width, height = rect.height - half - gap))
+        }
+    }
+
+    split := func(mut self: EditorState, side_by_side: Bool, min_width: I32, min_height: I32) returns Bool {
+        index := self.focused
+        rect := self.nodes[index].rect.clone()
+        if side_by_side {
+            if rect.width < min_width * 2 + 4 { return false }
+        } else {
+            if rect.height < min_height * 2 + 4 { return false }
+        }
+        // Copy before pushes, which may reallocate the node vector.
+        view := self.nodes[index].view.clone()
+        first := self.add_node(EditorNode(parent = index.to_i32(), view = view.clone()))
+        second := self.add_node(EditorNode(parent = index.to_i32(), view = view.clone()))
+        ref mut branch : EditorNode = self.nodes[index]
+        branch.first = first.to_i32()
+        branch.second = second.to_i32()
+        branch.side_by_side = side_by_side
+        self.focused = first
+        return true
+    }
+
+    collect_views := func(self: EditorState, index: USize, mut out: Vec(USize)) {
+        ref node : EditorNode = self.nodes[index]
+        if node.first < 0 {
+            out.push(own index)
+        } else {
+            self.collect_views(node.first.to_usize(), out)
+            self.collect_views(node.second.to_usize(), out)
+        }
+    }
+
+    views := func(self: EditorState) returns Vec(USize) {
+        mut out := Vec(USize).new()
+        self.collect_views(0, out)
+        return out
+    }
+
+    next_view := func(mut self: EditorState) {
+        order := self.views()
+        mut i : USize = 0
+        while i < order.len() {
+            if order[i] == self.focused {
+                self.focused = order[(i + 1).mod(order.len())]
+                return
+            }
+            i++
+        }
+    }
+
+    close_view := func(mut self: EditorState) returns Bool {
+        index := self.focused
+        parent := self.nodes[index].parent
+        if parent < 0 { return false }
+        parent_index := parent.to_usize()
+        ref branch : EditorNode = self.nodes[parent_index]
+        mut sibling := branch.first
+        if sibling == index.to_i32() { sibling = branch.second }
+        grandparent := branch.parent
+        mut replacement := self.nodes[sibling.to_usize()].clone()
+        replacement.parent = grandparent
+        self.nodes.set(parent_index, own replacement)!
+        ref mut removed : EditorNode = self.nodes[index]
+        removed.alive = false
+        ref mut promoted : EditorNode = self.nodes[sibling.to_usize()]
+        promoted.alive = false
+        first := self.nodes[parent_index].first
+        second := self.nodes[parent_index].second
+        if first >= 0 {
+            ref mut first_child : EditorNode = self.nodes[first.to_usize()]
+            first_child.parent = parent
+            ref mut second_child : EditorNode = self.nodes[second.to_usize()]
+            second_child.parent = parent
+        }
+        self.focused = parent_index
+        // Keep the lookup in the body: Til 0.0.1-2827886a4 hoists an indexed
+        // while-condition lookup even when the body changes its index.
+        while true {
+            child := self.nodes[self.focused].first
+            if child < 0 { break }
+            self.focused = child.to_usize()
+        }
+        return true
+    }
+
+    only_view := func(mut self: EditorState) {
+        view := self.nodes[self.focused].view.clone()
+        mut nodes := Vec(EditorNode).new()
+        nodes.push(own EditorNode(view = view))
+        self.nodes = nodes
+        self.focused = 0
+    }
+
+    show_buffer := func(mut self: EditorState, filename: Str, text: Str) {
+        mut id : USize = 0
+        while id < self.buffers.len() {
+            if filename.len() > 0 && self.buffers[id].filename == filename { break }
+            id++
+        }
+        if id == self.buffers.len() {
+            self.buffers.push(own EditorBuffer(filename = filename.clone(), text = text.clone()))
+        }
+        ref mut node : EditorNode = self.nodes[self.focused]
+        node.view = EditorView(buffer = id)
+    }
+
+    move_cursor := func(mut self: EditorState, key: I32) {
+        ref mut view : EditorView = self.nodes[self.focused].view
+        ref text : Str = self.buffers[view.buffer].text
+        start := text_line_start(text, view.cursor)
+        end := text_line_end(text, view.cursor)
+        column := view.cursor - start
+        if key == 263 && view.cursor > 0 { view.cursor-- }
+        if key == 262 && view.cursor < text.len() { view.cursor++ }
+        if key == 268 { view.cursor = start }
+        if key == 269 { view.cursor = end }
+        if key == 265 && start > 0 {
+            previous := text_line_start(text, start - 1)
+            mut offset := column
+            if offset > start - 1 - previous { offset = start - 1 - previous }
+            view.cursor = previous + offset
+        }
+        if key == 264 && end < text.len() {
+            next := end + 1
+            next_end := text_line_end(text, next)
+            mut offset := column
+            if offset > next_end - next { offset = next_end - next }
+            view.cursor = next + offset
+        }
+    }
+
+    replace := func(mut self: EditorState, start: USize, count: USize, inserted: Str) {
+        id := self.nodes[self.focused].view.buffer
+        ref mut buffer : EditorBuffer = self.buffers[id]
+        end := start + count
+        assert(end <= buffer.text.len())
+        replacement := format(buffer.text.substr(0, start), inserted,
+            buffer.text.substr(end, buffer.text.len() - end))
+        buffer.text = replacement
+        buffer.dirty = true
+        // Other views retain their own points, adjusted for the shared edit.
+        mut i : USize = 0
+        while i < self.nodes.len() {
+            ref mut node : EditorNode = self.nodes[i]
+            if node.alive && node.first < 0 && node.view.buffer == id {
+                if node.view.cursor > end || (count > 0 && node.view.cursor == end) {
+                    node.view.cursor = node.view.cursor - count + inserted.len()
+                } else if node.view.cursor > start {
+                    node.view.cursor = start
+                }
+            }
+            i++
+        }
+        ref mut active : EditorNode = self.nodes[self.focused]
+        active.view.cursor = start + inserted.len()
+    }
+
+    insert := func(mut self: EditorState, text: Str) {
+        cursor := self.nodes[self.focused].view.cursor
+        self.replace(cursor, 0, text)
+    }
+
+    backspace := func(mut self: EditorState) {
+        cursor := self.nodes[self.focused].view.cursor
+        if cursor > 0 { self.replace(cursor - 1, 1, "") }
+    }
+
+    delete_forward := func(mut self: EditorState) {
+        ref view : EditorView = self.nodes[self.focused].view
+        cursor := view.cursor
+        if cursor < self.buffers[view.buffer].text.len() { self.replace(cursor, 1, "") }
+    }
+}
