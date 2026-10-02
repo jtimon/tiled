@@ -1,0 +1,211 @@
+mode cli
+
+// Run under xvfb-run. Scratch-save cancellation uses mode gui's zenity dialog.
+import("std/sys")
+link("X11")
+link(":libXtst.so.6")
+link_c("exit_input.c")
+XOpenDisplay := ext_proc(name: I8) returns ref Dynamic {}
+XCloseDisplay := ext_proc(display: Dynamic) returns shallow I32 {}
+XSetInputFocus := ext_proc(display: Dynamic, shallow window: UPtr, shallow revert: I32, shallow time: UPtr) returns shallow I32 {}
+XKeysymToKeycode := ext_proc(display: Dynamic, shallow keysym: UPtr) returns shallow U8 {}
+XkbKeycodeToKeysym := ext_proc(display: Dynamic, shallow key: U8, shallow group: I32, shallow level: I32) returns shallow UPtr {}
+XTestFakeKeyEvent := ext_proc(display: Dynamic, shallow key: U32, shallow pressed: I32, shallow delay: UPtr) returns shallow I32 {}
+XFlush := ext_proc(display: Dynamic) returns shallow I32 {}
+exit_test_request_close := ext_proc(display: Dynamic, shallow window: UPtr) returns shallow I32 {}
+get_cwd_str := ext_proc() returns Str {}
+
+send_key := proc(display: Dynamic, key: UPtr, pressed: I32) {
+    code := XKeysymToKeycode(display, key)
+    XTestFakeKeyEvent(display, code.cast(U32), pressed, 0)
+    XFlush(display)
+}
+tap := proc(display: Dynamic, key: UPtr) {
+    send_key(display, key, 1)
+    send_key(display, key, 0)
+}
+chord := proc(display: Dynamic, key: UPtr) {
+    sleep_ms(30)
+    send_key(display, 65507, 1)
+    tap(display, key)
+    send_key(display, 65507, 0)
+}
+type_text := proc(display: Dynamic, text: Str) {
+    for index in 0..text.len() {
+        symbol := text.get(index).cast(I64).cast(UPtr)
+        code := XKeysymToKeycode(display, symbol)
+        shifted := XkbKeycodeToKeysym(display, code, 0, 0) != symbol
+        if shifted { send_key(display, 65505, 1) }
+        tap(display, symbol)
+        if shifted { send_key(display, 65505, 0) }
+    }
+}
+answer := proc(display: Dynamic, text: Str) {
+    type_text(display, text)
+    tap(display, 65293)
+    sleep_ms(150)
+}
+request_exit := proc(display: Dynamic, window: UPtr, how: Str) {
+    if how == "close" { assert(exit_test_request_close(display, window) != 0) }
+    else if how == "escape" { tap(display, 65307) }
+    else {
+        chord(display, 120)
+        chord(display, 99)
+    }
+    sleep_ms(150)
+}
+find_window := proc(title: Str) returns UPtr {
+    query := Cmd.new("xwininfo", "-root", "-tree", "-int")
+    query.capture_out()
+    if query.run() != 0 { panic("xwininfo failed") }
+    for line : Str in query.out().split("\n") {
+        if line.contains(format("\"", title, "\"")) {
+            fields := line.trim().split(" ")
+            return fields[0].to_i64().cast(UPtr)
+        }
+    }
+    return 0
+}
+require := proc(app: Cmd, pid: I64, condition: Bool, message: Str) {
+    if condition { return }
+    Cmd.new("import", "-window", "root", "tmp/exit-input-failure.png").run()
+    if !app.poll() {
+        Cmd.new("pkill", "-TERM", "-P", pid.to_str()).run()
+        Cmd.new("kill", "-TERM", pid.to_str()).run()
+    }
+    app.wait()
+    panic(message, "\n", File.readfile("tmp/exit-input-app.log"))
+}
+wait_window := proc(app: Cmd, pid: I64, title: Str) returns UPtr {
+    mut window : UPtr = 0
+    for _ in 0..200 {
+        window = find_window(title)
+        if window != 0 || app.poll() { break }
+        sleep_ms(50)
+    }
+    require(app, pid, window != 0, format("missing window: ", title))
+    return window
+}
+focus := proc(display: Dynamic, window: UPtr) {
+    for _ in 0..100 {
+        query := Cmd.new("xwininfo", "-id", window.to_str())
+        query.capture_out()
+        if query.run() == 0 && query.out().contains("Map State: IsViewable") { break }
+        sleep_ms(50)
+    }
+    XSetInputFocus(display, window, 2, 0)
+    XFlush(display)
+    sleep_ms(150)
+}
+
+check_exit := proc(display: Dynamic, how: Str, decision: Str) {
+    path := format("tmp/exit-", process_id().to_str(), ".txt")
+    File.writefile(path, "base")
+    scratch := decision == "scratch" || decision == "scratch-save"
+    if decision == "scratch-save" { File.remove(path) }
+    app := Cmd.new("./bin/tiled")
+    if !scratch { app.arg(path) }
+    app.env("HOME", format(get_cwd_str(), "/tmp/exit-home-", process_id().to_str()))
+    app.stdout_to("tmp/exit-input-app.log").stderr_to_stdout()
+    pid := app.start()
+    mut title := format("Tiled - exit-", process_id().to_str(), ".txt")
+    if scratch { title = "Tiled - *scratch*" }
+    window := wait_window(app, pid, title)
+    focus(display, window)
+    type_text(display, "x")
+    request_exit(display, window, how)
+    require(app, pid, !app.poll(), "dirty buffer exited without confirmation")
+    answer(display, "") // Default is cancel, never save or discard.
+    require(app, pid, !app.poll(), "empty confirmation exited")
+    type_text(display, "y")
+    request_exit(display, window, how)
+    chord(display, 103)
+    type_text(display, "z")
+    request_exit(display, window, how)
+    tap(display, 65307) // Escape cancels, rather than recursively requesting exit.
+    sleep_ms(100)
+    require(app, pid, !app.poll(), "Escape did not cancel exit")
+    type_text(display, "w")
+    request_exit(display, window, how)
+    if decision == "failure" {
+        File.remove(path)
+        assert(mkdir_p(path) == 0)
+        answer(display, "save")
+        require(app, pid, !app.poll(), "failed save terminated editor")
+        File.remove_tree(path)
+        File.writefile(path, "base")
+        type_text(display, "f")
+        request_exit(display, window, how)
+        answer(display, "save")
+    } else if scratch {
+        answer(display, "save")
+        mut dialog := wait_window(app, pid, "Save file")
+        // The installed mode gui helper can invoke its native dialog twice.
+        for _ in 0..3 {
+            focus(display, dialog)
+            if decision == "scratch-save" {
+                chord(display, 108)
+                sleep_ms(100)
+                type_text(display, format(get_cwd_str(), "/", path))
+                // GTK resolves the entered directory asynchronously before
+                // enabling its accept action.
+                sleep_ms(300)
+                tap(display, 65293)
+            } else {
+                tap(display, 65307)
+            }
+            sleep_ms(500)
+            dialog = 0
+            for _ in 0..20 {
+                dialog = find_window("Save file")
+                if dialog != 0 { break }
+                sleep_ms(50)
+            }
+            if dialog == 0 { break }
+        }
+        require(app, pid, dialog == 0, "save dialog did not finish")
+        if decision == "scratch" {
+            focus(display, window)
+            require(app, pid, !app.poll(), "cancelled save exited editor")
+            request_exit(display, window, how)
+            require(app, pid, !app.poll(), "cancelled save lost dirty state")
+            answer(display, "discard")
+        }
+    } else if how == "close" && decision == "discard" {
+        type_text(display, "dis")
+        request_exit(display, window, how) // Repeated WM close must not restart prompt.
+        answer(display, "card")
+    } else { answer(display, decision) }
+    for _ in 0..100 {
+        if app.poll() { break }
+        sleep_ms(50)
+    }
+    require(app, pid, app.poll(), "accepted exit did not finish")
+    assert(app.wait() == 0)
+    mut expected := "base"
+    if decision == "save" { expected = "xyzwbase" }
+    if decision == "failure" { expected = "xyzwfbase" }
+    if decision == "scratch-save" { expected = "xyzw" }
+    assert(File.readfile(path) == expected)
+    File.remove(path)
+    println("PASS: ", how, " exit, cancellations and ", decision)
+}
+
+main := proc(args: ..Str) {
+    name := get_env("DISPLAY")
+    ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    if args.len() > 0 {
+        check_exit(display, "prefix", args[0])
+        XCloseDisplay(display)
+        return
+    }
+    check_exit(display, "prefix", "save")
+    check_exit(display, "escape", "discard")
+    check_exit(display, "close", "save")
+    check_exit(display, "close", "discard")
+    check_exit(display, "prefix", "failure")
+    check_exit(display, "prefix", "scratch")
+    check_exit(display, "prefix", "scratch-save")
+    XCloseDisplay(display)
+}

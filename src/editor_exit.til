@@ -1,0 +1,52 @@
+mode lib
+
+import("editor_model")
+import("minibuffer")
+
+// Discard decisions belong to this exit attempt, not to the buffers. Cancelling
+// later in the sequence must leave those buffers dirty and their text intact.
+EditorExitPrompt := struct {
+    mini := Minibuffer()
+    pending := Vec(USize).new()
+    position : USize = 0
+    ready := false
+
+namespace:
+    show := func(mut self: EditorExitPrompt, editor: EditorState) {
+        if self.position == self.pending.len() {
+            self.mini.active = false
+            self.ready = true
+            return
+        }
+        id := self.pending[self.position].clone()
+        mut choices := Vec(MinibufferChoice).new()
+        choices.push(own MinibufferChoice(id = 0, name = "cancel", detail = "Return to editing"))
+        choices.push(own MinibufferChoice(id = 1, name = "save", detail = "Save this buffer, then continue"))
+        choices.push(own MinibufferChoice(id = 2, name = "discard", detail = "Exit without saving this buffer"))
+        self.mini.begin(format("Exit ", (self.position + 1).to_str(), "/", self.pending.len().to_str(),
+            " - ", editor.buffer_name(id), ": "), choices)
+    }
+
+    begin := func(mut self: EditorExitPrompt, editor: EditorState) {
+        if self.mini.active { return }
+        self.pending.clear()
+        self.position = 0
+        self.ready = false
+        for id : USize in editor.live_buffers() {
+            if editor.buffers[id].dirty { self.pending.push(own id.clone()) }
+        }
+        self.show(editor)
+    }
+
+    cancel := func(mut self: EditorExitPrompt) {
+        self.mini.active = false
+        self.ready = false
+        self.pending.clear()
+        self.position = 0
+    }
+
+    advance := func(mut self: EditorExitPrompt, editor: EditorState) {
+        self.position++
+        self.show(editor)
+    }
+}

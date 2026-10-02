@@ -105,6 +105,50 @@ result of its =switch=. Selecting a file therefore opens a second chooser
 with Til =0.0.1-2827886a4=. The test answers repeated choosers; Tiled still
 uses the =mode gui= helper.
 
+** Save/discard/cancel on exit
+
+=C-x C-c=, Escape outside a prompt and the window's close button now share
+one exit workflow. Every live modified buffer is prompted once, including
+hidden buffers. Empty input defaults to cancel. Cancelling after an earlier
+discard preserves that buffer's dirty state and text; cancelling after a
+save retains the successful save. The layout and selected pane stay intact.
+No modified buffers means immediate exit.
+
+An unnamed buffer uses the existing =mode gui= save dialog. Cancelling the
+dialog or encountering a save error returns to editing rather than exiting.
+The small [[file:../src/editor_save.c][save bridge]] reports open/write/close errors because installed
+Til's =File.writefile= terminates the process on an open failure. Ordinary
+save shortcuts use the same recoverable writer.
+
+The first close-button test caught a queued-input race: checking
+=WindowShouldClose()= before processing typed text could see a clean buffer
+and exit. The GLFW close callback now queues a close request in key/text
+order and clears the native close flag. The application makes the decision
+after earlier edits have been processed. Repeated close requests preserve
+the active exit prompt.
+
+[[file:../test/exit.til][Model/save tests]] cover hidden dirty buffers, default cancellation,
+repeated requests, cancellation after discard/save, successful writes,
+open failure and a buffered write failure using Linux's =/dev/full=.
+[[file:../test/exit_input.til][GUI tests]] exercise all three exit paths, empty/=C-g=/Escape cancellation,
+save/discard, failed-save recovery, and scratch save-dialog acceptance and
+cancellation. [[file:../test/buffer_input.til][The buffer GUI test]] accepts =exit= to check multiple dirty
+buffers, cancellation at the second buffer and saving a hidden buffer; this
+also passed with remapped Control. Existing buffer, split, fast-quit and
+held-key GUI checks passed.
+
+#+begin_src sh
+til run -o tmp/check_exit -c tmp/check_exit.c test/exit.til
+til build -o tmp/check_exit_input -c tmp/check_exit_input.c test/exit_input.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_exit_input
+til build -o tmp/check_buffer_input -c tmp/check_buffer_input.c test/buffer_input.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_buffer_input remapped exit
+#+end_src
+
+GUI dependencies are the same as the buffer tests (X11/XTest, =xvfb-run=,
+=xwininfo=, =zenity= and =pkill=). On a failed check, the exit GUI test attempts
+an ImageMagick screenshot at =tmp/exit-input-failure.png=.
+
 ** Keyboard repeat
 
 Navigation and editing keys now handle both initial presses and the

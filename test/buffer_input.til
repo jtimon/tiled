@@ -3,6 +3,7 @@ mode cli
 // Run under xvfb-run. Uses Til mode gui's real file dialog to load a second
 // file, then exercises prompts through X11. Requires a GUI dialog provider
 // such as zenity. Optional "remapped" swaps Control/Alt on this X server.
+// "exit" exercises multiple dirty buffers, including saving a hidden buffer.
 import("std/sys")
 link("X11")
 link(":libXtst.so.6")
@@ -111,6 +112,43 @@ focus := proc(display: Dynamic, window: UPtr) {
     sleep_ms(100)
 }
 
+check_exit_buffers := proc(app: Cmd, pid: I64, display: Dynamic, first: Str, second: Str) {
+    type_text(display, "c") // Both buffers are now dirty; the second is hidden here.
+    prefix(display, 99, true)
+    type_text(display, "discard")
+    tap(display, 65293)
+    sleep_ms(100)
+    type_text(display, "cancel")
+    tap(display, 65293)
+    sleep_ms(100)
+    require(app, pid, !app.poll(), "cancel on second buffer did not cancel exit")
+    require(app, pid, File.readfile(first) == "axzlpha", "discard wrote the first buffer")
+    require(app, pid, File.readfile(second) == "bqbeta", "cancel wrote the second buffer")
+
+    prefix(display, 99, true)
+    type_text(display, "save")
+    tap(display, 65293)
+    sleep_ms(100)
+    require(app, pid, File.readfile(first) == "axzclpha", "cancel lost previously discarded edits")
+    type_text(display, "cancel")
+    tap(display, 65293)
+    sleep_ms(100)
+    require(app, pid, !app.poll(), "cancel after a save did not return to editing")
+    // The already-saved first buffer must not prompt again. Saving this last
+    // dirty buffer must target its ID, not the currently displayed buffer.
+    prefix(display, 99, true)
+    type_text(display, "save")
+    tap(display, 65293)
+    for _ in 0..100 {
+        if app.poll() { break }
+        sleep_ms(50)
+    }
+    require(app, pid, app.poll(), "hidden-buffer save did not finish exit")
+    assert(app.wait() == 0)
+    assert(File.readfile(second) == "brqbeta")
+    println("PASS: multiple dirty buffers, cancel after discard/save, and saving a hidden buffer")
+}
+
 main := proc(args: ..Str) {
     base := format(get_cwd_str(), "/tmp/buffer-input-", process_id().to_str())
     assert(mkdir_p(format(base, "/one")) == 0)
@@ -193,6 +231,18 @@ main := proc(args: ..Str) {
     chord(display, 115)
     sleep_ms(150)
     require(app, pid, File.readfile(first) == "axzlpha", "list selection or independent point failed")
+
+    for arg : Str in args {
+        if arg == "exit" {
+            // Hide the dirty second buffer in the other pane as well.
+            prefix(display, 49)
+            check_exit_buffers(app, pid, display, first, second)
+            XCloseDisplay(display)
+            File.remove(first)
+            File.remove(second)
+            return
+        }
+    }
 
     // An empty confirmation never discards edits; "no", C-g and Escape cancel.
     choose(display, 107, "two/shared")

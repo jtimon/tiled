@@ -7,13 +7,17 @@
 typedef struct GLFWwindow GLFWwindow;
 typedef void (*EditorKeyCallback)(GLFWwindow *, int, int, int, int);
 typedef void (*EditorCharCallback)(GLFWwindow *, unsigned int);
+typedef void (*EditorCloseCallback)(GLFWwindow *);
 extern GLFWwindow *glfwGetCurrentContext(void);
 extern EditorKeyCallback glfwSetKeyCallback(GLFWwindow *, EditorKeyCallback);
 extern EditorCharCallback glfwSetCharCallback(GLFWwindow *, EditorCharCallback);
+extern EditorCloseCallback glfwSetWindowCloseCallback(GLFWwindow *, EditorCloseCallback);
+extern void glfwSetWindowShouldClose(GLFWwindow *, int);
 
 typedef struct { int key, mods, action; } EditorKeyEvent;
 static EditorKeyCallback raylib_key_callback;
 static EditorCharCallback raylib_char_callback;
+static EditorCloseCallback previous_close_callback;
 static EditorKeyEvent *events;
 static size_t count, capacity, cursor;
 
@@ -45,6 +49,15 @@ static void editor_char_callback(GLFWwindow *window, unsigned int codepoint)
     editor_push_event((int)codepoint, 0, 3);
 }
 
+static void editor_window_close_callback(GLFWwindow *window)
+{
+    // GLFW allows no close callback. Its close flag is set before this call;
+    // defer that decision until earlier queued text has reached the buffers.
+    if (previous_close_callback) previous_close_callback(window);
+    glfwSetWindowShouldClose(window, 0);
+    editor_push_event(1, 0, 4);
+}
+
 void editor_init_input(void)
 {
     GLFWwindow *window = glfwGetCurrentContext();
@@ -53,6 +66,7 @@ void editor_init_input(void)
     if (!raylib_key_callback) { fputs("Tiled: no raylib key callback\n", stderr); abort(); }
     raylib_char_callback = glfwSetCharCallback(window, editor_char_callback);
     if (!raylib_char_callback) { fputs("Tiled: no raylib char callback\n", stderr); abort(); }
+    previous_close_callback = glfwSetWindowCloseCallback(window, editor_window_close_callback);
 }
 
 int32_t editor_next_key(int32_t *mods, int32_t *action)
@@ -68,6 +82,7 @@ void editor_close_input(void)
 {
     glfwSetKeyCallback(glfwGetCurrentContext(), raylib_key_callback);
     glfwSetCharCallback(glfwGetCurrentContext(), raylib_char_callback);
+    glfwSetWindowCloseCallback(glfwGetCurrentContext(), previous_close_callback);
     free(events);
     events = NULL;
     cursor = count = capacity = 0;

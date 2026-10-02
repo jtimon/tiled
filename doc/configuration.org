@@ -20,10 +20,36 @@ the desktop's keyboard repeat delay and rate. Held letters repeat through
 the normal text-input stream. Home and End also accept repeat events;
 command shortcuts such as save and open respond only to the initial press.
 
-=C-x C-c= exits: press Ctrl+X, then Ctrl+C. Shortcuts use the OS-mapped
+=C-x C-c= requests exit: press Ctrl+X, then Ctrl+C. Shortcuts use the OS-mapped
 modifiers captured with each key press, including Control remapped with
 =xmodmap=. =C-g= cancels a recognized pending =C-x=; an unrecognized
 continuation is consumed and cancels the prefix.
+
+** Exiting with unsaved edits
+
+=C-x C-c=, Escape outside a prompt, and the window's close button all check
+every loaded buffer, including buffers hidden from all panes. If none is
+modified, Tiled exits immediately. Otherwise the minibuffer asks about each
+modified buffer once, showing its name and progress through the sequence:
+
+- =save=: save this buffer and continue to the next modified buffer.
+- =discard=: continue without saving this buffer.
+- =cancel=: abandon the exit attempt and return to editing.
+
+Type the choice and press Enter, or select it with the arrows. Empty input
+defaults to =cancel=. =C-g= or Escape also cancels. Repeated close-button
+requests do not restart an active confirmation.
+
+Discard decisions apply only to that exit attempt. If you cancel at a later
+buffer, earlier discarded buffers still contain their unsaved edits and
+remain marked modified. Successful earlier saves remain saved. Panes, focus
+and cursor positions are preserved while checking hidden buffers.
+
+Saving an unnamed scratch buffer uses Til's =mode gui= Save file dialog.
+Cancelling that dialog, or failing to save a file, stops the exit attempt
+and returns to editing with the buffer still modified. Save failures display
+an error in the status area, including open, write and close/flush failures.
+The same recoverable save handling applies to =C-s= and =C-x C-s=.
 
 ** Internal tiling
 

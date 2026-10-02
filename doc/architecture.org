@@ -59,6 +59,13 @@ last one is killed. Stable buffer slots keep other buffers' identities intact.
 The GUI draws the prompt and dispatches an ordered stream of key and text
 events, so a prompt's opening key cannot become its first input character.
 
+[[file:../src/editor_exit.til][Exit state]] snapshots the live modified buffers once per exit attempt.
+Discarding advances that attempt without clearing a buffer's dirty flag, so
+later cancellation preserves its unsaved state. Saving targets a buffer ID
+without changing the focused pane. Window-close callbacks join the same
+ordered queue as key/text events; typing received before a close request is
+applied before the modified-buffer check.
+
 Desktop placement and editor splitting can eventually share layout
 operations without treating external windows as buffers.
 

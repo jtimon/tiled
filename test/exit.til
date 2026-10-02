@@ -1,0 +1,57 @@
+mode cli
+
+import("std/file")
+import("../src/editor_exit")
+link_c("../src/editor_save.c")
+editor_write_file := ext_proc(path: I8, text: I8, shallow length: UPtr) returns shallow I32 {}
+
+main := proc() {
+    mut editor := EditorState.new("first", "original")
+    mut prompt := EditorExitPrompt()
+    prompt.begin(editor)
+    assert(prompt.ready && !prompt.mini.active)
+    editor.insert("edit")
+    editor.show_buffer("second", "another")
+    editor.insert("changed")
+    editor.show_buffer("clean", "untouched")
+    // Both dirty buffers are hidden; shared views do not duplicate decisions.
+    editor.arrange(0, EditorRect(width = 1000, height = 800))
+    assert(editor.split(true, 200, 80))
+    focused := editor.focused
+    prompt.begin(editor)
+    assert(prompt.pending.len() == 2 && !prompt.ready)
+    assert(prompt.pending[0] == 0 && prompt.pending[1] == 1)
+    assert(prompt.mini.choices[prompt.mini.choice().to_usize()].id == 0)
+    prompt.mini.insert("discard")
+    prompt.begin(editor) // Repeated WM close must not reset a partially typed answer.
+    assert(prompt.mini.input == "discard")
+    prompt.advance(editor)
+    assert(prompt.position == 1 && prompt.mini.active)
+    prompt.cancel()
+    assert(!prompt.ready && !prompt.mini.active)
+    assert(editor.buffers[0].dirty && editor.buffers[1].dirty)
+    assert(editor.buffers[0].text == "editoriginal")
+    assert(editor.focused == focused && editor.nodes[focused].view.buffer == 2)
+    prompt.begin(editor)
+    // Simulate one successful save, then cancel at the second buffer.
+    ref mut first : EditorBuffer = editor.buffers[0]
+    first.dirty = false
+    prompt.advance(editor)
+    prompt.cancel()
+    prompt.begin(editor)
+    assert(prompt.pending.len() == 1 && prompt.pending[0] == 1)
+    prompt.advance(editor)
+    assert(prompt.ready && !prompt.mini.active)
+    assert(editor.buffers[1].dirty) // Discard is not a fake save.
+
+    path := "tmp/exit-write-check.txt"
+    text := "saved text"
+    assert(editor_write_file(path.c_str, text.c_str, text.len().to_uptr()) == 0)
+    assert(File.readfile(path) == text)
+    File.remove(path)
+    // A directory cannot be opened for writing, even when tests run as root.
+    assert(editor_write_file("tmp".c_str, text.c_str, text.len().to_uptr()) != 0)
+    // Linux's full device catches deferred buffered-write/fclose failures.
+    assert(editor_write_file("/dev/full".c_str, text.c_str, text.len().to_uptr()) != 0)
+    println("PASS: hidden dirty buffers, exit cancellation, discard state and recoverable save errors")
+}

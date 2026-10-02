@@ -58,8 +58,11 @@ See [[file:configuration.org][startup and configuration]] for init-file loading 
 - [[file:../src/editor_model.til][src/editor_model.til]]: buffers, independent views and the split-layout tree.
 - [[file:../src/minibuffer.til][src/minibuffer.til]]: reusable prompt text, filtering, selection and completion.
 - [[file:../src/editor_buffers.til][src/editor_buffers.til]]: buffer choices, switching/listing and kill confirmation.
+- [[file:../src/editor_exit.til][src/editor_exit.til]]: per-buffer save/discard/cancel exit state.
+- [[file:../src/editor_save.c][src/editor_save.c]]: file writes reporting errors back to the editor, including
+  buffered close failures, instead of terminating with unsaved buffers.
 - [[file:../src/editor_input.til][src/editor_input.til]] and [[file:../src/editor_input.c][src/editor_input.c]]: a small GLFW callback bridge
-  preserving key/text order and mapped, event-time modifiers. It links against Til's installed
+  preserving key/text/close-request order and mapped, event-time modifiers. It links against Til's installed
   desktop raylib/GLFW backend; no Til checkout or GLFW headers are required.
 - [[file:../examples/tilminal.til][tilminal.til]]: basic GUI shell-command runner with captured output, plus
   =help= and =clear=. Commands run synchronously through =sh -lc=; it does

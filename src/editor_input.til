@@ -4,6 +4,7 @@ mode lib
 // GLFW takes a plain C callback. GLFW comes from installed raylib.
 link_c("editor_input.c")
 editor_init_input := ext_proc() {}
-// action: 1 = press, 2 = repeat, 3 = text (key is then a codepoint).
+// action: 1 = press, 2 = repeat, 3 = text, 4 = window close request.
+// For text, key is the codepoint; close requests use a nonzero sentinel key.
 editor_next_key := ext_proc(mut mods: I32, mut action: I32) returns shallow I32 {}
 editor_close_input := ext_proc() {}

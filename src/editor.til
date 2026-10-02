@@ -4,6 +4,11 @@ import("std/sys")
 import("editor_model")
 import("editor_input")
 import("editor_buffers")
+import("editor_exit")
+
+link_c("editor_save.c")
+editor_write_file := ext_proc(path: I8, text: I8, shallow length: UPtr) returns shallow I32 {}
+editor_write_error := ext_proc(shallow error: I32) returns ref I8 {}
 
 realpath_str := ext_proc(path: Str) returns Str {}
 
@@ -45,17 +50,27 @@ editor_file_path := proc(path: Str) returns Str {
     return resolved
 }
 
-editor_save := proc(mut editor: EditorState) returns Bool {
-    id := editor.nodes[editor.focused].view.buffer
+editor_save_buffer := proc(mut editor: EditorState, id: USize, mut message: Str) returns Bool {
     ref mut buffer : EditorBuffer = editor.buffers[id]
-    if buffer.filename.len() == 0 {
-        path := save_file_dialog("Save file", "")
-        if path.len() == 0 { return false }
-        buffer.filename = path
+    mut path := buffer.filename.clone()
+    if path.len() == 0 {
+        path = save_file_dialog("Save file", "")
+        if path.len() == 0 {
+            message = "Save cancelled; still editing"
+            return false
+        }
     }
-    File.writefile(buffer.filename, buffer.text)
-    buffer.filename = editor_file_path(buffer.filename)
+    error := editor_write_file(path.c_str, buffer.text.c_str, buffer.text.len().to_uptr())
+    if error != 0 {
+        ref detail : I8 = editor_write_error(error)
+        message = format("Save failed: ", Str.from_c_str(detail), " - ", path)
+        return false
+    }
+    resolved := realpath_str(path)
+    if resolved.len() > 0 { path = resolved.clone() }
+    buffer.filename = path
     buffer.dirty = false
+    message = "Saved!"
     return true
 }
 
@@ -242,6 +257,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
     mut status_timer : I64 = 0
     mut prefix_pending := false
     mut prompt := EditorBufferPrompt()
+    mut exit_prompt := EditorExitPrompt()
     mut suppress_text := false
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE.cast(U32))
@@ -269,7 +285,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
     }
     SetTargetFPS(60)
 
-    while !WindowShouldClose() {
+    while true {
         if status_timer > 0 {
             status_timer = status_timer - (GetFrameTime() * 1000).to_i64()
             if status_timer <= 0 { status_msg = "" }
@@ -278,7 +294,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         height := GetScreenHeight()
         area := EditorRect(width = width, height = height - footer_h)
         editor.arrange(0, area)
-        if !prompt.mini.active && IsMouseButtonPressed(0) {
+        if !prompt.mini.active && !exit_prompt.mini.active && IsMouseButtonPressed(0) {
             mouse := GetMousePosition()
             for index : USize in editor.views() {
                 ref rect : EditorRect = editor.nodes[index].rect
@@ -300,10 +316,13 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             // modifier flags, not the physical Control/Alt key identities.
             control := mods.band(2) != 0
             ctrl := mods.band(6) != 0
-            if action == 3 {
+            if action == 4 {
+                quit = true
+            } else if action == 3 {
                 if !suppress_text && key >= 32 && key < 127 {
                     typed := Str.from_byte(key.cast(I64).to_u8())
-                    if prompt.mini.active { prompt.mini.insert(typed) }
+                    if exit_prompt.mini.active { exit_prompt.mini.insert(typed) }
+                    else if prompt.mini.active { prompt.mini.insert(typed) }
                     else if !prefix_pending { editor.insert(typed) }
                 }
             } else if key < 340 || key > 347 {
@@ -311,8 +330,36 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                 if control && key == 71 {
                     prefix_pending = false
                     prompt.cancel()
+                    exit_prompt.cancel()
                     status_msg = "Cancelled"
                     status_timer = 2000
+                } else if exit_prompt.mini.active {
+                    if key == 256 {
+                        exit_prompt.cancel()
+                        status_msg = "Exit cancelled"
+                        status_timer = 2000
+                    } else if key == 257 && action == 1 && !ctrl {
+                        selected := exit_prompt.mini.choice()
+                        if selected < 0 {
+                            exit_prompt.mini.hint = "Choose save, discard or cancel"
+                        } else {
+                            decision := exit_prompt.mini.choices[selected.to_usize()].id
+                            if decision == 0 {
+                                exit_prompt.cancel()
+                                status_msg = "Exit cancelled"
+                            } else if decision == 2 {
+                                exit_prompt.advance(editor)
+                            } else {
+                                id := exit_prompt.pending[exit_prompt.position].clone()
+                                if editor_save_buffer(editor, id, status_msg) {
+                                    exit_prompt.advance(editor)
+                                } else { exit_prompt.cancel() }
+                            }
+                            status_timer = 4000
+                        }
+                    } else if !ctrl {
+                        exit_prompt.mini.key(key, mods.band(1) != 0)
+                    }
                 } else if prompt.mini.active {
                     if key == 256 {
                         prompt.cancel()
@@ -324,7 +371,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                     } else if !ctrl {
                         prompt.mini.key(key, mods.band(1) != 0)
                     }
-                } else if key == 256 {
+                } else if key == 256 && action == 1 {
                     quit = true
                 } else if prefix_pending && action == 1 {
                     prefix_pending = false
@@ -374,9 +421,16 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                     if key == 261 { editor.delete_forward() }
                 }
             }
-            if quit { break }
-            if save && editor_save(editor) {
-                status_msg = "Saved!"
+            if quit {
+                prefix_pending = false
+                prompt.cancel()
+                exit_prompt.begin(editor)
+                quit = false
+            }
+            if exit_prompt.ready { break }
+            if save {
+                id := editor.nodes[editor.focused].view.buffer
+                editor_save_buffer(editor, id, status_msg)
                 status_timer = 2000
             }
             if open && editor_open(editor) {
@@ -390,7 +444,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         while queued_key > 0 { queued_key = GetKeyPressed() }
         mut queued_char := GetCharPressed()
         while queued_char > 0 { queued_char = GetCharPressed() }
-        if quit { break }
+        if exit_prompt.ready { break }
 
         BeginDrawing()
         ClearBackground(Color(r = 70, g = 70, b = 90, a = 255))
@@ -406,6 +460,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             Color(r = 160, g = 160, b = 180, a = 255))
         EndScissorMode()
         if prompt.mini.active { editor_draw_minibuffer(prompt.mini, font, font_size, line_h, width, height, footer_h) }
+        if exit_prompt.mini.active { editor_draw_minibuffer(exit_prompt.mini, font, font_size, line_h, width, height, footer_h) }
         EndDrawing()
     }
     UnloadFont(font)
