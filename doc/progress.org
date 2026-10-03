@@ -210,6 +210,37 @@ sequences and nine held-key checks, including Control+Enter suppression.
 Both quit runs close or
 terminate their test application; its output goes to =tmp/quit-app.log=.
 
+** Visible minibuffer under a decorating window manager
+
+A real Xfwm4 reproduction explained reports that =C-x b= did not work and
+the window would not close: =tile_left= requested a monitor-height client
+area, then the window manager added a title bar. On a 1200-pixel display,
+the client started at y=36 with height=1200, hiding the bottom input line.
+Both the buffer chooser and live-terminal exit confirmation were active,
+but their prompts were below the desktop.
+
+Initial placement now uses GLFW's monitor work area and window frame sizes.
+The pure Til placement policy subtracts decorations from the client size
+and offsets its position. The complete frame fits the intended area, and
+the buffer-switch and exit prompt input lines are visible.
+
+[[file:../test/window_layout.til][Geometry checks]] cover decorated/undecorated windows, reserved panels and
+non-primary monitor origins. [[file:../test/window_placement_gui.til][The GUI regression]] runs an actual Xfwm4 in an
+isolated display/session bus, verifies the client lies within the desktop,
+checks the prompt's rendered desktop pixels, switches buffers using remapped
+Control, and accepts a visible close confirmation. A WM-free Xvfb alone
+would not exercise the decoration bug.
+
+#+begin_src sh
+til run -o tmp/check_window_layout -c tmp/check_window_layout.c test/window_layout.til
+til build -o tmp/check_window_placement_gui -c tmp/check_window_placement_gui.c test/window_placement_gui.til
+dbus-run-session -- xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_window_placement_gui
+#+end_src
+
+The GUI check additionally needs =xfwm4= and =dbus-run-session=. It runs
+without =--replace= and uses an isolated configuration directory. Failures
+attempt a screenshot at =tmp/window-placement-failure.png=.
+
 ** Current limitations and next design work
 
 - Init loading still compiles/runs a temporary child program. It does not

@@ -170,9 +170,11 @@ the working startup configuration.
 ** Window size
 
 =tile_left= defaults to =true= and =maximized= to =false=. Tiled initially
-sizes itself to half the current monitor's width and its full height, then
-positions itself at that monitor's left edge. This places Tiled's own OS
-window; it does not split the editor into multiple internal views.
+fits its outer frame into the left half of the current monitor's usable
+work area, accounting for reserved panels, title bars and window borders.
+The client area is reduced by the decoration sizes so the bottom minibuffer
+and exit prompt remain on-screen. This places Tiled's own OS window; it
+does not split the editor into multiple internal views.
 
 =maximized= takes precedence when enabled. With both options set to =false=,
 =width= and =height= specify the initial window size: the built-in fallback

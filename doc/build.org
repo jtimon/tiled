@@ -79,6 +79,7 @@ collisions. New issue numbers come from =issues/NEXT_ISSUE.txt=.
 - [[file:../src/window_input.til][src/window_input.til]] and [[file:../src/window_input.c][src/window_input.c]]: the shared host GLFW callback bridge
   preserving key/text/close-request order and mapped, event-time modifiers. It links against Til's installed
   desktop raylib/GLFW backend; no Til checkout or GLFW headers are required.
+- [[file:../src/window_layout.til][src/window_layout.til]]: work-area/decorations-aware initial window placement.
 - [[file:../src/tilminal.til][src/tilminal.til]]: standalone terminal with a persistent shell or one-shot command.
 - [[file:../src/terminal/][src/terminal/]]: reusable terminal screen, text, PTY/ConPTY session and renderer.
   See [[file:terminal.org][terminal development and tests]].

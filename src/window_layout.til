@@ -1,0 +1,19 @@
+mode lib
+
+WindowPlacement := struct {
+    x : I32 = 0
+    y : I32 = 0
+    width : I32 = 1
+    height : I32 = 1
+}
+
+// The work area describes the outer window's space; GLFW sizes/positions
+// the client area. Keep decorations inside the left half, not below the screen.
+window_left_placement := func(x: I32, y: I32, width: I32, height: I32,
+                              left: I32, top: I32, right: I32, bottom: I32) returns WindowPlacement {
+    mut client_width := width / 2 - left - right
+    mut client_height := height - top - bottom
+    if client_width < 1 { client_width = 1 }
+    if client_height < 1 { client_height = 1 }
+    return WindowPlacement(x = x + left, y = y + top, width = client_width, height = client_height)
+}

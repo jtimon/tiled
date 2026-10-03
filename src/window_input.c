@@ -5,6 +5,7 @@
 // Only the GLFW ABI used here; the installed raylib archive supplies it.
 // No headers or build products from a Til development checkout are needed.
 typedef struct GLFWwindow GLFWwindow;
+typedef struct GLFWmonitor GLFWmonitor;
 typedef void (*EditorKeyCallback)(GLFWwindow *, int, int, int, int);
 typedef void (*WindowCharModsCallback)(GLFWwindow *, unsigned int, int);
 typedef void (*EditorCloseCallback)(GLFWwindow *);
@@ -13,6 +14,24 @@ extern EditorKeyCallback glfwSetKeyCallback(GLFWwindow *, EditorKeyCallback);
 extern WindowCharModsCallback glfwSetCharModsCallback(GLFWwindow *, WindowCharModsCallback);
 extern EditorCloseCallback glfwSetWindowCloseCallback(GLFWwindow *, EditorCloseCallback);
 extern void glfwSetWindowShouldClose(GLFWwindow *, int);
+extern GLFWmonitor **glfwGetMonitors(int *);
+extern void glfwGetMonitorWorkarea(GLFWmonitor *, int *, int *, int *, int *);
+extern void glfwGetWindowFrameSize(GLFWwindow *, int *, int *, int *, int *);
+
+// Window-system facts for host placement; the sizing policy lives in Til.
+void window_placement_data(int32_t monitor, int32_t *x, int32_t *y,
+                           int32_t *width, int32_t *height, int32_t *left,
+                           int32_t *top, int32_t *right, int32_t *bottom)
+{
+    int count = 0;
+    GLFWmonitor **monitors = glfwGetMonitors(&count);
+    if (monitor < 0 || monitor >= count) {
+        fputs("Tiled: invalid monitor for window placement\n", stderr);
+        abort();
+    }
+    glfwGetMonitorWorkarea(monitors[monitor], x, y, width, height);
+    glfwGetWindowFrameSize(glfwGetCurrentContext(), left, top, right, bottom);
+}
 
 typedef struct { int key, mods, action; } EditorKeyEvent;
 static EditorKeyCallback raylib_key_callback;

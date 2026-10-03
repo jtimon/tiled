@@ -1,0 +1,126 @@
+mode gui
+
+// Run under dbus-run-session + xvfb-run, never on the user's desktop.
+// Xfwm4 supplies real decorations; a WM-free Xvfb misses this regression.
+import("terminal_gui_helpers")
+
+XTranslateCoordinates := ext_proc(display: Dynamic, shallow source: UPtr, shallow destination: UPtr,
+    shallow source_x: I32, shallow source_y: I32, mut x: I32, mut y: I32, mut child: UPtr) returns shallow I32 {}
+
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0) }
+prefix := proc(display: Dynamic, key: UPtr) {
+    sleep_ms(30)
+    send(display, 65507, 1); tap(display, 120); send(display, 65507, 0)
+    tap(display, key)
+    sleep_ms(150)
+}
+
+DesktopWindow := struct {
+    root : UPtr = 0
+    x : I32 = 0
+    y : I32 = 0
+    width : U32 = 0
+    height : U32 = 0
+    root_width : U32 = 0
+    root_height : U32 = 0
+namespace:
+    read := proc(display: Dynamic, window: UPtr) returns DesktopWindow {
+        mut rect := DesktopWindow()
+        mut border : U32 = 0
+        mut depth : U32 = 0
+        assert(XGetGeometry(display, window, rect.root, rect.x, rect.y, rect.width, rect.height, border, depth) != 0)
+        mut child : UPtr = 0
+        assert(XTranslateCoordinates(display, window, rect.root, 0, 0, rect.x, rect.y, child) != 0)
+        mut unused_root : UPtr = 0
+        mut unused_x : I32 = 0
+        mut unused_y : I32 = 0
+        assert(XGetGeometry(display, rect.root, unused_root, unused_x, unused_y,
+            rect.root_width, rect.root_height, border, depth) != 0)
+        return rect
+    }
+    visible := func(rect: DesktopWindow) returns Bool {
+        return rect.x >= 0 && rect.y >= 0 &&
+            rect.x.cast(I64) + rect.width.cast(U64).cast(I64) <= rect.root_width.cast(U64).cast(I64) &&
+            rect.y.cast(I64) + rect.height.cast(U64).cast(I64) <= rect.root_height.cast(U64).cast(I64)
+    }
+}
+
+// Read desktop pixels, rather than off-screen pixels from the client window.
+// Prompt text is warm yellow; normal status/candidate text is grey or blue.
+prompt_visible := proc(display: Dynamic, rect: DesktopWindow) returns Bool {
+    ref image : Dynamic = XGetImage(display, rect.root, rect.x, rect.y + rect.height.cast(I32) - 64,
+        rect.width, 64, 0xFFFFFF, 2)
+    if is_null(image) { panic("cannot capture visible prompt area") }
+    mut visible := false
+    for y in 0..64 {
+        for x in 0..rect.width.cast(U64).cast(I64) {
+            color := XGetPixel(image, x.to_i32(), y.to_i32()).cast(I64)
+            r := (color / 65536).mod(256)
+            g := (color / 256).mod(256)
+            b := color.mod(256)
+            if r >= 200 && g >= 180 && b >= 80 && b < 210 { visible = true; break }
+        }
+        if visible { break }
+    }
+    XDestroyImage(image)
+    return visible
+}
+
+check := proc(app: Cmd, pid: I64, wm: Cmd, wm_pid: I64, ok: Bool, message: Str) {
+    if ok { return }
+    Cmd.new("import", "-window", "root", "tmp/window-placement-failure.png").run()
+    if !app.poll() { Cmd.new("kill", "-TERM", pid.to_str()).run() }
+    app.wait()
+    if !wm.poll() { Cmd.new("kill", "-TERM", wm_pid.to_str()).run() }
+    wm.wait()
+    panic(message, "\n", File.readfile("tmp/terminal-gui-app.log"))
+}
+
+main := proc() {
+    home := format(get_cwd_str(), "/tmp/placement-home-", process_id().to_str())
+    assert(mkdir_p(home) == 0)
+    // No --replace: an existing desktop WM must never be displaced by this test.
+    wm := Cmd.new("xfwm4", "--compositor=off")
+    wm.env("HOME", home).env("XDG_CONFIG_HOME", format(home, "/.config")).env("GIO_USE_VFS", "local")
+    wm.stdout_to("tmp/window-placement-wm.log").stderr_to_stdout()
+    wm_pid := wm.start()
+    sleep_ms(1000)
+    if wm.poll() { panic("test WM could not start; use an isolated X server: ", File.readfile("tmp/window-placement-wm.log")) }
+    app := Cmd.new("./bin/tiled", "README.org")
+    app.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "")
+    app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    pid := app.start()
+    window := wait_window(app, pid, "Tiled - README.org")
+    sleep_ms(500)
+    display_name := get_env("DISPLAY")
+    ref display : Dynamic = XOpenDisplay(display_name.c_str)
+    if is_null(display) { panic("no X display") }
+    rect := DesktopWindow.read(display, window)
+    check(app, pid, wm, wm_pid, rect.visible(), "client/footer extends beyond the desktop")
+    XSetInputFocus(display, window, 2, 0); XFlush(display)
+    Cmd.new("xmodmap", "-e", "clear control", "-e", "clear mod1",
+        "-e", "keysym Control_L = Alt_L Meta_L", "-e", "keysym Alt_L = Control_L",
+        "-e", "add control = Control_L Control_R",
+        "-e", "add mod1 = Alt_L Alt_R Meta_L Meta_R").run_checked()
+    sleep_ms(100)
+    prefix(display, 116)
+    wait_window(app, pid, "Tiled - *terminal-1*")
+    prefix(display, 98)
+    check(app, pid, wm, wm_pid, prompt_visible(display, rect), "C-x b input line is not visible on the desktop")
+    type_text(display, "README")
+    wait_window(app, pid, "Tiled - README.org")
+    prefix(display, 98)
+    type_text(display, "terminal-1")
+    wait_window(app, pid, "Tiled - *terminal-1*")
+    request_close(display, window)
+    sleep_ms(150)
+    check(app, pid, wm, wm_pid, prompt_visible(display, rect), "close confirmation input line is not visible")
+    type_text(display, "terminate")
+    for _ in 0..100 { if app.poll() { break }; sleep_ms(50) }
+    check(app, pid, wm, wm_pid, app.poll(), "accepting close did not exit")
+    assert(app.wait() == 0)
+    XCloseDisplay(display)
+    Cmd.new("kill", "-TERM", wm_pid.to_str()).run()
+    wm.wait()
+    println("PASS: decorated window fits, remapped C-x b switches buffers, visible close prompt exits")
+}

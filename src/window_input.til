@@ -8,6 +8,8 @@ window_init_input := ext_proc() {}
 // For text, key is the codepoint; close requests use a nonzero sentinel key.
 window_next_event := ext_proc(mut mods: I32, mut action: I32) returns shallow I32 {}
 window_close_input := ext_proc() {}
+window_placement_data := ext_proc(shallow monitor: I32, mut x: I32, mut y: I32,
+    mut width: I32, mut height: I32, mut left: I32, mut top: I32, mut right: I32, mut bottom: I32) {}
 
 // Hosts drain raylib's duplicate queues after consuming the ordered stream.
 window_drain_input := proc() {

@@ -1,0 +1,21 @@
+mode cli
+import("../src/window_layout")
+
+main := proc() {
+    // Actual Xfwm4 reproduction: old client height 1200 + titlebar put the
+    // prompt at y=1236, below the monitor. The complete frame now fits.
+    decorated := window_left_placement(0, 0, 1600, 1200, 2, 36, 2, 2)
+    assert(decorated.x == 2 && decorated.y == 36)
+    assert(decorated.width == 796 && decorated.height == 1162)
+    assert(decorated.x - 2 == 0 && decorated.y - 36 == 0)
+    assert(decorated.x + decorated.width + 2 == 800)
+    assert(decorated.y + decorated.height + 2 == 1200)
+    // Reserved panels and non-primary/negative-origin work areas.
+    other := window_left_placement(-1920, 32, 1920, 1000, 4, 28, 4, 4)
+    assert(other.x == -1916 && other.y == 60)
+    assert(other.width == 952 && other.height == 968)
+    assert(other.y + other.height + 4 == 1032)
+    bare := window_left_placement(0, 0, 1600, 1200, 0, 0, 0, 0)
+    assert(bare.width == 800 && bare.height == 1200 && bare.y == 0)
+    println("PASS: decorated, panel-reserved and undecorated window placement")
+}

@@ -3,6 +3,7 @@ mode lib
 import("std/sys")
 import("editor_model")
 import("window_input")
+import("window_layout")
 import("editor_buffers")
 import("editor_exit")
 import("editor_terminal")
@@ -308,10 +309,18 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
     if config.maximized {
         MaximizeWindow()
     } else if config.tile_left {
-        monitor := GetCurrentMonitor()
-        origin := GetMonitorPosition(monitor)
-        SetWindowSize(GetMonitorWidth(monitor) / 2, GetMonitorHeight(monitor))
-        SetWindowPosition(origin.x.to_i64().to_i32(), origin.y.to_i64().to_i32())
+        mut x : I32 = 0
+        mut y : I32 = 0
+        mut width : I32 = 0
+        mut height : I32 = 0
+        mut left : I32 = 0
+        mut top : I32 = 0
+        mut right : I32 = 0
+        mut bottom : I32 = 0
+        window_placement_data(GetCurrentMonitor(), x, y, width, height, left, top, right, bottom)
+        placement := window_left_placement(x, y, width, height, left, top, right, bottom)
+        SetWindowSize(placement.width, placement.height)
+        SetWindowPosition(placement.x, placement.y)
     }
     SetTargetFPS(60)
 
