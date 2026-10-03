@@ -1,0 +1,199 @@
+mode cli
+
+// Adapted from Til's examples/issues.til at c28ab7daf (MIT; original copyright
+// and license text are also retained in src/terminal/LICENSE.txt).
+import("std/sys")
+import("std/file")
+
+NL := "\n"
+
+run := proc(cmd: Str) returns I64 {
+    pid := spawn_cmd(cmd)
+    return wait_cmd(pid)
+}
+
+list_dir := proc(dir: Str) returns Vec(Str) {
+    if !File.is_dir(dir) { panic("missing issue directory: ", dir) }
+    mut files := Vec(Str).new()
+    tmpf := "tmp/_issues_ls"
+    // Numeric, locale-independent order, as in Til's generator.
+    cmd := format("ls ", dir, " | LC_ALL=C sort -t. -k1,1n > ", tmpf, " 2>/dev/null")
+    if run(cmd) != 0 { panic("cannot list issue directory: ", dir) }
+    content := File.readfile(tmpf)
+    if content.is_empty() { return files }
+    names := content.split(NL)
+    for fname : Str in names {
+        if fname.is_empty() { continue }
+        if !fname.ends_with(".org") { continue }
+        files.push(own fname.clone())
+    }
+    return files
+}
+
+field_after := func(line: Str, key: Str) returns Str {
+    pos := line.find(key)
+    if pos.lt(0) { return "" }
+    start := pos.to_usize().add(key.len())
+    val := line.substr(start, line.len().sub(start))
+    return val.trim().clone()
+}
+
+priority_tag := func(priority: Str) returns Str {
+    return match priority {
+    case "high": "H"
+    case "medium": "M"
+    case: "L"
+    }
+}
+
+known_priority := func(p: Str) returns Bool {
+    return match p { case "high", "medium", "low": true case: false }
+}
+
+known_category := func(c: Str) returns Bool {
+    return match c {
+    case "bugs", "cleanups", "features", "optimizations",
+         "backends", "experiments", "examples", "deferred", "unknown": true
+    case: false
+    }
+}
+
+// Keep title borrowed: its substrings remain valid through their clones.
+make_link := func(fname: Str, title: Str) returns Str {
+    hash_pos := title.find("#")
+    if hash_pos.lt(0) { return "" }
+    hp : USize = hash_pos.to_usize()
+    mut num_end := hp.add(1)
+    while num_end.lt(title.len()) {
+        ref ch : I8 = title.get(num_end)
+        if or(ch.eq('0'), ch.eq('1'), ch.eq('2'), ch.eq('3'), ch.eq('4'),
+              ch.eq('5'), ch.eq('6'), ch.eq('7'), ch.eq('8'), ch.eq('9')) {
+            num_end++
+        } else { break }
+    }
+    num_str := title.substr(hp, num_end.sub(hp))
+    after_num := title.substr(num_end, title.len().sub(num_end))
+    return format("*** [[./open/", fname, "][", num_str.clone(), "]]", after_num.clone())
+}
+
+// Each successful entry is "<category> <priority-tag>\n<link>". Errors begin
+// with '!'; collect them before writing so a bad file cannot erase the index.
+parse_issue_body := func(fname: Str, content: Str) returns Str {
+    lines := content.split(NL)
+    mut priority := ""
+    mut category := ""
+    mut title := ""
+    for ln : Str in lines {
+        if ln.starts_with("# priority:") { priority = field_after(ln, "priority:") }
+        if ln.starts_with("# category:") { category = field_after(ln, "category:") }
+        if ln.starts_with("**") {
+            if title.is_empty() { title = ln.clone() }
+        }
+    }
+    if priority.is_empty() { return format("!issues/open/", fname, ": missing '# priority:' header") }
+    if !known_priority(priority) {
+        return format("!issues/open/", fname, ": unknown priority '", priority,
+            "' (expected high, medium, or low)")
+    }
+    if category.is_empty() { return format("!issues/open/", fname, ": missing '# category:' header") }
+    if !known_category(category) {
+        return format("!issues/open/", fname, ": unknown category '", category,
+            "' (expected bugs, cleanups, features, optimizations, ",
+            "backends, experiments, examples, deferred, or unknown)")
+    }
+    if title.is_empty() { return format("!issues/open/", fname, ": missing '** ... #NNN' heading") }
+    link := make_link(fname, title)
+    if link.is_empty() { return format("!issues/open/", fname, ": could not parse issue number from heading") }
+    return format(category, " ", priority_tag(priority), NL, link)
+}
+
+parse_issue := func(fname: Str) returns Str {
+    path := format("issues/open/", fname)
+    raw_content := File.readfile(path)
+    return parse_issue_body(fname, raw_content)
+}
+
+emit_entries := func(entries: Vec(Str), cat: Str, pri: Str) returns Str {
+    mut out := ""
+    for entry : Str in entries {
+        nl_pos := entry.find(NL)
+        if nl_pos.lt(0) { continue }
+        nlp : USize = nl_pos.to_usize()
+        head := entry.substr(0, nlp)
+        link := entry.substr(nlp.add(1), entry.len().sub(nlp).sub(1))
+        sp := head.find(" ")
+        if sp.lt(0) { continue }
+        spu : USize = sp.to_usize()
+        ecat := head.substr(0, spu)
+        epri := head.substr(spu.add(1), head.len().sub(spu).sub(1))
+        if ecat.eq(cat).and(epri.eq(pri)) { out = format(out, link, NL) }
+    }
+    return out
+}
+
+emit_category := func(entries: Vec(Str), cat: Str, label: Str) returns Str {
+    high := emit_entries(entries, cat, "H")
+    med := emit_entries(entries, cat, "M")
+    low := emit_entries(entries, cat, "L")
+    if high.is_empty().and(med.is_empty()).and(low.is_empty()) { return "" }
+    mut out := format("* ", label, NL)
+    if !high.is_empty() { out = format(out, "** High", NL, high) }
+    if !med.is_empty() { out = format(out, "** Medium", NL, med) }
+    if !low.is_empty() { out = format(out, "** Low", NL, low) }
+    return out
+}
+
+vec_contains := func(v: Vec(Str), needle: Str) returns Bool {
+    for x : Str in v { if x.eq(needle) { return true } }
+    return false
+}
+
+// One state directory per issue number, including closed issues.
+check_no_dir_collisions := proc() {
+    open_f := list_dir("issues/open")
+    fixed_f := list_dir("issues/fixed")
+    cancelled_f := list_dir("issues/cancelled")
+    mut errors := Vec(Str).new()
+    for f : Str in open_f {
+        if vec_contains(fixed_f, f) { errors.push(own format("issues/", f, ": present in both open/ and fixed/")) }
+        if vec_contains(cancelled_f, f) { errors.push(own format("issues/", f, ": present in both open/ and cancelled/")) }
+    }
+    for f : Str in fixed_f {
+        if vec_contains(cancelled_f, f) { errors.push(own format("issues/", f, ": present in both fixed/ and cancelled/")) }
+    }
+    if errors.len().gt(0) {
+        for e : Str in errors { eprint_single(format(e, NL)) }
+        eprint_single(format(errors.len().to_str(), " issue number(s) in multiple directories; summary not regenerated", NL))
+        exit(1)
+    }
+}
+
+main := proc() {
+    if mkdir_p("tmp") != 0 { panic("cannot create tmp/") }
+    check_no_dir_collisions()
+    files := list_dir("issues/open")
+    mut entries := Vec(Str).new()
+    mut errors := Vec(Str).new()
+    for fname : Str in files {
+        line := parse_issue(fname)
+        if line.starts_with("!") { errors.push(own line.substr(1, line.len().sub(1)).clone()) }
+        else { entries.push(own line) }
+    }
+    if errors.len().gt(0) {
+        for e : Str in errors { eprint_single(format(e, NL)) }
+        eprint_single(format(errors.len().to_str(), " malformed issue file(s); summary not regenerated", NL))
+        exit(1)
+    }
+    mut s := ""
+    s = format(s, emit_category(entries, "bugs", "Bugs"))
+    s = format(s, emit_category(entries, "cleanups", "Cleanups"))
+    s = format(s, emit_category(entries, "optimizations", "Optimizations"))
+    s = format(s, emit_category(entries, "features", "Features"))
+    s = format(s, emit_category(entries, "backends", "Backends"))
+    s = format(s, emit_category(entries, "experiments", "Experiments"))
+    s = format(s, emit_category(entries, "examples", "Examples"))
+    s = format(s, emit_category(entries, "deferred", "Deferred"))
+    s = format(s, emit_category(entries, "unknown", "Unknown"))
+    File.writefile("issues/summary.org", s)
+    println("Generated: issues/summary.org")
+}

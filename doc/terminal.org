@@ -100,5 +100,5 @@ normal binaries. Native Windows ConPTY and macOS PTY runs remain unverified.
   its bounded text queue can lose synthetic input bursts. The GUI test types
   at keyboard speed. Tiled's editor already has the ordered input path to reuse.
 - Investigate Kitty graphics and other application-supplied inline graphics
-  after the terminal/session integration. Til's #408 retains the earlier
-  design discussion; subsequent terminal implementation work belongs here.
+  after the terminal/session integration. [[file:../issues/open/3.org][Tiled #3]] carries the full design
+  discussion transferred from Til #408 and tracks subsequent implementation.

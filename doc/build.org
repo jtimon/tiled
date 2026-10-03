@@ -50,6 +50,19 @@ is not built yet.
 
 See [[file:configuration.org][startup and configuration]] for init-file loading and scratch buffers.
 
+** Issue summary
+
+The [[file:../issues/process.org][file-based issue tracker]] follows Til's workflow. Regenerate
+[[file:../issues/summary.org][issues/summary.org]] without building the GUI applications:
+
+#+begin_src sh
+til interpret make.til summary
+#+end_src
+
+This runs [[file:../examples/issues.til][examples/issues.til]] using installed Til. The generator groups open
+issues by category and priority and checks metadata and cross-state number
+collisions. New issue numbers come from =issues/NEXT_ISSUE.txt=.
+
 ** Source layout
 
 - [[file:../src/tiled.til][src/tiled.til]]: startup, version reporting and user configuration loading.

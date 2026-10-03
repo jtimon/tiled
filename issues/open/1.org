@@ -1,0 +1,58 @@
+# priority: low
+# category: examples
+** OPEN #1 tiled: editor, window manager, terminal and more
+
+*** Transfer and current state
+
+Transferred from [[https://github.com/jtimon/til/blob/master/issues/cancelled/83.org][Til #83]], closed there as transferred. The
+[[https://github.com/jtimon/til/blob/c28ab7daf/issues/open/83.org][original Til record]] remains available in its history.
+
+Tiled now implements text buffers, split views, buffer switching/listing,
+save/discard/cancel on exit and a reusable minibuffer. Standalone tilminal
+and its shared terminal modules live here; embedding terminal buffers is
+tracked by [[./3.org][#3]]. See [[file:../../doc/progress.org][progress]] and [[file:../../doc/architecture.org][architecture]] for implemented
+behaviour. The broader integrated-environment plan below remains open.
+
+*** Original design
+
+Application development now lives in [[https://github.com/jtimon/tiled][jtimon/tiled]], including standalone
+tilminal and the shared terminal modules migrated under [[./3.org][#3 (formerly Til #408)]]. This issue
+retains the original integrated-environment design notes.
+
+Mode gui application. The TempleOS-inspired everything-in-one-app:
+  editor + window manager + terminal + session manager + git client.
+  Like emacs but in til, with raylib rendering.
+
+  Existing: [[file:../../src/editor.til][src/editor.til]] -- text editing with file save/open
+  via tinyfiledialogs ([[https://github.com/jtimon/til/blob/master/issues/fixed/69.org][Til #69]] fixed). Ctrl+S saves (dialog if new file),
+  Ctrl+O opens file dialog.
+
+  Components (ongoing, like [[https://github.com/jtimon/til/blob/master/issues/open/24.org][Til #24]] music.til -- may have no end):
+
+*** Editor (emacs/vim hybrid)
+    Text editing with keybindings. Syntax highlighting for .til files.
+    Multiple buffers/tabs. File save/open via tinyfiledialogs.
+
+*** Git client (magit/egg replacement)
+    Status, diff, stage, commit, log — all from within tiled.
+    No more switching to terminal for git operations.
+    Replaces the emacs egg/magit workflow.
+
+*** Window manager (i3-style tiling)
+    Split panes, tiling layout. Run editor + terminal + git side by
+    side in one raylib window. Keyboard-driven, no mouse required.
+
+*** Terminal emulator
+    Depends on [[./3.org][#3 tilminal]], the standalone terminal emulator
+    that tiled will embed as its terminal component.
+    Run shell commands, see output. Replaces tmux/terminal tabs.
+    Combined with the window manager, this is the full desktop
+    environment inside one til program.
+
+*** Session manager
+    Save/restore window layouts, open files, terminal state.
+    Like tmux sessions but integrated.
+
+*** Themes
+    tiled uses ~mode theme~ ([[https://github.com/jtimon/til/blob/master/issues/open/84.org][Til #84]]) for its own color scheme. Gets
+    theme support for free once [[https://github.com/jtimon/til/blob/master/issues/open/84.org][Til #84]] is implemented.

@@ -1,0 +1,5 @@
+* Examples
+** Low
+*** [[./open/1.org][#1]] tiled: editor, window manager, terminal and more
+*** [[./open/2.org][#2]] Show the til logo as a single glyph in tilminal's prompt
+*** [[./open/3.org][#3]] tilminal: terminal emulator for standalone use and tiled

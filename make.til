@@ -17,9 +17,14 @@ build := proc(name: Str, source: Str) {
     cmd.run_checked()
 }
 
-main := proc() {
+main := proc(args: ..Str) {
     if mkdir_p("bin") != 0 { panic("could not create bin/") }
     if mkdir_p("gen") != 0 { panic("could not create gen/") }
+    if args.len() == 1 && args[0] == "summary" {
+        Cmd.new("til", "run", "-o", "bin/issues_summary", "-c", "gen/issues_summary.c", "examples/issues.til").run_checked()
+        return
+    }
+    if args.len() > 0 { panic("usage: til interpret make.til [summary]") }
     build("tiled", "src/tiled.til")
     build("tilminal", "src/tilminal.til")
 }

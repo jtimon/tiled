@@ -1,0 +1,61 @@
+* File-based issue tracking
+
+Copied from Til's issue workflow. Issues are maintained in this repository;
+[[file:summary.org][summary.org]] is generated from =issues/open/=, grouped by category,
+then High/Medium/Low priority, and sorted numerically within each group.
+
+** Creating and updating issues
+
+1. Read the next issue number from =issues/NEXT_ISSUE.txt=.
+2. Create =issues/open/NNN.org= with that number.
+3. First line: =# priority: high=, =# priority: medium= or =# priority: low=.
+4. Second line: =# category: <cat>=, using a category listed below.
+5. Add =** OPEN #NNN Title= followed by the issue body.
+6. Increment =issues/NEXT_ISSUE.txt= manually. Numbers are never reused.
+7. To start work, change =OPEN= to =WIP= without moving the file.
+8. When fixed, move the file to =issues/fixed/=, change the heading to
+   =FIXED=, and record the resolution and verification at the top.
+9. When cancelled, move it to =issues/cancelled/=, change the heading to
+   =CANCELLED=, and record the reason. For a transfer, link the receiving
+   tracker and explain that work continues there.
+10. Regenerate the summary from the repository root:
+
+#+begin_src sh
+til interpret make.til summary
+#+end_src
+
+The generator is [[file:../examples/issues.til][examples/issues.til]], adapted from Til to use installed
+=std/= imports. It checks required metadata and duplicate issue numbers
+across the three state directories. Fix reported errors rather than editing
+the generated summary by hand. Keep each issue's filename and heading number
+in sync; =NEXT_ISSUE.txt= must exceed every allocated number.
+
+Issue creation, priority/category changes and closure follow maintainer
+decisions. Verification for a fix depends on the change; regenerating the
+summary is sufficient for a tracker-only edit.
+
+** Categories
+
+- =bugs=: correctness defects, memory safety, wrong behaviour.
+- =cleanups=: refactors, internal restructuring, technical debt, tooling.
+- =features=: new application or library capabilities.
+- =optimizations=: performance improvements with unchanged behaviour.
+- =backends=: rendering, platform, runtime or process-backend work.
+- =experiments=: exploratory or speculative directions.
+- =examples=: example/application work; retained for imported Til issues.
+- =deferred=: postponed platform or architecture targets.
+- =unknown=: use only when the category has not yet been decided.
+
+** Imported issue identities
+
+Tiled has its own numbering. Original priorities, categories, OPEN/WIP
+status and discussion history were retained for these transfers:
+
+| Tiled issue          | Original Til issue | Topic                   |
+|----------------------+--------------------+-------------------------|
+| [[file:open/1.org][#1]]                   | #83                | Integrated environment  |
+| [[file:open/2.org][#2]]                   | #159               | Tilminal logo glyph     |
+| [[file:open/3.org][#3]]                   | #408               | Terminal emulator       |
+
+Each imported issue links its closed Til record and original source snapshot.
+The old numbers remain reserved in Til; new Tiled issues start at #4.

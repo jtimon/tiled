@@ -21,6 +21,7 @@ config [[file:defaults/init.til][defaults/init.til]] can be copied to =~/.tiled/
 
 ** Documentation
 
+- [[file:issues/summary.org][Open issues]] and [[file:issues/process.org][issue workflow]]
 - [[file:doc/progress.org][Current progress and known limitations]]
 - [[file:doc/build.org][Building and running Tiled and tilminal]]
 - [[file:doc/terminal.org][Standalone tilminal, shared terminal modules and tests]]
