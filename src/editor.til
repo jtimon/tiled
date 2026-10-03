@@ -5,6 +5,7 @@ import("editor_model")
 import("window_input")
 import("editor_buffers")
 import("editor_exit")
+import("editor_terminal")
 
 link_c("editor_save.c")
 editor_write_file := ext_proc(path: I8, text: I8, shallow length: UPtr) returns shallow I32 {}
@@ -52,6 +53,7 @@ editor_file_path := proc(path: Str) returns Str {
 
 editor_save_buffer := proc(mut editor: EditorState, id: USize, mut message: Str) returns Bool {
     ref mut buffer : EditorBuffer = editor.buffers[id]
+    if buffer.terminal >= 0 { message = "Terminal buffers cannot be saved as text"; return false }
     mut path := buffer.filename.clone()
     if path.len() == 0 {
         path = save_file_dialog("Save file", "")
@@ -173,6 +175,32 @@ editor_draw_view := proc(mut editor: EditorState, index: USize, font: Font, size
     }
 }
 
+editor_draw_terminal := proc(mut terminals: EditorTerminals, editor: EditorState, index: USize,
+                            font: Font, size: I32, line_h: I32, input_active: Bool) {
+    ref node : EditorNode = editor.nodes[index]
+    ref buffer : EditorBuffer = editor.buffers[node.view.buffer]
+    ref rect : EditorRect = node.rect
+    if rect.width <= 0 || rect.height <= 0 { return }
+    ref mut slot : EditorTerminal = terminals.slots[buffer.terminal.to_usize()]
+    mut body_h := rect.height - line_h - 8
+    if body_h < 0 { body_h = 0 }
+    active := index == editor.focused
+    DrawRectangle(rect.x, rect.y, rect.width, rect.height, Color(r = 16, g = 18, b = 24, a = 255))
+    slot.view.draw(slot.terminal.screen, rect.x.cast(I64), rect.y.cast(I64),
+        rect.width.cast(I64), body_h.cast(I64), active && input_active, slot.terminal.ended)
+    sy := rect.y + body_h
+    mut background := Color(r = 38, g = 38, b = 52, a = 255)
+    if active { background = Color(r = 60, g = 60, b = 85, a = 255) }
+    BeginScissorMode(rect.x, sy, rect.width, rect.height - body_h)
+    DrawRectangle(rect.x, sy, rect.width, rect.height - body_h, background)
+    if active { DrawRectangle(rect.x, sy, rect.width, 2, Color(r = 255, g = 200, b = 0, a = 255)) }
+    mut state := "running"
+    if slot.terminal.ended { state = format("exit ", buffer.terminal_status.to_str()) }
+    editor_draw_text(font, format(buffer.terminal_name, " [", state, "]"), rect.x + 8, sy + 4, size,
+        Color(r = 220, g = 220, b = 220, a = 255))
+    EndScissorMode()
+}
+
 editor_tail_text := func(font: Font, text: Str, size: I32, width: I32) returns Str {
     if editor_text_width(font, text, size) <= width { return text.clone() }
     mut first : USize = 0
@@ -198,6 +226,7 @@ editor_draw_minibuffer := proc(mini: Minibuffer, font: Font, size: I32, line_h: 
     if mini.choices.len() == 0 { help = "Type yes to discard, no or C-g to cancel" }
     else if matches.len() == 0 { help = "No matching buffer - edit the name or C-g to cancel" }
     else { help = format((mini.selected + 1).to_str(), "/", matches.len().to_str(), "  ", help) }
+    if mini.help.len() > 0 { help = mini.help.clone() }
     if mini.hint.len() > 0 { help = mini.hint.clone() }
     BeginScissorMode(8, panel_y, width - 16, line_h)
     editor_draw_text(font, help, 8, panel_y + 4, size, Color(r = 155, g = 170, b = 200, a = 255))
@@ -258,6 +287,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
     mut prefix_pending := false
     mut prompt := EditorBufferPrompt()
     mut exit_prompt := EditorExitPrompt()
+    mut terminals := EditorTerminals()
     mut suppress_text := false
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE.cast(U32))
@@ -305,6 +335,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             }
         }
 
+        terminals.update(editor, line_h + 8)
         mut quit := false
         mut mods : I32 = 0
         mut action : I32 = 0
@@ -312,6 +343,9 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         while key > 0 {
             mut save := false
             mut open := false
+            current := editor.nodes[editor.focused].view.buffer
+            terminal := editor.buffers[current].terminal
+            prompting := prompt.mini.active || exit_prompt.mini.active
             // GLFW_MOD_CONTROL = 2, GLFW_MOD_ALT = 4. These are mapped
             // modifier flags, not the physical Control/Alt key identities.
             control := mods.band(2) != 0
@@ -319,15 +353,17 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             if action == 4 {
                 quit = true
             } else if action == 3 {
-                if !suppress_text && key >= 32 && key < 127 {
+                if terminal >= 0 && !prompting && !prefix_pending && !suppress_text {
+                    terminals.event(terminal, key, mods, action)
+                } else if !suppress_text && key >= 32 && key < 127 {
                     typed := Str.from_byte(key.cast(I64).to_u8())
                     if exit_prompt.mini.active { exit_prompt.mini.insert(typed) }
                     else if prompt.mini.active { prompt.mini.insert(typed) }
                     else if !prefix_pending { editor.insert(typed) }
                 }
             } else if key < 340 || key > 347 {
-                suppress_text = ctrl || prefix_pending
-                if control && key == 71 {
+                suppress_text = prefix_pending || (ctrl && (terminal < 0 || prompting))
+                if control && key == 71 && (prefix_pending || prompting || terminal < 0) {
                     prefix_pending = false
                     prompt.cancel()
                     exit_prompt.cancel()
@@ -341,7 +377,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                     } else if key == 257 && action == 1 && !ctrl {
                         selected := exit_prompt.mini.choice()
                         if selected < 0 {
-                            exit_prompt.mini.hint = "Choose save, discard or cancel"
+                            exit_prompt.mini.hint = "Choose an exit action from the list"
                         } else {
                             decision := exit_prompt.mini.choices[selected.to_usize()].id
                             if decision == 0 {
@@ -371,6 +407,8 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                     } else if !ctrl {
                         prompt.mini.key(key, mods.band(1) != 0)
                     }
+                } else if terminal >= 0 && !prefix_pending && !(action == 1 && control && key == 88) {
+                    terminals.event(terminal, key, mods, action)
                 } else if key == 256 && action == 1 {
                     quit = true
                 } else if prefix_pending && action == 1 {
@@ -378,6 +416,8 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                     status_msg = ""
                     if control && key == 67 {
                         quit = true
+                    } else if control && key == 88 && terminal >= 0 {
+                        terminals.event(terminal, 88, mods, 1)
                     } else if control && key == 71 {
                         status_msg = ""
                     } else if control && key == 83 {
@@ -390,6 +430,8 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                         prompt.begin(editor, kind)
                     } else if key == 75 {
                         prompt.begin(editor, BufferPromptKind.Kill)
+                    } else if key == 84 {
+                        terminals.spawn(editor, font_path, status_msg)
                     } else if key == 50 || key == 51 {
                         if !editor.split(key == 51, min_view_w, min_view_h) {
                             status_msg = "View too small to split"
@@ -445,13 +487,19 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
 
         BeginDrawing()
         ClearBackground(Color(r = 70, g = 70, b = 90, a = 255))
-        for index : USize in editor.views() { editor_draw_view(editor, index, font, font_size, line_h) }
+        for index : USize in editor.views() {
+            id := editor.nodes[index].view.buffer
+            if editor.buffers[id].terminal >= 0 {
+                editor_draw_terminal(terminals, editor, index, font, font_size, line_h,
+                    !prompt.mini.active && !exit_prompt.mini.active)
+            } else { editor_draw_view(editor, index, font, font_size, line_h) }
+        }
         active_buffer := editor.nodes[editor.focused].view.buffer
         window_title := format("Tiled - ", editor_buffer_name(editor.buffers[active_buffer]))
         SetWindowTitle(window_title.c_str)
         DrawRectangle(0, height - footer_h, width, footer_h, Color(r = 38, g = 38, b = 52, a = 255))
         BeginScissorMode(8, height - footer_h, width - 16, footer_h)
-        mut message := "C-x b Buffers  C-x 2/3 Split  C-s Save"
+        mut message := "C-x t Terminal  C-x b Buffers  C-x 2/3 Split"
         if status_msg.len() > 0 { message = status_msg.clone() }
         editor_draw_text(font, message, 8, height - footer_h + 4, font_size,
             Color(r = 160, g = 160, b = 180, a = 255))
@@ -460,6 +508,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         if exit_prompt.mini.active { editor_draw_minibuffer(exit_prompt.mini, font, font_size, line_h, width, height, footer_h) }
         EndDrawing()
     }
+    terminals.close()
     UnloadFont(font)
     window_close_input()
     CloseWindow()

@@ -8,8 +8,10 @@ The terminal now has host-owned session/screen/input state with separate
 =pump=, =resize= and =event= operations. The renderer accepts a screen and
 viewport and owns only graphics resources. Standalone tilminal and the editor
 use the same ordered, mapped-modifier host input bridge. Headless encoding
-and GUI burst-input/remapped-Control checks cover this boundary. Embedded
-terminal buffers and independent library packaging remain subsequent work.
+and GUI burst-input/remapped-Control checks cover this boundary. Tiled now
+consumes the component through terminal buffers, with hidden-session pumping,
+mirrored views and explicit process lifecycle policy. Independent library
+packaging/installation and repository separation remain subsequent work.
 
 Establish one reusable terminal library consumed by standalone tilminal and
 Tiled. First organize and verify the boundaries in this repository, then

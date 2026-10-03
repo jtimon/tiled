@@ -27,10 +27,11 @@ continuation is consumed and cancels the prefix.
 
 ** Exiting with unsaved edits
 
-=C-x C-c=, Escape outside a prompt, and the window's close button all check
-every loaded buffer, including buffers hidden from all panes. If none is
-modified, Tiled exits immediately. Otherwise the minibuffer asks about each
-modified buffer once, showing its name and progress through the sequence:
+=C-x C-c=, Escape in a text pane outside a prompt, and the window's close
+button check every loaded buffer, including hidden ones. Tiled exits
+immediately if there are no modified text buffers or live terminal sessions.
+Otherwise the minibuffer asks about each once, showing its name and progress.
+Modified text buffers offer:
 
 - =save=: save this buffer and continue to the next modified buffer.
 - =discard=: continue without saving this buffer.
@@ -50,6 +51,10 @@ Cancelling that dialog, or failing to save a file, stops the exit attempt
 and returns to editing with the buffer still modified. Save failures display
 an error in the status area, including open, write and close/flush failures.
 The same recoverable save handling applies to =C-s= and =C-x C-s=.
+Live terminal sessions also participate in this sequence: they offer
+=terminate= or =cancel=, rather than save/discard. Termination is deferred
+until the entire exit sequence is accepted; cancelling later keeps all
+sessions running. Exited terminals require no confirmation.
 
 ** Internal tiling
 
@@ -65,9 +70,10 @@ These commands operate on views inside the existing Tiled window:
 | C-x C-f | Open a file in the focused view          |
 | C-x C-s | Save the focused view's buffer           |
 
-Press Ctrl+X, then the continuation. =Ctrl+O= and =Ctrl+S= remain available
-for open/save. Clicking a pane changes focus. A split initially displays
-the same buffer in both views, with independent cursor and scroll state.
+Press Ctrl+X, then the continuation. In text panes, =Ctrl+O= and =Ctrl+S=
+remain available for open/save. Clicking a pane changes focus. A split
+initially displays the same buffer in both views; text views have independent
+cursor/scroll state, while terminal views mirror one session's screen.
 Opening another file affects only the focused view; closing views keeps
 their buffers. See [[file:architecture.org][the layout model]] for details.
 
@@ -111,6 +117,34 @@ If the buffer is displayed in several panes, each switches to another live
 buffer while keeping the layout. Killing the last buffer creates an empty
 =*scratch*= buffer. This is distinct from =C-x 0=, which closes just a view
 and keeps its buffer.
+
+** Terminal buffers
+
+=C-x t= creates a new persistent shell in the focused pane, named
+=*terminal-1*=, =*terminal-2*=, etc. It uses =$SHELL= (or =COMSPEC= on Windows)
+and inherits Tiled's working directory/environment. =C-x b= and =C-x C-b=
+include terminals, showing running or exited status. Terminal text uses the
+same font path as the editor, rendered at the terminal's current 20-pixel size.
+
+Within a terminal, =C-x= is Tiled's command prefix: splitting, focus, buffer
+switching, open, kill and quit commands work as in text panes. =C-x C-x=
+sends a literal Ctrl+X to the child. Other keys, including Ctrl+C, Ctrl+G,
+Ctrl+S, Ctrl+O and Escape, belong to the terminal when no host prompt/prefix
+is active. =C-g= cancels a pending host prefix or minibuffer. =C-x C-s=
+reports that a terminal cannot be saved as a text file.
+
+Splitting a terminal mirrors the same session instead of starting another
+shell. The focused pane sets its terminal size; otherwise the first visible
+pane sets it. Other panes display the same screen clipped to their bounds.
+Hidden sessions retain their last size and continue processing output.
+=C-x 0= closes a pane while retaining its buffer/session.
+
+=C-x k= requires =yes= confirmation to terminate a running terminal buffer;
+=no=, =C-g= or Escape cancels. Accepting kills that session in every view,
+releases its native/graphics resources, and displays another buffer in the
+affected panes. A child that exits normally leaves its final screen and exit
+status available until the buffer is killed. Shell startup failures appear
+as status messages and leave the existing editor buffer usable.
 
 ** Init file
 

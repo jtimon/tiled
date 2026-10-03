@@ -14,6 +14,13 @@ namespace:
         return Terminal(session = TerminalSession.new(..args))
     }
     start := proc(t: Terminal) { t.session.start(t.screen.columns, t.screen.rows) }
+    // Interactive hosts can report startup failure without losing other buffers.
+    try_start := proc(t: Terminal) returns Str {
+        terminal_session_start(t.session.handle, t.screen.columns, t.screen.rows)
+        error := terminal_session_error(t.session.handle)
+        if error.len() > 0 { terminal_session_close(t.session.handle) }
+        return error
+    }
     resize := proc(mut t: Terminal, columns: I64, rows: I64) {
         cols := terminal_bound(columns, 1, 32767)
         lines := terminal_bound(rows, 1, 32767)

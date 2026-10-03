@@ -21,6 +21,10 @@ editor_buffer_choices := func(editor: EditorState, preferred: USize) returns Vec
         else { flags = format(flags, "  ") }
         mut filename := buffer.filename.clone()
         if filename.len() == 0 { filename = "[no file]" }
+        if buffer.terminal >= 0 {
+            filename = "[terminal running]"
+            if !buffer.terminal_running { filename = format("[terminal exited ", buffer.terminal_status.to_str(), "]") }
+        }
         choices.push(own MinibufferChoice(id = id, name = editor.buffer_name(id),
             marker = flags, detail = filename))
     }
@@ -55,7 +59,7 @@ namespace:
                 return "Cancelled"
             }
             if self.mini.input != "yes" {
-                self.mini.hint = "Type yes to discard, no or C-g to cancel"
+                self.mini.hint = self.mini.help.clone()
                 return ""
             }
             name := editor.buffer_name(self.target)
@@ -74,8 +78,12 @@ namespace:
             if !editor.kill_buffer(id) {
                 self.target = id
                 self.kind = BufferPromptKind.ConfirmKill
-                self.mini.begin(format("Discard unsaved edits in ", name, "? (yes/no): "),
+                mut question := format("Discard unsaved edits in ", name, "? (yes/no): ")
+                if editor.buffers[id].terminal_running { question = format("Terminate running ", name, "? (yes/no): ") }
+                self.mini.begin(question,
                     Vec(MinibufferChoice).new())
+                self.mini.help = "Type yes to discard, no or C-g to cancel"
+                if editor.buffers[id].terminal >= 0 { self.mini.help = "Type yes to terminate, no or C-g to cancel" }
                 return ""
             }
             self.cancel()

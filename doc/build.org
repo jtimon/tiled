@@ -72,6 +72,8 @@ collisions. New issue numbers come from =issues/NEXT_ISSUE.txt=.
 - [[file:../src/minibuffer.til][src/minibuffer.til]]: reusable prompt text, filtering, selection and completion.
 - [[file:../src/editor_buffers.til][src/editor_buffers.til]]: buffer choices, switching/listing and kill confirmation.
 - [[file:../src/editor_exit.til][src/editor_exit.til]]: per-buffer save/discard/cancel exit state.
+- [[file:../src/editor_terminal.til][src/editor_terminal.til]]: owning terminal pool, hidden-session pumping and
+  the single resize-owner policy for mirrored panes.
 - [[file:../src/editor_save.c][src/editor_save.c]]: file writes reporting errors back to the editor, including
   buffered close failures, instead of terminating with unsaved buffers.
 - [[file:../src/window_input.til][src/window_input.til]] and [[file:../src/window_input.c][src/window_input.c]]: the shared host GLFW callback bridge
@@ -84,5 +86,5 @@ collisions. New issue numbers come from =issues/NEXT_ISSUE.txt=.
 The applications began in Til's =examples/= directory and are now developed
 here. Tilminal's reusable terminal implementation replaces the old command
 runner. Their =std/= imports resolve against the installed Til distribution's
-matching support tree. Both applications use =mode gui=; embedded terminal
-buffers in Tiled remain the next integration step.
+matching support tree. Both applications use =mode gui= and the same terminal
+component; Tiled embeds it through =C-x t= terminal buffers.

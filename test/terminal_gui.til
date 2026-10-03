@@ -1,191 +1,5 @@
 mode gui
-
-// Run under xvfb-run from the repository root after building tilminal.
-// The application runs from bin/, and the test compares actual rendered pixels.
-import("std/sys")
-import("../src/terminal/view")
-link("X11")
-link(":libXtst.so.6")
-
-XOpenDisplay := ext_proc(name: I8) returns ref Dynamic {}
-XCloseDisplay := ext_proc(display: Dynamic) returns shallow I32 {}
-XSetInputFocus := ext_proc(display: Dynamic, shallow window: UPtr, shallow revert: I32, shallow time: UPtr) returns shallow I32 {}
-XKeysymToKeycode := ext_proc(display: Dynamic, shallow keysym: UPtr) returns shallow U8 {}
-XkbKeycodeToKeysym := ext_proc(display: Dynamic, shallow key: U8, shallow group: I32, shallow level: I32) returns shallow UPtr {}
-XTestFakeKeyEvent := ext_proc(display: Dynamic, shallow key: U32, shallow pressed: I32, shallow delay: UPtr) returns shallow I32 {}
-XFlush := ext_proc(display: Dynamic) returns shallow I32 {}
-XGetGeometry := ext_proc(display: Dynamic, shallow window: UPtr, mut root: UPtr, mut x: I32, mut y: I32,
-    mut width: U32, mut height: U32, mut border: U32, mut depth: U32) returns shallow I32 {}
-XGetImage := ext_proc(display: Dynamic, shallow window: UPtr, shallow x: I32, shallow y: I32,
-    shallow width: U32, shallow height: U32, shallow planes: UPtr, shallow format: I32) returns ref Dynamic {}
-XGetPixel := ext_proc(image: Dynamic, shallow x: I32, shallow y: I32) returns shallow UPtr {}
-XDestroyImage := ext_proc(image: Dynamic) returns shallow I32 {}
-XInternAtom := ext_proc(display: Dynamic, name: I8, shallow only_existing: I32) returns shallow UPtr {}
-
-// XEvent's ClientMessage layout, with trailing storage for its 24-long union.
-XClientEvent := struct {
-    kind : I32 = 33
-    serial : UPtr = 0
-    send_event : I32 = 0
-    display : Option(ref Dynamic) = Option(ref Dynamic).None
-    window : UPtr = 0
-    message_type : UPtr = 0
-    format : I32 = 32
-    data0 : UPtr = 0; data1 : UPtr = 0; data2 : UPtr = 0; data3 : UPtr = 0; data4 : UPtr = 0
-    pad0 : UPtr = 0; pad1 : UPtr = 0; pad2 : UPtr = 0; pad3 : UPtr = 0
-    pad4 : UPtr = 0; pad5 : UPtr = 0; pad6 : UPtr = 0; pad7 : UPtr = 0
-    pad8 : UPtr = 0; pad9 : UPtr = 0; pad10 : UPtr = 0; pad11 : UPtr = 0
-}
-XSendEvent := ext_proc(display: Dynamic, shallow window: UPtr, shallow propagate: I32,
-    shallow mask: UPtr, event: XClientEvent) returns shallow I32 {}
-get_cwd_str := ext_proc() returns Str {}
-
-request_close := proc(display: Dynamic, window: UPtr) {
-    event := XClientEvent(window = window, message_type = XInternAtom(display, "WM_PROTOCOLS".c_str, 0),
-        data0 = XInternAtom(display, "WM_DELETE_WINDOW".c_str, 0))
-    if XSendEvent(display, window, 0, 0, event) == 0 { panic("cannot send window close") }
-    XFlush(display)
-}
-
-has_rendered_row := proc(display: Dynamic, window: UPtr, reference: UPtr, width: I32) returns Bool {
-    mut root : UPtr = 0
-    mut x : I32 = 0
-    mut y : I32 = 0
-    mut actual_width : U32 = 0
-    mut actual_height : U32 = 0
-    mut border : U32 = 0
-    mut depth : U32 = 0
-    if XGetGeometry(display, window, root, x, y, actual_width, actual_height, border, depth) == 0 {
-        panic("cannot read terminal window geometry")
-    }
-    if depth != 24 { panic("GUI pixel test requires a 24-bit X display") }
-    if actual_width < width.cast(U32) || actual_height < 24 { return false }
-    mask : UPtr = 0xFFFFFF
-    ref expected : Dynamic = XGetImage(display, reference, 0, 0, width.cast(U32), 24, mask, 2)
-    if is_null(expected) { panic("cannot capture reference window") }
-    ref actual : Dynamic = XGetImage(display, window, 0, 0, width.cast(U32), actual_height, mask, 2)
-    if is_null(actual) { XDestroyImage(expected); panic("cannot capture terminal window") }
-    first := XGetPixel(expected, 0, 0).band(mask)
-    mut visible := false
-    for row in 0..24 {
-        for column in 0..width.cast(I64) {
-            if XGetPixel(expected, column.to_i32(), row.to_i32()).band(mask) != first { visible = true; break }
-        }
-        if visible { break }
-    }
-    if !visible {
-        XDestroyImage(expected)
-        XDestroyImage(actual)
-        panic("reference row is blank; cannot verify visible output")
-    }
-    mut found := false
-    for line in 0..(actual_height.cast(U64).cast(I64) / 24) {
-        mut equal := true
-        for row in 0..24 {
-            for column in 0..width.cast(I64) {
-                wanted := XGetPixel(expected, column.to_i32(), row.to_i32()).band(mask)
-                got := XGetPixel(actual, column.to_i32(), (line * 24 + row).to_i32()).band(mask)
-                if wanted != got { equal = false; break }
-            }
-            if !equal { break }
-        }
-        if equal { found = true; break }
-    }
-    XDestroyImage(expected)
-    XDestroyImage(actual)
-    return found
-}
-
-find_window := proc(title: Str) returns UPtr {
-    query := Cmd.new("xwininfo", "-root", "-tree", "-int")
-    query.capture_out()
-    if query.run() != 0 { panic("xwininfo failed") }
-    for line : Str in query.out().split("\n") {
-        if line.contains(format("\"", title, "\"")) {
-            fields := line.trim().split(" ")
-            return fields[0].to_i64().cast(UPtr)
-        }
-    }
-    return 0
-}
-
-require := proc(app: Cmd, pid: I64, ok: Bool, why: Str) {
-    if ok { return }
-    Cmd.new("import", "-window", "root", "tmp/terminal-gui-failure.png").run()
-    if !app.poll() {
-        window := find_window("tilminal")
-        if window != 0 {
-            name := get_env("DISPLAY")
-            ref display : Dynamic = XOpenDisplay(name.c_str)
-            request_close(display, window)
-            XCloseDisplay(display)
-            sleep_ms(1000)
-        }
-        if !app.poll() { Cmd.new("kill", "-TERM", pid.to_str()).run() }
-    }
-    app.wait()
-    panic(why, "\n", File.readfile("tmp/terminal-gui-app.log"))
-}
-
-wait_window := proc(app: Cmd, pid: I64, title: Str) returns UPtr {
-    mut window : UPtr = 0
-    for _ in 0..200 {
-        window = find_window(title)
-        if window != 0 || app.poll() { break }
-        sleep_ms(50)
-    }
-    require(app, pid, window != 0, format("missing window: ", title))
-    return window
-}
-
-send := proc(display: Dynamic, key: UPtr, pressed: I32) {
-    code := XKeysymToKeycode(display, key)
-    XTestFakeKeyEvent(display, code.cast(U32), pressed, 0)
-    XFlush(display)
-}
-type_text := proc(display: Dynamic, text: Str) {
-    for index in 0..text.len() {
-        symbol := text.get(index).cast(I64).cast(UPtr)
-        code := XKeysymToKeycode(display, symbol)
-        shift := XkbKeycodeToKeysym(display, code, 0, 0) != symbol
-        if shift { send(display, 65505, 1) }
-        send(display, symbol, 1)
-        send(display, symbol, 0)
-        if shift { send(display, 65505, 0) }
-    }
-    // Burst input followed immediately by Enter must survive one-frame queues.
-    send(display, 65293, 1)
-    send(display, 65293, 0)
-}
-
-render_reference := proc(mut view: TerminalView, text: Str) {
-    mut screen := TerminalScreen.new(80, 3)
-    screen.feed(text)
-    BeginDrawing()
-    ClearBackground(Color(r = 16, g = 18, b = 24, a = 255))
-    view.draw(screen, 0, 0, 960, 80, false, true)
-    EndDrawing()
-}
-
-check_pixels := proc(app: Cmd, pid: I64, display: Dynamic, window: UPtr, reference: UPtr, width: I32) {
-    mut found := false
-    for _ in 0..200 {
-        if app.poll() { break }
-        if has_rendered_row(display, window, reference, width) { found = true; break }
-        sleep_ms(50)
-    }
-    require(app, pid, found, "expected terminal output was not rendered")
-}
-
-close_app := proc(app: Cmd, pid: I64, display: Dynamic, window: UPtr) {
-    request_close(display, window)
-    for _ in 0..100 {
-        if app.poll() { break }
-        sleep_ms(50)
-    }
-    require(app, pid, app.poll(), "terminal did not close cleanly")
-    assert(app.wait() == 0)
-}
+import("terminal_gui_helpers")
 
 main := proc() {
     query := Cmd.new("fc-match", "--format=%{file}", "monospace")
@@ -216,12 +30,10 @@ main := proc() {
     sleep_ms(250)
     XSetInputFocus(display, window, 2, 0)
     XFlush(display)
-    // The typed command does not contain marker: only actual ls output can
-    // satisfy the rendered-pixel assertion, not terminal echo of our input.
+    // Only ls output, not echoed input, contains the marker filename.
     type_text(display, format("ls ../", fixture))
     check_pixels(app, pid, display, window, reference, (view.cell_width * marker.len().to_i64()).to_i32())
     File.remove(marker_path)
-    // Live remapping must affect Control even when press/release share a frame.
     Cmd.new("xmodmap", "-e", "clear control", "-e", "clear mod1",
         "-e", "keysym Control_L = Alt_L Meta_L", "-e", "keysym Alt_L = Control_L",
         "-e", "add control = Control_L Control_R",
@@ -233,7 +45,7 @@ main := proc() {
     send(display, 99, 1)
     send(display, 99, 0)
     send(display, 65507, 0)
-    sleep_ms(150) // Let the interrupted job return control to the shell.
+    sleep_ms(150)
     next_marker := "CTRL_C_OK"
     next_path := format(fixture, "/", next_marker)
     File.writefile(next_path, "")
@@ -243,8 +55,6 @@ main := proc() {
     close_app(app, pid, display, window)
     File.remove(next_path)
     println("PASS: burst text/Enter, remapped Ctrl-C reaches foreground job, visible output and clean close")
-
-    // Preserve the old GUI smoke's missing-wide-glyph/combining-mark coverage.
     unicode := format(terminal_utf8(0x4e00), "e", terminal_utf8(0x301))
     render_reference(view, unicode)
     once := Cmd.new("./tilminal", format("printf '", unicode, "'"))

@@ -1,0 +1,97 @@
+mode lib
+import("std/sys")
+import("editor_model")
+import("terminal/terminal")
+import("terminal/view")
+
+EditorTerminal := struct {
+    owner : USize = 0
+    active := true
+    terminal : Terminal
+    view : TerminalView
+namespace:
+    close := proc(mut slot: EditorTerminal) {
+        slot.terminal.close()
+        slot.view.close()
+        slot.active = false
+    }
+}
+
+// Stable, reusable slots own native/GPU resources. Splitting copies buffer IDs,
+// never a session handle. Each live session is pumped and resized once per frame.
+EditorTerminals := struct {
+    slots := Vec(EditorTerminal).new()
+    serial : I64 = 0
+namespace:
+    spawn := proc(mut self: EditorTerminals, mut editor: EditorState, font_path: Str, mut message: Str) returns Bool {
+        mut shell := get_env("SHELL")
+        windows := host_os() == "windows"
+        if windows { shell = get_env("COMSPEC"); if shell.len() == 0 { shell = "cmd.exe" } }
+        else if shell.len() == 0 { shell = "/bin/sh" }
+        mut terminal := Terminal.new(shell)
+        if !windows { terminal.session.arg("-i") }
+        error := terminal.try_start()
+        if error.len() > 0 {
+            message = format("Cannot start terminal: ", error)
+            return false
+        }
+        mut index : USize = 0
+        while index < self.slots.len() {
+            if !self.slots[index].active { break }
+            index++
+        }
+        id := editor.add_buffer("", "")
+        self.serial++
+        ref mut buffer : EditorBuffer = editor.buffers[id]
+        buffer.terminal = index.to_i64()
+        buffer.terminal_name = format("*terminal-", self.serial.to_str(), "*")
+        buffer.terminal_running = true
+        slot := EditorTerminal(owner = id, terminal = terminal, view = TerminalView.new(font_path))
+        if index == self.slots.len() { self.slots.push(own slot) }
+        else { self.slots.set(index, own slot)! }
+        editor.switch_buffer(id)
+        message = "Terminal: C-x commands; C-x C-x sends Ctrl-X"
+        return true
+    }
+
+    update := proc(mut self: EditorTerminals, mut editor: EditorState, mode_h: I32) {
+        for slot_index in 0..self.slots.len() {
+            ref mut slot : EditorTerminal = self.slots[slot_index]
+            if !slot.active { continue }
+            ref mut buffer : EditorBuffer = editor.buffers[slot.owner]
+            if !buffer.alive || buffer.terminal != slot_index.to_i64() {
+                slot.close()
+                continue
+            }
+            // Focused view wins; otherwise the first visible view owns size.
+            // Hidden sessions retain their last size and still pump output.
+            mut sized_by : I64 = -1
+            for index : USize in editor.views() {
+                if editor.nodes[index].view.buffer == slot.owner {
+                    if sized_by < 0 || index == editor.focused { sized_by = index.to_i64() }
+                }
+            }
+            if sized_by >= 0 {
+                ref rect : EditorRect = editor.nodes[sized_by.to_usize()].rect
+                slot.terminal.resize(rect.width.cast(I64) / slot.view.cell_width,
+                    (rect.height - mode_h).cast(I64) / slot.view.cell_height)
+            }
+            slot.terminal.pump()
+            buffer.terminal_running = !slot.terminal.ended
+            if slot.terminal.ended { buffer.terminal_status = slot.terminal.session.status() }
+        }
+    }
+
+    event := proc(mut self: EditorTerminals, index: I64, key: I32, mods: I32, action: I32) {
+        ref mut slot : EditorTerminal = self.slots[index.to_usize()]
+        assert(slot.active)
+        slot.terminal.event(key.cast(I64), mods, action)
+    }
+
+    close := proc(mut self: EditorTerminals) {
+        for index in 0..self.slots.len() {
+            ref mut slot : EditorTerminal = self.slots[index]
+            if slot.active { slot.close() }
+        }
+    }
+}

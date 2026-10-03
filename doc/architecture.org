@@ -73,9 +73,14 @@ operations without treating external windows as buffers.
 
 Standalone =tilminal= and Tiled live in this repository. The reusable terminal
 component is under =src/terminal/=; =src/tilminal.til= is its standalone host.
-It currently owns a persistent session in one GUI window. Tiled embedding
-will give terminal buffers session/screen ownership and panes their own view
-state, with input routed by the host. See [[file:terminal.org][terminal architecture and follow-ups]].
+The standalone host owns one persistent session. Tiled's owning terminal pool
+keeps sessions/screens and renderer caches independent of its clonable layout
+tree: buffers reference stable pool slots, and panes reference buffer IDs.
+Closing a view never clones or destroys a session. Hidden buffers still pump;
+killing a buffer releases its slot, which can be reused without stale buffer
+references. Each session has one resize owner (focused pane, otherwise first
+visible pane), so mirrored panes cannot fight over PTY dimensions. Input is
+routed once by the host. See [[file:terminal.org][terminal architecture and follow-ups]].
 
 - Application: an ordinary OS window under the user's existing desktop,
   containing Tiled's own views. This is where the current editor starts.

@@ -5,6 +5,7 @@ import("minibuffer")
 
 // Discard decisions belong to this exit attempt, not to the buffers. Cancelling
 // later in the sequence must leave those buffers dirty and their text intact.
+// Likewise, accepting "terminate" defers process teardown until the host exits.
 EditorExitPrompt := struct {
     mini := Minibuffer()
     pending := Vec(USize).new()
@@ -21,8 +22,12 @@ namespace:
         id := self.pending[self.position].clone()
         mut choices := Vec(MinibufferChoice).new()
         choices.push(own MinibufferChoice(id = 0, name = "cancel", detail = "Return to editing"))
-        choices.push(own MinibufferChoice(id = 1, name = "save", detail = "Save this buffer, then continue"))
-        choices.push(own MinibufferChoice(id = 2, name = "discard", detail = "Exit without saving this buffer"))
+        if editor.buffers[id].terminal >= 0 {
+            choices.push(own MinibufferChoice(id = 2, name = "terminate", detail = "End this session when exiting"))
+        } else {
+            choices.push(own MinibufferChoice(id = 1, name = "save", detail = "Save this buffer, then continue"))
+            choices.push(own MinibufferChoice(id = 2, name = "discard", detail = "Exit without saving this buffer"))
+        }
         self.mini.begin(format("Exit ", (self.position + 1).to_str(), "/", self.pending.len().to_str(),
             " - ", editor.buffer_name(id), ": "), choices)
     }
@@ -33,7 +38,7 @@ namespace:
         self.position = 0
         self.ready = false
         for id : USize in editor.live_buffers() {
-            if editor.buffers[id].dirty { self.pending.push(own id.clone()) }
+            if editor.buffers[id].dirty || editor.buffers[id].terminal_running { self.pending.push(own id.clone()) }
         }
         self.show(editor)
     }

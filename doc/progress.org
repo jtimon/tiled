@@ -35,6 +35,14 @@
 
 ** Internal splits
 
+=C-x t= now opens a terminal buffer using the same component as standalone
+tilminal. Terminals participate in buffer switching and splits; hidden
+sessions pump output and mirrored views share one resize owner. =C-x= remains
+the host prefix, =C-x C-x= sends literal Ctrl-X, and other terminal input goes
+to the child. Live-session kill/exit requires confirmation, while normal
+child exit retains the final screen. [[file:terminal.org][Terminal tests]] cover this in real GUI
+sessions, including remapped keys, large hidden output and child cleanup.
+
 Application sources live in =src/=: [[file:../src/tiled.til][startup]], [[file:../src/editor.til][GUI/input]], and
 [[file:../src/editor_model.til][buffers/views/layout]]. =C-x 2= and =C-x 3= split the focused view;
 =C-x o= changes focus, =C-x 0= closes a view, and =C-x 1= keeps only it.
@@ -113,12 +121,14 @@ uses the =mode gui= helper.
 
 ** Save/discard/cancel on exit
 
-=C-x C-c=, Escape outside a prompt and the window's close button now share
+=C-x C-c=, Escape in a text pane outside a prompt and the window's close button now share
 one exit workflow. Every live modified buffer is prompted once, including
 hidden buffers. Empty input defaults to cancel. Cancelling after an earlier
 discard preserves that buffer's dirty state and text; cancelling after a
 save retains the successful save. The layout and selected pane stay intact.
-No modified buffers means immediate exit.
+Live terminals offer terminate/cancel through the same sequence; all process
+termination is deferred until acceptance completes. No modified text buffers
+or running terminals means immediate exit.
 
 An unnamed buffer uses the existing =mode gui= save dialog. Cancelling the
 dialog or encountering a save error returns to editing rather than exiting.
@@ -211,5 +221,5 @@ terminate their test application; its output goes to =tmp/quit-app.log=.
   are planned; no command prompt or prefix suggestion menu is implemented.
 - Multiple OS frames (=C-x 5=) and
   [[file:architecture.org][desktop hosts]] remain future work.
-- Terminal buffers in Tiled, scrollback/alternate screens, native platform
+- Scrollback/alternate screens, native platform
   validation and inline graphics remain [[file:terminal.org][terminal follow-ups]].

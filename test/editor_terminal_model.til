@@ -1,0 +1,49 @@
+mode cli
+import("../src/editor_buffers")
+import("../src/editor_exit")
+
+main := proc() {
+    mut editor := EditorState.new("notes", "text")
+    id := editor.add_buffer("", "")
+    ref mut terminal : EditorBuffer = editor.buffers[id]
+    terminal.terminal = 0
+    terminal.terminal_name = "*terminal-1*"
+    terminal.terminal_running = true
+    editor.switch_buffer(id)
+    editor.arrange(0, EditorRect(width = 1000, height = 800))
+    assert(editor.split(true, 100, 80))
+    assert(editor.buffer_name(id) == "*terminal-1*")
+    choices := editor_buffer_choices(editor, id)
+    assert(choices[0].detail == "[terminal running]")
+    mut quit := EditorExitPrompt()
+    quit.begin(editor)
+    assert(quit.pending.len() == 1 && quit.pending[0] == id)
+    assert(quit.mini.choices.len() == 2 && quit.mini.choices[1].name == "terminate")
+    quit.advance(editor)
+    quit.cancel()
+    assert(editor.buffers[id].terminal_running)
+    editor.switch_buffer(0)
+    editor.insert("edited")
+    editor.switch_buffer(id)
+    quit.begin(editor)
+    assert(quit.pending.len() == 2 && quit.pending[0] == 0 && quit.pending[1] == id)
+    quit.advance(editor)
+    quit.cancel()
+    assert(editor.buffers[0].dirty && editor.buffers[id].terminal_running)
+    ref mut document : EditorBuffer = editor.buffers[0]
+    document.dirty = false
+    assert(!editor.kill_buffer(id))
+    mut kill := EditorBufferPrompt()
+    kill.begin(editor, BufferPromptKind.Kill)
+    kill.accept(editor)
+    assert(kill.mini.label.contains("Terminate running"))
+    kill.cancel()
+    assert(editor.buffers[id].alive)
+    assert(editor.kill_buffer(id, true))
+    for index : USize in editor.views() { assert(editor.nodes[index].view.buffer == 0) }
+    replacement := editor.add_buffer("", "scratch")
+    assert(replacement == id && editor.buffers[replacement].terminal < 0)
+    quit.begin(editor)
+    assert(quit.ready)
+    println("PASS: terminal buffer identity, shared views, kill/exit confirmation and slot reuse")
+}

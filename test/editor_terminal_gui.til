@@ -1,0 +1,228 @@
+mode gui
+import("terminal_gui_helpers")
+
+XResizeWindow := ext_proc(display: Dynamic, shallow window: UPtr, shallow width: U32, shallow height: U32) returns shallow I32 {}
+
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0) }
+chord := proc(display: Dynamic, key: UPtr) {
+    sleep_ms(30) // Distinct synthetic strokes must not look like X11 autorepeat.
+    send(display, 65507, 1); tap(display, key); send(display, 65507, 0)
+}
+prefix := proc(display: Dynamic, key: UPtr, control: Bool = false) {
+    chord(display, 120)
+    if control { chord(display, key) } else { tap(display, key) }
+}
+choose := proc(display: Dynamic, key: UPtr, query: Str) {
+    prefix(display, key)
+    type_text(display, query)
+    sleep_ms(100)
+}
+wait_file := proc(app: Cmd, pid: I64, path: Str) {
+    for _ in 0..600 {
+        if File.exists(path) && File.readfile(path).len() > 0 { break }
+        if app.poll() { break }
+        sleep_ms(50)
+    }
+    require(app, pid, File.exists(path) && File.readfile(path).len() > 0, format("missing child output: ", path))
+}
+wait_contents := proc(app: Cmd, pid: I64, path: Str, expected: Str) {
+    for _ in 0..600 {
+        if File.readfile(path) == expected || app.poll() { break }
+        sleep_ms(50)
+    }
+    require(app, pid, File.readfile(path) == expected, format("unexpected contents: ", path))
+}
+alive := proc(pid: Str) returns Bool {
+    cmd := Cmd.new("kill", "-0", pid)
+    cmd.capture()
+    return cmd.run() == 0
+}
+wait_dead := proc(app: Cmd, pid: I64, child: Str) {
+    for _ in 0..100 {
+        if !alive(child) { break }
+        sleep_ms(50)
+    }
+    require(app, pid, !alive(child), "terminal child was not reaped")
+}
+copy_trimmed := func(text: Str) returns Str { return text.trim().clone() }
+trimmed_file := proc(path: Str) returns Str {
+    text := File.readfile(path)
+    return copy_trimmed(text)
+}
+size_columns := proc(path: Str) returns I64 {
+    text := trimmed_file(path)
+    fields := text.split(" ")
+    return fields[1].to_i64()
+}
+
+main := proc(args: ..Str) {
+    mut binary := "./bin/tiled"
+    if args.len() > 0 { binary = args[0].clone() }
+    root := get_cwd_str()
+    dir := format("tmp/embedded-", process_id().to_str())
+    assert(mkdir_p(dir) == 0)
+    document := format(dir, "/notes.txt")
+    File.writefile(document, "notes")
+    marker_dir := format(dir, "/listing")
+    assert(mkdir_p(marker_dir) == 0)
+    marker := "EMBEDDED_OK"
+    File.writefile(format(marker_dir, "/", marker), "")
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace")
+    query.capture_out()
+    if query.run() != 0 { panic("fontconfig failed") }
+    InitWindow(960, 80, "terminal GUI reference".c_str)
+    SetWindowPosition(900, 1000)
+    SetExitKey(0)
+    mut view := TerminalView.new(query.out())
+    render_reference(view, marker)
+    reference := find_window("terminal GUI reference")
+    name := get_env("DISPLAY")
+    ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    app := Cmd.new(binary, document)
+    app.env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
+    app.env("HOME", format(root, "/", dir, "/home")).env("LC_ALL", "C")
+    app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    pid := app.start()
+    window := wait_window(app, pid, "Tiled - notes.txt")
+    sleep_ms(250)
+    XSetInputFocus(display, window, 2, 0); XFlush(display)
+    prefix(display, 116) // C-x t
+    wait_window(app, pid, "Tiled - *terminal-1*")
+    type_text(display, format("ls ", marker_dir))
+    check_pixels(app, pid, display, window, reference, (view.cell_width * marker.len().to_i64()).to_i32())
+
+    child_file := format(dir, "/pid1")
+    dimensions := format(dir, "/size")
+    type_text(display, format("echo $$ > ", child_file, "; stty size > ", dimensions))
+    wait_file(app, pid, child_file)
+    wait_file(app, pid, dimensions)
+    child1 := trimmed_file(child_file)
+    wide := size_columns(dimensions)
+    prefix(display, 51) // Mirror one terminal in two panes; no second process.
+    prefix(display, 111)
+    sleep_ms(150)
+    File.remove(dimensions)
+    type_text(display, format("stty size > ", dimensions))
+    wait_file(app, pid, dimensions)
+    require(app, pid, size_columns(dimensions) < wide, "terminal size did not follow focused split")
+    split_columns := size_columns(dimensions)
+    XResizeWindow(display, window, 760, 700); XFlush(display)
+    sleep_ms(150)
+    File.remove(dimensions)
+    type_text(display, format("stty size > ", dimensions))
+    wait_file(app, pid, dimensions)
+    require(app, pid, size_columns(dimensions) < split_columns, "window resize did not reach the child")
+    prefix(display, 115, true) // Saving a terminal must not open a file dialog.
+
+    // More than a PTY buffer of output: completion requires hidden pumping.
+    done := format(dir, "/done")
+    type_text(display, format("sleep .3; i=0; while [ $i -lt 4000 ]; do printf 'abcdefghijklmnopqrstuvwxyz0123456789\\n'; i=$((i+1)); done; ls ",
+        marker_dir, "; echo done > ", done))
+    choose(display, 98, "notes.txt")
+    prefix(display, 49) // Only text remains visible; terminal is hidden.
+    wait_window(app, pid, "Tiled - notes.txt")
+    wait_file(app, pid, done)
+    type_keys(display, "a")
+    chord(display, 115)
+    wait_contents(app, pid, document, "anotes")
+    choose(display, 98, "terminal-1")
+    wait_window(app, pid, "Tiled - *terminal-1*")
+    check_pixels(app, pid, display, window, reference, (view.cell_width * marker.len().to_i64()).to_i32())
+
+    // Child keys stay child keys; mapped Ctrl-X alone is the host prefix.
+    Cmd.new("xmodmap", "-e", "clear control", "-e", "clear mod1",
+        "-e", "keysym Control_L = Alt_L Meta_L", "-e", "keysym Alt_L = Control_L",
+        "-e", "add control = Control_L Control_R",
+        "-e", "add mod1 = Alt_L Alt_R Meta_L Meta_R").run_checked()
+    sleep_ms(100)
+    type_text(display, "sleep 30")
+    sleep_ms(250)
+    chord(display, 99)
+    sleep_ms(150)
+    tap(display, 65307) // Escape must not request Tiled exit.
+    chord(display, 117) // Ctrl-U clears the shell input line.
+    chord(display, 103) // Ctrl-G belongs to the child too.
+    chord(display, 117) // Plain sh inserts BEL; clear it before the next command.
+    sent := format(dir, "/input")
+    type_text(display, format("echo child > ", sent))
+    wait_file(app, pid, sent)
+    require(app, pid, !app.poll(), "terminal keys quit the host")
+
+    raw_ready := format(dir, "/raw-ready")
+    raw_key := format(dir, "/raw-key")
+    type_text(display, format("stty -echo -icanon min 1 time 0; echo ready > ", raw_ready,
+        "; dd bs=1 count=1 2>/dev/null | od -An -tu1 > ", raw_key, "; stty sane"))
+    wait_file(app, pid, raw_ready)
+    prefix(display, 120, true) // C-x C-x sends literal Ctrl-X.
+    wait_file(app, pid, raw_key)
+    sleep_ms(100)
+    require(app, pid, trimmed_file(raw_key).to_i64() == 24, "literal Ctrl-X forwarding failed")
+
+    choose(display, 107, "")
+    type_text(display, "no")
+    sleep_ms(100)
+    require(app, pid, alive(child1), "cancelled kill terminated session")
+    prefix(display, 116)
+    wait_window(app, pid, "Tiled - *terminal-2*")
+    second_file := format(dir, "/pid2")
+    type_text(display, format("echo $$ > ", second_file))
+    wait_file(app, pid, second_file)
+    child2 := trimmed_file(second_file)
+    prefix(display, 99, true)
+    type_text(display, "terminate")
+    sleep_ms(100)
+    type_text(display, "cancel")
+    sleep_ms(100)
+    require(app, pid, alive(child1) && alive(child2), "cancelled exit terminated an earlier session")
+    choose(display, 107, "")
+    type_text(display, "yes")
+    wait_dead(app, pid, child2)
+    require(app, pid, alive(child1), "kill affected another terminal")
+    wait_window(app, pid, "Tiled - *terminal-1*")
+    type_text(display, "exit")
+    wait_dead(app, pid, child1)
+    sleep_ms(100)
+    require(app, pid, !app.poll(), "child exit closed Tiled")
+    choose(display, 107, "") // Exited terminals need no termination confirmation.
+    wait_window(app, pid, "Tiled - notes.txt")
+    prefix(display, 116) // Reuse released storage without reviving an old session.
+    wait_window(app, pid, "Tiled - *terminal-3*")
+    third_file := format(dir, "/pid3")
+    type_text(display, format("echo $$ > ", third_file))
+    wait_file(app, pid, third_file)
+    child3 := trimmed_file(third_file)
+    request_close(display, window)
+    sleep_ms(100)
+    type_text(display, "cancel")
+    sleep_ms(100)
+    require(app, pid, alive(child3), "WM close bypassed live-session confirmation")
+    prefix(display, 99, true)
+    type_text(display, "terminate")
+    for _ in 0..100 { if app.poll() { break }; sleep_ms(50) }
+    require(app, pid, app.poll(), "terminal host did not exit")
+    assert(app.wait() == 0 && !alive(child3))
+    assert(File.readfile(document) == "anotes")
+    println("PASS: embedded terminal pixels, split resize, hidden pumping, mapped routing, kill/exit and process cleanup")
+
+    broken := Cmd.new(binary, document)
+    broken.env("SHELL", "/no-such-tiled-shell").env("HOME", format(root, "/", dir, "/home"))
+    broken.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    broken_pid := broken.start()
+    broken_window := wait_window(broken, broken_pid, "Tiled - notes.txt")
+    sleep_ms(200)
+    XSetInputFocus(display, broken_window, 2, 0); XFlush(display)
+    prefix(display, 116)
+    sleep_ms(150)
+    type_keys(display, "z")
+    chord(display, 115)
+    wait_contents(broken, broken_pid, document, "zanotes")
+    prefix(display, 99, true)
+    for _ in 0..100 { if broken.poll() { break }; sleep_ms(50) }
+    require(broken, broken_pid, broken.poll(), "failed spawn left a live terminal buffer")
+    assert(broken.wait() == 0)
+    println("PASS: failed shell startup preserves text editing and clean exit")
+    XCloseDisplay(display)
+    view.close()
+    CloseWindow()
+}

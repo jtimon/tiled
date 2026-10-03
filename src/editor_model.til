@@ -1,11 +1,17 @@
 mode lib
 
-// Buffers own text. Leaf nodes own views; branch nodes own layout decisions.
+// Buffers own text or reference host-owned terminals. Leaves own views;
+// branches own layout decisions, never native terminal resources.
 EditorBuffer := struct {
     alive := true
     filename := ""
     text := ""
     dirty := false
+    // Native sessions live in the host's owning pool, not in clonable layout data.
+    terminal : I64 = -1
+    terminal_name := ""
+    terminal_running := false
+    terminal_status : I64 = 0
 }
 
 EditorView := struct {
@@ -34,6 +40,7 @@ EditorNode := struct {
 }
 
 editor_buffer_name := func(buffer: EditorBuffer) returns Str {
+    if buffer.terminal >= 0 { return buffer.terminal_name.clone() }
     if buffer.filename.len() == 0 { return "*scratch*" }
     start := (buffer.filename.rfind("/") + 1).to_usize()
     return buffer.filename.substr(start, buffer.filename.len() - start).clone()
@@ -287,7 +294,7 @@ namespace:
     show_buffer := func(mut self: EditorState, filename: Str, text: Str) {
         mut id : USize = 0
         while id < self.buffers.len() {
-            if self.buffers[id].alive && self.buffers[id].filename == filename { break }
+            if self.buffers[id].alive && self.buffers[id].terminal < 0 && self.buffers[id].filename == filename { break }
             id++
         }
         if id == self.buffers.len() {
@@ -300,7 +307,7 @@ namespace:
     // view selects another live buffer; an empty scratch replaces the last one.
     kill_buffer := func(mut self: EditorState, id: USize, discard: Bool = false) returns Bool {
         assert(self.buffers[id].alive)
-        if self.buffers[id].dirty && !discard { return false }
+        if (self.buffers[id].dirty || self.buffers[id].terminal_running) && !discard { return false }
         if self.live_buffers().len() == 1 { self.add_buffer("", "") }
         for index : USize in self.views() {
             if self.nodes[index].view.buffer == id {
@@ -320,6 +327,7 @@ namespace:
 
     move_cursor := func(mut self: EditorState, key: I32) {
         ref mut view : EditorView = self.nodes[self.focused].view
+        assert(self.buffers[view.buffer].terminal < 0)
         ref text : Str = self.buffers[view.buffer].text
         start := text_line_start(text, view.cursor)
         end := text_line_end(text, view.cursor)
@@ -346,6 +354,7 @@ namespace:
     replace := func(mut self: EditorState, start: USize, count: USize, inserted: Str) {
         id := self.nodes[self.focused].view.buffer
         ref mut buffer : EditorBuffer = self.buffers[id]
+        assert(buffer.terminal < 0)
         end := start + count
         assert(end <= buffer.text.len())
         replacement := format(buffer.text.substr(0, start), inserted,

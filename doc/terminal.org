@@ -3,9 +3,9 @@
 [[file:../README.org][Tiled]] | [[file:build.org][Build and run]] | [[file:architecture.org][Architecture]]
 
 Tilminal is a standalone terminal emulator developed in this repository.
-Tiled will embed the same terminal component in its panes. There is one
-terminal implementation; terminal buffers inside the editor are the next
-integration milestone, not implemented by this migration.
+Tiled embeds the same terminal component in its panes through =C-x t=.
+There is one terminal implementation and two hosts. See
+[[file:configuration.org][terminal-buffer commands]] for switching, mirrored views and lifecycle policy.
 
 ** Running
 
@@ -69,6 +69,9 @@ til run -o tmp/check_terminal_model -c tmp/check_terminal_model.c test/terminal_
 til run -o tmp/check_terminal_session -c tmp/check_terminal_session.c test/terminal_session.til /usr/local/bin/til
 til build -o tmp/check_terminal_gui -c tmp/check_terminal_gui.c test/terminal_gui.til
 xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_terminal_gui
+til run -o tmp/check_editor_terminal_model -c tmp/check_editor_terminal_model.c test/editor_terminal_model.til
+til build -o tmp/check_editor_terminal_gui -c tmp/check_editor_terminal_gui.c test/editor_terminal_gui.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_editor_terminal_gui
 #+end_src
 
 Pass the installed compiler's absolute path to the session test if it is
@@ -98,6 +101,15 @@ The migrated model passed interpreted, compiled and ASAN checks on Linux.
 The session suite passed normal and ASAN runs; GUI acceptance passed with
 normal binaries. Native Windows ConPTY and macOS PTY runs remain unverified.
 
+The embedded test verifies real pixels, split/window resize reaching the
+child, hidden output larger than a PTY buffer, text/terminal input isolation,
+remapped Control, Escape/Ctrl-G forwarding, literal Ctrl-X, kill/exit
+cancellation, normal child exit, slot reuse, process reaping and startup
+failure recovery. Shared helpers and assertions are written in Til. The
+embedded workflow also passed with an ASAN editor and GUI leak detection
+disabled for the existing Mesa/LLVM leak noise; this is an invalid-access
+check, not a leak-free GUI claim. Headless ASAN checks retain leak detection.
+
 ** Follow-ups
 
 - Reduce model/interpreter and test-build cost while retaining coverage.
@@ -105,11 +117,8 @@ normal binaries. Native Windows ConPTY and macOS PTY runs remain unverified.
   font availability. Cross-compilation alone is not runtime validation.
 - Add scrollback/selection and alternate-screen support, then broaden
   terminal compatibility beyond the current vt100 text profile.
-- Embed terminal buffers in Tiled: separate session/screen ownership from
-  view resources, retain hidden sessions, define multi-view resize policy,
-  and add terminal-aware buffer/exit lifecycle handling.
-- Build on the host-supplied ordered-event boundary for embedded terminal
-  command routing, focus and lifecycle policy.
+- Independently build/install the shared component and define its ABI and
+  dependency policy before splitting repositories, as tracked in [[file:../issues/open/4.org][#4]].
 - Investigate Kitty graphics and other application-supplied inline graphics
   after the terminal/session integration. [[file:../issues/open/3.org][Tiled #3]] carries the full design
   discussion transferred from Til #408 and tracks subsequent implementation.

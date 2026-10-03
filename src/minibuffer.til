@@ -16,6 +16,7 @@ Minibuffer := struct {
     choices := Vec(MinibufferChoice).new()
     selected : USize = 0
     hint := ""
+    help := ""
 
 namespace:
     begin := func(mut self: Minibuffer, label: Str, choices: Vec(MinibufferChoice)) {
@@ -26,6 +27,7 @@ namespace:
         self.choices = choices.clone()
         self.selected = 0
         self.hint = ""
+        self.help = ""
     }
 
     matches := func(self: Minibuffer) returns Vec(USize) {
