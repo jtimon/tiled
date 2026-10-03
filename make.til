@@ -4,11 +4,53 @@ mode cli
 // std/ resolves against the installed compiler's matching support tree.
 // Core and GUI support are loaded from that same installed distribution.
 import("std/sys")
+import("std/file")
 
-build := proc(name: Str, source: Str) {
+get_cwd_str := ext_proc() returns Str {}
+realpath_str := ext_proc(path: Str) returns Str {}
+
+library := proc(opt: Str) {
+    Cmd.new("til", "build", "--cpu=baseline", "--usize=64", opt,
+        "-c", "gen/terminal.c", "lib/libterminal/terminal.til").run_checked()
+}
+
+select_api := proc(mode: Str, prefix: Str = "") {
+    if mode == "source" {
+        // Control build: derive one source API from the canonical modules.
+        // This compiler rejects import-only re-export facades as unused.
+        mut api := "mode lib\n// Generated source-link control; edit lib/libterminal instead.\n"
+        for name : Str in array(Str, "text", "model", "input", "session", "terminal") {
+            source := File.readfile(format("lib/libterminal/", name, ".til"))
+            body := source.strip_prefix("mode lib\n").clone()
+            mut cleaned := body.replace("import(\"text\")\n", "").replace("import(\"model\")\n", "")
+            cleaned = cleaned.replace("import(\"input\")\n", "").replace("import(\"session\")\n", "")
+            cleaned = cleaned.replace("link_c(\"session.c\")", "link_c(\"../lib/libterminal/session.c\")")
+            api = format(api, "\n", cleaned)
+        }
+        File.writefile("gen/terminal_api.til", api)
+    } else {
+        mut suffix := ".so"
+        if mode == "static" { suffix = ".a" }
+        mut library_dir := format(get_cwd_str(), "/gen/lib")
+        mut binding_path := "gen/til/terminal.til"
+        if prefix.len() > 0 {
+            library_dir = format(prefix, "/lib")
+            binding_path = format(prefix, "/lib/til/lib/terminal.til")
+        }
+        path := format(library_dir, "/libterminal", suffix)
+        if !File.is_file(path) { panic("missing library: ", path) }
+        escaped := path.replace("\\", "\\\\").replace("\"", "\\\"")
+        binding := File.readfile(binding_path)
+        File.writefile("gen/terminal_api.til", format("mode lib\n",
+            binding.replace("link(\"terminal\")", format("link(\"", escaped, "\")"))))
+    }
+}
+
+build := proc(name: Str, source: Str, opt: Str) {
     cmd := Cmd.new()
     cmd.arg("til")
     cmd.arg("build")
+    cmd.arg("--cpu=baseline").arg("--usize=64").arg(opt)
     cmd.arg("-o")
     cmd.arg(format("bin/", name))
     cmd.arg("-c")
@@ -24,7 +66,31 @@ main := proc(args: ..Str) {
         Cmd.new("til", "run", "-o", "bin/issues_summary", "-c", "gen/issues_summary.c", "examples/issues.til").run_checked()
         return
     }
-    if args.len() > 0 { panic("usage: til interpret make.til [summary]") }
-    build("tiled", "src/tiled.til")
-    build("tilminal", "src/tilminal.til")
+    mut mode := "static"
+    mut opt := "--opt=0"
+    mut prefix := ""
+    if args.len() > 0 { mode = args[0].clone() }
+    if args.len() > 1 {
+        for index in 1..args.len() {
+            ref arg : Str = args[index]
+            if arg.starts_with("--opt=") { opt = arg.clone() }
+            else if arg.starts_with("--lib-prefix=") {
+                prefix = realpath_str(arg.strip_prefix("--lib-prefix="))
+                if prefix.len() == 0 { panic("installed library prefix does not exist") }
+            } else { panic("unknown build option: ", arg) }
+        }
+    }
+    if (mode != "source" && mode != "static" && mode != "shared" && mode != "library") ||
+        (opt != "--opt=0" && opt != "--opt=2" && opt != "--opt=3") {
+        panic("usage: til interpret make.til [source|static|shared|library] [--opt=0|--opt=2|--opt=3] [--lib-prefix=PATH], or summary")
+    }
+    if prefix.len() > 0 && (mode == "source" || mode == "library") { panic("--lib-prefix is for static/shared consumers") }
+    if mode != "source" {
+        if host_os() != "linux" { panic("static/shared build staging currently supports Linux; use source on other hosts") }
+        if prefix.len() == 0 { library(opt) }
+    }
+    if mode == "library" { select_api("shared"); return }
+    select_api(mode, prefix)
+    build("tiled", "src/tiled.til", opt)
+    build("tilminal", "src/tilminal.til", opt)
 }

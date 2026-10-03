@@ -336,7 +336,14 @@ void terminal_session_start(const void *handle, I64 columns, I64 rows) {
         execvp(s->argv[0], s->argv);
 child_error:
         err = errno;
-        (void)write(errors[1], &err, sizeof(err));
+        // Preserve the setup error across interrupted/short pipe writes.
+        size_t sent = 0;
+        while (sent < sizeof(err)) {
+            ssize_t n = write(errors[1], (char *)&err + sent, sizeof(err) - sent);
+            if (n > 0) sent += (size_t)n;
+            else if (n < 0 && errno == EINTR) continue;
+            else break; // The parent may itself have exited.
+        }
         _exit(127);
     }
     free(slave_name);

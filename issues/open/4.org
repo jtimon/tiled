@@ -12,8 +12,27 @@ and GUI burst-input/remapped-Control checks cover this boundary. Tiled now
 consumes the component through terminal buffers, with hidden-session pumping,
 mirrored views and explicit process lifecycle policy. The shared component
 is now grouped under =lib/libterminal/=, separate from the application hosts.
-Independent library packaging/installation and repository separation remain
-subsequent work.
+The headless core now builds independently as =libterminal.a= and
+=libterminal.so= with generated Til/C/Python bindings. Both hosts support
+archive/shared linking, and installed model/input/session consumers pass
+from an isolated directory. The raylib view remains a source adapter.
+The ABI currently requires matching compiler/target/profile/USize settings;
+constructors take a program plus separate arguments and cell storage is
+accessed through borrowed =cell_at= results.
+
+[[file:../../doc/terminal-library-benchmark.org][The comparison]] measured identical parser results across source/static/shared
+builds. Shared was slower than static in the repeated parser workload and
+saved only 56 KiB of pair PSS in the headless memory test; hardware cache
+counters were denied by the host. Static is the default library mode.
+Keep that default while testing whether larger process counts change the
+trade-off: 1/2/4/8/16 consumers, mixed Tiled/tilminal groups, equal session
+counts distributed across panes versus processes, idle/mixed/busy workloads,
+and single-core versus multicore scheduling. Measure PSS, incremental memory,
+startup, throughput and latency distributions; evaluate LTO separately from
+the identical-flags comparison. The [[file:../../doc/terminal-library-benchmark.org][benchmark report]] records this as planned
+follow-up work, not as an extrapolated saving from the current two-process run.
+Cross-platform packaging, stable ABI/versioning and repository separation
+remain subsequent work.
 
 Establish one reusable terminal library consumed by standalone tilminal and
 Tiled. First organize and verify the boundaries in this repository, then

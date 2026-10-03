@@ -1,0 +1,64 @@
+mode cli
+import("std/sys")
+import("std/file")
+
+kb := func(text: Str, key: Str) returns I64 {
+    for line : Str in text.split("\n") {
+        if line.starts_with(key) {
+            for token : Str in line.split(" ") {
+                if token.len() > 0 && token.get(0) >= '0' && token.get(0) <= '9' { return token.to_i64() }
+            }
+        }
+    }
+    panic("missing smaps field: ", key)
+    return 0
+}
+
+main := proc() {
+    dir := "tmp/terminal-bench"
+    modes := array(Str, "source", "static", "shared")
+    mut csv := "mode,trial,rss_pair_kb,pss_pair_kb,private_pair_kb\n"
+    for trial in 0..3 {
+        for slot in 0..3 {
+            ref mode : Str = modes[(trial + slot).mod(3).to_usize()]
+            a := format(dir, "/", mode, "/parser-a")
+            b := format(dir, "/", mode, "/parser-b")
+            // Distinct executable files model two consumers. Running the same
+            // inode twice would share static code pages too and hide the effect.
+            assert(copy_file(format(dir, "/", mode, "/parser"), a) == 0)
+            assert(copy_file(format(dir, "/", mode, "/parser"), b) == 0)
+            a_out := format(dir, "/", mode, "/parser-a.out")
+            b_out := format(dir, "/", mode, "/parser-b.out")
+            first := Cmd.new("taskset", "-c", "0", a, "100", "257", "10000")
+            second := Cmd.new("taskset", "-c", "0", b, "100", "257", "10000")
+            first.stdout_to(a_out); second.stdout_to(b_out)
+            first_pid := first.start(); second_pid := second.start()
+            mut ready := false
+            for _ in 0..500 {
+                if first.poll() || second.poll() { break }
+                if File.readfile(a_out).contains("RESULT") && File.readfile(b_out).contains("RESULT") { ready = true; break }
+                sleep_ms(10)
+            }
+            if !ready {
+                if !first.poll() { Cmd.new("kill", "-TERM", first_pid.to_str()).run() }
+                if !second.poll() { Cmd.new("kill", "-TERM", second_pid.to_str()).run() }
+                first.wait(); second.wait()
+                panic("parser pair did not become ready")
+            }
+            mut rss : I64 = 0
+            mut pss : I64 = 0
+            mut private : I64 = 0
+            for pid in array(I64, first_pid, second_pid) {
+                data := File.readfile(format("/proc/", pid.to_str(), "/smaps_rollup"))
+                rss = rss + kb(data, "Rss:")
+                pss = pss + kb(data, "Pss:")
+                private = private + kb(data, "Private_Clean:") + kb(data, "Private_Dirty:")
+            }
+            Cmd.new("kill", "-TERM", first_pid.to_str(), second_pid.to_str()).run_checked()
+            first.wait(); second.wait()
+            csv = format(csv, mode, ",", trial.to_str(), ",", rss.to_str(), ",", pss.to_str(), ",", private.to_str(), "\n")
+        }
+    }
+    File.writefile(format(dir, "/parser-memory.csv"), csv)
+    println(csv)
+}

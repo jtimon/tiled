@@ -17,10 +17,10 @@ terminal_session_free := ext_func(handle: Dynamic) {}
 TerminalSession := struct {
     ref handle : U8
 namespace:
-    new := proc(args: ..Str) returns TerminalSession {
+    new := proc(program: Str) returns TerminalSession {
         ref handle : Dynamic = terminal_session_new()
         s := TerminalSession(handle = handle)
-        for arg in args { s.arg(arg) }
+        s.arg(program)
         return s
     }
     check := proc(s: TerminalSession) {
@@ -47,9 +47,8 @@ namespace:
         terminal_session_resize(s.handle, columns, rows); s.check()
     }
     close := proc(s: TerminalSession) { terminal_session_close(s.handle); s.check() }
-    clone := func(s: TerminalSession) returns TerminalSession {
+    clone := func(_s: TerminalSession) returns TerminalSession {
         panic("TerminalSession cannot be cloned")
-        return TerminalSession(handle = s.handle)
     }
     delete := func(own s: TerminalSession, call_free: Bool = true) {
         terminal_session_free(s.handle)

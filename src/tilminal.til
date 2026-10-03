@@ -2,7 +2,7 @@ mode gui
 
 import("std/sys")
 import("../lib/libterminal/view")
-import("../lib/libterminal/terminal")
+import("../gen/terminal_api")
 import("window_input")
 
 // Use the same system monospace selection as Tiled. No font path depends on

@@ -1,6 +1,5 @@
 mode lib
-import("model")
-import("text")
+import("../../gen/terminal_api")
 // The application host supplies raylib through installed Til's mode gui.
 
 TerminalGlyph := struct { code : I64; font : Font }
@@ -80,7 +79,7 @@ namespace:
         blink_off := GetTime().to_i64().mod(2) == 1
         for y in 0..rows {
             for x in 0..columns {
-                ref cell : TerminalCell = screen.cells[screen.index(x, y)]
+                ref cell : TerminalCell = screen.cell_at(x, y)
                 if cell.span == 0 { continue }
                 px := left + x * v.cell_width
                 py := top + y * v.cell_height

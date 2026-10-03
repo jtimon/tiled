@@ -36,8 +36,10 @@ From the repository root:
 til interpret make.til
 #+end_src
 
-This builds =bin/tiled= and =bin/tilminal= sequentially, using
-the installed compiler. Generated C goes under =gen/=. These build outputs
+This builds =libterminal= independently and statically links =bin/tiled= and
+=bin/tilminal= sequentially, using the installed compiler. Defaults are
+=--cpu=baseline --usize=64 --opt=0=. Generated C, bindings and libraries go
+under =gen/=. These build outputs
 are ignored by Git. The proposed [[file:keybindings.til][keybindings.til]] configuration
 is not built yet.
 
@@ -49,6 +51,38 @@ is not built yet.
 #+end_src
 
 See [[file:configuration.org][startup and configuration]] for init-file loading and scratch buffers.
+
+** Library build modes
+
+#+begin_src sh
+til interpret make.til library --opt=2
+til interpret make.til static --opt=2
+til interpret make.til shared --opt=2
+til interpret make.til source --opt=2
+#+end_src
+
+=library= builds the headless component only. =static= and =shared= select
+Til-generated bindings to an explicit archive/shared-object path. =source=
+is the whole-program control build used for comparison. The raylib view
+adapter is still compiled with each GUI host. Static/shared staging currently
+supports Linux; use source mode on other hosts pending packaging validation.
+
+=gen/terminal_api.til= records the current selection and must be generated
+before compiling a consumer or test. Shared binaries require the selected
+library location to remain available; static executables do not load
+=libterminal.so= at runtime. Til may still load its twin for compile-time or
+interpreted evaluation. See [[file:../lib/libterminal/README.org][library API/install requirements]].
+
+To use an already installed library rather than rebuilding its implementation:
+
+#+begin_src sh
+til install --cpu=baseline --opt=2 --usize=64 --prefix="$PWD/tmp/libterminal-install" lib/libterminal/terminal.til
+til interpret make.til shared --opt=2 --lib-prefix="$PWD/tmp/libterminal-install"
+#+end_src
+
+[[file:terminal-library-benchmark.org][The linking comparison]] records parser, startup, memory and visible-output
+measurements. It found no performance justification for a shared default;
+hardware cache counters were unavailable on the test host.
 
 ** Issue summary
 

@@ -73,6 +73,9 @@ operations without treating external windows as buffers.
 
 Standalone =tilminal= and Tiled live in this repository. The reusable terminal
 component is under =lib/libterminal/=; =src/tilminal.til= is its standalone host.
+The headless core builds as an archive/shared library, consumed through
+Til-generated bindings; the raylib adapter is compiled by each GUI host.
+See [[file:terminal-library-benchmark.org][linking measurements]] for the source/static/shared comparison.
 The standalone host owns one persistent session. Tiled's owning terminal pool
 keeps sessions/screens and renderer caches independent of its clonable layout
 tree: buffers reference stable pool slots, and panes reference buffer IDs.

@@ -48,8 +48,10 @@ has been replaced by the persistent-session implementation.
 
 The terminal component lives in =lib/libterminal/=, separate from the
 application sources in =src/=. Its internal imports and native bridge link
-are relative to that directory. Both hosts and terminal tests import this
-single shared component, independent of the editor model. Hosts create the
+are relative to that directory. Both hosts and terminal tests consume its
+selected generated API, with static linking by default and shared/source
+comparison modes. The raylib view remains a source adapter. See the
+[[file:../lib/libterminal/README.org][library build, installation and ownership contract]] and [[file:terminal-library-benchmark.org][measurements]]. Hosts create the
 window and own the event loop. Til supplies core/std, mode gui and its runtime
 ABI; application-specific development and
 tests belong here. Compiler regressions formerly bundled with the terminal
@@ -66,7 +68,7 @@ Rendering accepts an explicit viewport and clips wide cells at its boundary.
 Run from this repository's root after building the applications:
 
 #+begin_src sh
-til interpret test/terminal_model.til
+til interpret --usize=64 test/terminal_model.til
 til run -o tmp/check_terminal_input -c tmp/check_terminal_input.c test/terminal_input.til
 til run -o tmp/check_terminal_model -c tmp/check_terminal_model.c test/terminal_model.til
 til run -o tmp/check_terminal_session -c tmp/check_terminal_session.c test/terminal_session.til /usr/local/bin/til
@@ -120,8 +122,8 @@ check, not a leak-free GUI claim. Headless ASAN checks retain leak detection.
   font availability. Cross-compilation alone is not runtime validation.
 - Add scrollback/selection and alternate-screen support, then broaden
   terminal compatibility beyond the current vt100 text profile.
-- Independently build/install the shared component and define its ABI and
-  dependency policy before splitting repositories, as tracked in [[file:../issues/open/4.org][#4]].
+- Validate packaging beyond Linux, stabilize/version the experimental library
+  ABI and split repositories as tracked in [[file:../issues/open/4.org][#4]].
 - Investigate Kitty graphics and other application-supplied inline graphics
   after the terminal/session integration. [[file:../issues/open/3.org][Tiled #3]] carries the full design
   discussion transferred from Til #408 and tracks subsequent implementation.

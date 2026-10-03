@@ -1,7 +1,7 @@
 mode lib
 import("std/sys")
 import("editor_model")
-import("../lib/libterminal/terminal")
+import("../gen/terminal_api")
 import("../lib/libterminal/view")
 
 EditorTerminal := struct {

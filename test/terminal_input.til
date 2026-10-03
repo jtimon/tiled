@@ -1,9 +1,9 @@
 mode cli
-import("../lib/libterminal/input")
+import("../gen/terminal_api")
 
 main := proc() {
     mut screen := TerminalScreen.new(80, 24)
-    mut input := TerminalInput()
+    mut input := TerminalInput.new()
     mut bytes := input.encode(screen, 65, 0, 1)
     bytes = format(bytes, input.encode(screen, 97, 0, 3))
     bytes = format(bytes, input.encode(screen, 263, 0, 1))

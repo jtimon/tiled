@@ -1,0 +1,99 @@
+* libterminal
+
+The headless terminal core is built from =terminal.til= using Til's =mode lib=
+support. =view.til= is an optional raylib source adapter compiled by the GUI
+hosts; it is not part of the headless library. The library owns no window or
+event loop. See [[file:../../doc/terminal.org][terminal development]] and [[file:../../doc/terminal-library-benchmark.org][linking measurements]].
+
+** Building and selecting linkage
+
+From the repository root, using installed Til =0.0.1-b444d7223=:
+
+#+begin_src sh
+til interpret make.til library --opt=2
+til interpret make.til static --opt=2
+til interpret make.til shared --opt=2
+#+end_src
+
+=library= builds the library only; =static= and =shared= also build both
+applications. With no arguments, =make.til= uses static linking and =--opt=0=.
+The current archive/shared build staging targets Linux x86-64. The source
+control build remains available with =til interpret make.til source=.
+
+Til produces =gen/lib/libterminal.a=, =gen/lib/libterminal.so=, its matching
+versioned shared runtime/core, and =gen/til/terminal.{til,h,py}= bindings.
+=gen/terminal_api.til= is the selected consumer interface. It is generated
+from Til's binding with an explicit archive/shared-object path; declarations
+are not hand-maintained. This also lets the config-loading child compiler
+resolve the library without requiring shell environment changes.
+
+Source mode generates a control module from the same canonical source files,
+allowing whole-program compilation for the benchmark. It is not another
+maintained implementation. This compiler rejects import-only re-export
+facades, so the generated module contains the definitions rather than an
+unused chain of imports.
+
+There is one active interface selection per checkout. Changing build mode
+regenerates it. Shared binaries name the absolute selected library path;
+keep that location available or rebuild for the intended installation.
+Static executables do not depend on libterminal.so at runtime, but Til may
+load the matching .so while compiling/evaluating pure binding functions.
+Keep both artifacts available for building or interpreted consumers.
+
+** Installing and consuming
+
+An unprivileged staging install and consumer build:
+
+#+begin_src sh
+til install --cpu=baseline --opt=2 --usize=64 --prefix="$PWD/tmp/libterminal-install" lib/libterminal/terminal.til
+til interpret make.til shared --opt=2 --lib-prefix="$PWD/tmp/libterminal-install"
+til run -o tmp/check_library_install -c tmp/check_library_install.c test/library_install.til
+#+end_src
+
+The install places libraries under =PREFIX/lib/=, the C header under
+=PREFIX/include/=, and Til/Python bindings under =PREFIX/lib/til/lib/=.
+=--lib-prefix= builds the applications from those installed artifacts without
+rebuilding the core. The install regression copies the existing model/input/
+session tests into an isolated consumer directory and uses only the installed
+binding/library plus the installed compiler; no terminal implementation
+sources are present in that consumer directory.
+
+For a separate consumer importing the installed binding directly, supply
+=LIBRARY_PATH= and =LD_LIBRARY_PATH= pointing to =PREFIX/lib= while compiling.
+=LD_RUN_PATH= can embed that directory in the executable. The library itself
+uses =$ORIGIN= to find its matching shared Til runtime/core siblings.
+
+** API and ownership
+
+- =TerminalSession.new(program)= creates a configured native session;
+  =arg(value)= appends each argument before =start(columns, rows)=.
+- =Terminal.new(program)= owns a session, screen and input encoder. Configure
+  arguments through =terminal.session.arg(...)=, then call =start()= or
+  =try_start()=. The latter returns an empty string on success and closes
+  partial native resources on failure; report its error and drop the failed
+  instance.
+- A host chooses =resize(columns, rows)= and calls =pump()= once per session.
+  =event(key, modifiers, action)= accepts ordered input, independently of
+  graphics. =close()= tears down the native session; destruction also releases
+  it. Sessions and Terminal objects must not be cloned.
+- =TerminalScreen.new(columns, rows)=, =feed=, =resize= and =take_replies=
+  are available independently of a process. Screen cloning makes an
+  independent snapshot.
+- =screen.cell_at(x, y)= borrows a cell until the next feed/resize or screen
+  destruction. Clone it if a longer-lived snapshot is needed. Cell/tab
+  vectors are private: their allocation and element addressing belong to
+  the library, including across interpreted FFI boundaries.
+- =TerminalStyle.new()= and =TerminalInput.new()= provide explicit factories.
+  These avoid positional aggregate defaults in this compiler's generated
+  bindings. Constructors use scalar/string arguments rather than exported
+  variadic parameters, whose generated bindings this compiler rejects.
+
+** Compatibility
+
+This is an experimental ABI, not a stable cross-version binary contract.
+Library and consumers use the same Til revision, target, CPU profile and
+=--usize=64=. Current builds pin =--cpu=baseline=; optimization level can be
+0, 2 or 3 and is applied to both library and consumers. Til qualifies its
+runtime/core names by revision/target/width. Rebuild consumers with regenerated
+bindings when changing the library API or compiler; do not mix old bindings
+with a replaced library. Native Windows/macOS packaging remains future work.

@@ -7,11 +7,11 @@ import("input")
 Terminal := struct {
     session : TerminalSession
     screen := TerminalScreen.new(80, 24)
-    input := TerminalInput()
+    input := TerminalInput.new()
     ended := false
 namespace:
-    new := proc(args: ..Str) returns Terminal {
-        return Terminal(session = TerminalSession.new(..args))
+    new := proc(program: Str) returns Terminal {
+        return Terminal(session = TerminalSession.new(program))
     }
     start := proc(t: Terminal) { t.session.start(t.screen.columns, t.screen.rows) }
     // Interactive hosts can report startup failure without losing other buffers.

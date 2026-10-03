@@ -1,7 +1,5 @@
 mode cli
-import("../lib/libterminal/session")
-import("../lib/libterminal/terminal")
-import("../lib/libterminal/text")
+import("../gen/terminal_api")
 import("std/sys")
 
 require := func(ok: Bool, why: Str) { if ok.not() { panic("terminal session: ", why) } }
@@ -28,8 +26,10 @@ main := proc(compiler: Str) {
     if host_os() == "windows" { child_path = format(child_path, ".exe") }
     build := Cmd.new(compiler, "build", "-o", child_path, "-c", "tmp/terminal_session_child.c", "test/terminal_session_child.til")
     build.run_checked()
-    first := TerminalSession.new(child_path, "space dollar $ quote \" end")
-    second := TerminalSession.new(child_path, "second")
+    first := TerminalSession.new(child_path)
+    first.arg("space dollar $ quote \" end")
+    second := TerminalSession.new(child_path)
+    second.arg("second")
     first.start(80, 24)
     second.start(32, 8)
     mut a := ""
@@ -51,12 +51,12 @@ main := proc(compiler: Str) {
     second.close()
     require(second.state() == 4, "close active child")
 
-    bad := TerminalSession.new("tmp/no-such-terminal-executable-408")
-    terminal_session_start(bad.handle, 80, 24)
-    require(terminal_session_error(bad.handle).len() > 0, "start failure is explicit")
-    terminal_session_close(bad.handle)
+    bad := Terminal.new("tmp/no-such-terminal-executable-408")
+    require(bad.try_start().len() > 0, "start failure is explicit")
+    require(bad.session.state() == 4, "failed start releases native resources")
 
-    flood := TerminalSession.new(child_path, "flood")
+    flood := TerminalSession.new(child_path)
+    flood.arg("flood")
     flood.start(80, 24)
     mut bulk := ""
     finish(flood, bulk)
@@ -64,7 +64,8 @@ main := proc(compiler: Str) {
     if host_os() != "windows" { require(bulk.len() > 100000, "large PTY output retained") }
     flood.close()
 
-    input_child := TerminalSession.new(child_path, "input")
+    input_child := TerminalSession.new(child_path)
+    input_child.arg("input")
     input_child.start(80, 24)
     mut input_output := ""
     wait_text(input_child, input_output, "RAW_READY")
@@ -76,7 +77,8 @@ main := proc(compiler: Str) {
     input_child.close()
 
     if host_os() != "windows" {
-        shell := TerminalSession.new("/bin/sh", "-i")
+        shell := TerminalSession.new("/bin/sh")
+        shell.arg("-i")
         shell.start(80, 24)
         shell.send("TERM408=kept\ncd tmp\nsh -c 'printf \"\\nJOB_READY\\n\"; exec sleep 30'\n")
         mut output := ""
@@ -91,7 +93,8 @@ main := proc(compiler: Str) {
     }
 
     // Drive the real editor with a terminal and terminal-query replies.
-    repl := TerminalSession.new(child_path, format("repl:", compiler))
+    repl := TerminalSession.new(child_path)
+    repl.arg(format("repl:", compiler))
     repl.start(80, 24)
     mut text := ""
     wait_text(repl, text, "til[script]>")
@@ -113,7 +116,8 @@ main := proc(compiler: Str) {
     require(repl.status() == 0, "unmodified repl exits")
     repl.close()
     // The host-level object owns its screen/input state with no renderer.
-    mut hosted := Terminal.new(child_path, "hosted")
+    mut hosted := Terminal.new(child_path)
+    hosted.session.arg("hosted")
     hosted.start()
     hosted.resize(53, 10)
     for c in "exit" { hosted.event(c.cast(I64), 0, 3) }
@@ -125,7 +129,9 @@ main := proc(compiler: Str) {
         sleep_ms(5)
     }
     mut visible := ""
-    for cell : TerminalCell in hosted.screen.cells { visible = format(visible, cell.text) }
+    for y in 0..hosted.screen.rows {
+        for x in 0..hosted.screen.columns { visible = format(visible, hosted.screen.cell_at(x, y).text) }
+    }
     require(visible.contains("FINAL") && hosted.session.status() == 0, "host owns and drains final screen")
     require(hosted.screen.columns == 53 && hosted.screen.rows == 10, "host-controlled resize")
     hosted.close()

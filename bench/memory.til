@@ -1,0 +1,86 @@
+mode gui
+// Uses only the X11 driver helpers; creates no reference window or renderer.
+// Verify with readelf that this driver itself has no libterminal dependency.
+import("../test/terminal_gui_helpers")
+
+kb := func(text: Str, key: Str) returns I64 {
+    for line : Str in text.split("\n") {
+        if line.starts_with(key) {
+            for token : Str in line.split(" ") {
+                if token.len() > 0 && token.get(0) >= '0' && token.get(0) <= '9' { return token.to_i64() }
+            }
+        }
+    }
+    panic("missing smaps field: ", key)
+    return 0
+}
+
+main := proc(args: ..Str) {
+    mut trials : I64 = 3
+    mut cpu := "0"
+    if args.len() > 0 { trials = args[0].to_i64() }
+    if args.len() > 1 { cpu = args[1].to_i64().to_str() }
+    if trials < 1 || args.len() > 2 { panic("usage: memory [trials] [cpu]") }
+    root := get_cwd_str()
+    dir := format(root, "/tmp/terminal-bench")
+    home := format(dir, "/memory-home")
+    if mkdir_p(home) != 0 { panic("cannot create benchmark home") }
+    name := get_env("DISPLAY")
+    ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    modes := array(Str, "source", "static", "shared")
+    mut csv := "mode,trial,program,rss_kb,pss_kb,private_kb\n"
+    for trial in 0..trials {
+        for slot in 0..3 {
+            ref mode : Str = modes[(trial + slot).mod(3).to_usize()]
+            tiled := Cmd.new("taskset", "-c", cpu, format(dir, "/", mode, "/tiled"))
+            terminal := Cmd.new("taskset", "-c", cpu, format(dir, "/", mode, "/tilminal"))
+            tiled.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
+            terminal.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
+            tiled.env("LP_NUM_THREADS", "1").env("LIBGL_ALWAYS_SOFTWARE", "1")
+            terminal.env("LP_NUM_THREADS", "1").env("LIBGL_ALWAYS_SOFTWARE", "1")
+            tiled.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+            terminal.stdout_to(format(dir, "/memory-tilminal.log")).stderr_to_stdout()
+            tiled_pid := tiled.start()
+            terminal_pid := terminal.start()
+            tiled_window := wait_window(tiled, tiled_pid, "Tiled - *scratch*")
+            terminal_window := wait_window(terminal, terminal_pid, "tilminal")
+            sleep_ms(250)
+            XSetInputFocus(display, tiled_window, 2, 0); XFlush(display)
+            send(display, 65507, 1); send(display, 120, 1); send(display, 120, 0); send(display, 65507, 0)
+            send(display, 116, 1); send(display, 116, 0)
+            wait_window(tiled, tiled_pid, "Tiled - *terminal-1*")
+            type_text(display, "printf '\\033[31mwarmed\\033[0m\\n'")
+            XSetInputFocus(display, terminal_window, 2, 0); XFlush(display)
+            type_text(display, "printf '\\033[31mwarmed\\033[0m\\n'")
+            sleep_ms(1000)
+            require(tiled, tiled_pid, !tiled.poll(), "Tiled exited during memory measurement")
+            require(terminal, terminal_pid, !terminal.poll(), "tilminal exited during memory measurement")
+            pids := array(I64, tiled_pid, terminal_pid)
+            names := array(Str, "tiled", "tilminal")
+            for index in 0..2 {
+                ref program : Str = names[index.to_usize()]
+                path := format("/proc/", pids[index.to_usize()].to_str(), "/smaps_rollup")
+                // Read exactly the two benchmark children's memory summaries.
+                probe := Cmd.new("test", "-r", path)
+                if probe.run() != 0 { panic("cannot read child memory summary: ", path) }
+                data := File.readfile(path)
+                File.writefile(format(dir, "/", mode, "/", program, "-", trial.to_str(), ".smaps_rollup"), data)
+                private := kb(data, "Private_Clean:") + kb(data, "Private_Dirty:")
+                csv = format(csv, mode, ",", trial.to_str(), ",", program, ",", kb(data, "Rss:").to_str(), ",",
+                    kb(data, "Pss:").to_str(), ",", private.to_str(), "\n")
+            }
+            XSetInputFocus(display, tiled_window, 2, 0); XFlush(display)
+            request_close(display, tiled_window)
+            sleep_ms(150)
+            type_text(display, "terminate")
+            for _ in 0..100 { if tiled.poll() { break }; sleep_ms(50) }
+            require(tiled, tiled_pid, tiled.poll(), "Tiled did not close after measurement")
+            assert(tiled.wait() == 0)
+            close_app(terminal, terminal_pid, display, terminal_window)
+        }
+    }
+    XCloseDisplay(display)
+    File.writefile(format(dir, "/memory.csv"), csv)
+    println(csv)
+}

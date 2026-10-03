@@ -1,0 +1,159 @@
+mode cli
+import("std/sys")
+import("std/file")
+
+get_cwd_str := ext_proc() returns Str {}
+
+field := func(output: Str, prefix: Str) returns Str {
+    for line : Str in output.split("\n") {
+        for part : Str in line.split(" ") {
+            if part.starts_with(prefix) { return part.strip_prefix(prefix).clone() }
+        }
+    }
+    panic("missing benchmark field ", prefix, ": ", output)
+    return ""
+}
+
+median := func(values: Vec(I64)) returns I64 {
+    mut sorted := values.clone()
+    for i in 0..sorted.len() {
+        for j in (i + 1)..sorted.len() {
+            if sorted[j] < sorted[i] {
+                saved := sorted[i].clone()
+                sorted[i] = sorted[j].clone()
+                sorted[j] = saved
+            }
+        }
+    }
+    return sorted[sorted.len() / 2].clone()
+}
+
+copy_checked := proc(source: Str, destination: Str) {
+    if copy_file(source, destination) != 0 { panic("cannot copy ", source, " to ", destination) }
+}
+
+main := proc(args: ..Str) {
+    mut trials : I64 = 7
+    mut iterations : I64 = 1000
+    mut cpu := "0"
+    if args.len() > 0 { trials = args[0].to_i64() }
+    if args.len() > 1 { iterations = args[1].to_i64() }
+    if args.len() > 2 { cpu = args[2].to_i64().to_str() }
+    if trials < 1 || iterations < 1 || args.len() > 3 { panic("usage: compare [trials] [iterations] [cpu]") }
+    dir := "tmp/terminal-bench"
+    if mkdir_p(dir) != 0 { panic("cannot create benchmark directory") }
+    version := Cmd.new("til", "-v"); version.capture_out(); version.run_checked()
+    host := Cmd.new("lscpu"); host.capture_out(); host.run_checked()
+    File.writefile(format(dir, "/environment.txt"), format("Til: ", version.out(),
+        "Flags: --cpu=baseline --opt=2 --usize=64; no LTO\nPinned CPU: ", cpu,
+        "\nTrials: ", trials.to_str(), "\nIterations: ", iterations.to_str(), "\n", host.out()))
+    modes := array(Str, "source", "static", "shared")
+    for mode : Str in modes {
+        target := format(dir, "/", mode)
+        if mkdir_p(target) != 0 { panic("cannot create ", target) }
+        build := Cmd.new("til", "interpret", "make.til", mode, "--opt=2")
+        if mode == "shared" {
+            // Pin benchmark DSOs in their own install prefix. A later normal
+            // --opt=0 build must not silently change the measured shared binary.
+            sdk := format(get_cwd_str(), "/", dir, "/sdk")
+            install := Cmd.new("til", "install", "--cpu=baseline", "--opt=2", "--usize=64",
+                format("--prefix=", sdk), "lib/libterminal/terminal.til")
+            install.stdout_to(format(target, "/install.log")).stderr_to_stdout()
+            install.run_checked()
+            build.arg(format("--lib-prefix=", sdk))
+        }
+        build.stdout_to(format(target, "/build.log")).stderr_to_stdout()
+        build.run_checked()
+        Cmd.new("til", "build", "--cpu=baseline", "--opt=2", "--usize=64",
+            "-o", format(target, "/parser"), "-c", format(target, "/parser.c"), "bench/terminal_bench.til").run_checked()
+        copy_checked("bin/tiled", format(target, "/tiled"))
+        copy_checked("bin/tilminal", format(target, "/tilminal"))
+        for program : Str in array(Str, "parser", "tiled", "tilminal") {
+            inspect := Cmd.new("readelf", "-d", format(target, "/", program))
+            inspect.capture_out(); inspect.run_checked()
+            elf := inspect.out()
+            if elf.contains("libterminal.so") != (mode == "shared") { panic("wrong link mode: ", mode, "/", program) }
+            File.writefile(format(target, "/", program, ".elf.txt"), elf)
+        }
+    }
+    // Preserve the baseline captured before changing the consumer imports,
+    // when present. The reproducible source control above uses today's sources.
+    if File.is_file("tmp/terminal_bench_baseline") {
+        copy_checked("tmp/terminal_bench_baseline", format(dir, "/original-parser"))
+    }
+    mut csv := "mode,chunk,trial,parser_ms,process_ms,user_seconds,system_seconds,max_rss_kb,checksum\n"
+    mut summary := "mode,chunk,median_parser_ms,median_process_ms\n"
+    expected := "15332081183660024344"
+    for chunk in array(I64, 1, 257, 4096) {
+        for mode : Str in modes {
+            warm := Cmd.new("taskset", "-c", cpu, format(dir, "/", mode, "/parser"), "20", chunk.to_str())
+            warm.capture_out(); warm.run_checked()
+            if field(warm.out(), "checksum=") != expected { panic("warm-up checksum mismatch: ", mode) }
+        }
+        mut parser_times := Vec(I64).new()
+        mut process_times := Vec(I64).new()
+        // Rotate the order between trials rather than running one variant's
+        // entire batch first. No simultaneous timing jobs or background builds.
+        for trial in 0..trials {
+            for slot in 0..3 {
+                mode_index := (trial + slot).mod(3).to_usize()
+                ref mode : Str = modes[mode_index]
+                timing := format(dir, "/time.txt")
+                cmd := Cmd.new("/usr/bin/time", "-f", "%U,%S,%M", "-o", timing,
+                    "taskset", "-c", cpu, format(dir, "/", mode, "/parser"), iterations.to_str(), chunk.to_str())
+                cmd.env("LC_ALL", "C").capture_out()
+                start := clock_ms()
+                cmd.run_checked()
+                wall := clock_ms() - start
+                output := cmd.out()
+                hash := field(output, "checksum=")
+                if hash != expected { panic("checksum mismatch: ", mode, " chunk ", chunk.to_str(), ": ", output) }
+                elapsed := field(output, "ms=").to_i64()
+                parser_times.push(own elapsed.clone())
+                process_times.push(own wall.clone())
+                time_text := File.readfile(timing)
+                csv = format(csv, mode, ",", chunk.to_str(), ",", trial.to_str(), ",", elapsed.to_str(), ",",
+                    wall.to_str(), ",", time_text.replace("\n", ""), ",", hash, "\n")
+            }
+        }
+        for mode_index in 0..3 {
+            mut parsed := Vec(I64).new()
+            mut wall := Vec(I64).new()
+            for trial in 0..trials {
+                slot := (mode_index - trial.mod(3) + 3).mod(3)
+                index := (trial * 3 + slot).to_usize()
+                parsed.push(own parser_times[index].clone())
+                wall.push(own process_times[index].clone())
+            }
+            ref mode : Str = modes[mode_index.to_usize()]
+            summary = format(summary, mode, ",", chunk.to_str(), ",", median(parsed).to_str(), ",", median(wall).to_str(), "\n")
+        }
+    }
+    File.writefile(format(dir, "/timing.csv"), csv)
+    File.writefile(format(dir, "/summary.csv"), summary)
+    println(summary)
+    mut startup := "mode,launches,total_ms,checksum\n"
+    mut empty_hash := ""
+    for mode : Str in modes {
+        start := clock_ms()
+        for _ in 0..30 {
+            cmd := Cmd.new("taskset", "-c", cpu, format(dir, "/", mode, "/parser"), "0", "257")
+            cmd.capture_out()
+            if cmd.run() != 0 { panic("startup failed: ", mode) }
+            hash := field(cmd.out(), "checksum=")
+            if empty_hash.len() == 0 { empty_hash = hash.clone() }
+            if hash != empty_hash { panic("empty-screen checksum mismatch") }
+        }
+        startup = format(startup, mode, ",30,", (clock_ms() - start).to_str(), ",", empty_hash, "\n")
+    }
+    File.writefile(format(dir, "/startup.csv"), startup)
+    println(startup)
+    // Exact, user-space-only counter request; record denial rather than changing
+    // kernel settings or substituting generic wall time for cache measurements.
+    counters := Cmd.new("perf", "stat", "-e", "cycles:u,instructions:u,cache-references:u,cache-misses:u",
+        "--", "taskset", "-c", cpu, format(dir, "/shared/parser"), iterations.to_str(), "257")
+    counters.capture()
+    status := counters.run()
+    File.writefile(format(dir, "/perf.txt"), format("Exit status: ", status.to_str(), "\n", counters.out(), counters.err()))
+    println("Results: ", dir, "; perf exit status: ", status.to_str())
+}

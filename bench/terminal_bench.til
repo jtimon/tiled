@@ -1,0 +1,67 @@
+mode cli
+import("std/sys")
+import("../gen/terminal_api")
+
+repl_term_flush := ext_proc() {}
+
+// Deterministic terminal output: ASCII, UTF-8, SGR, cursor addressing, erase,
+// scrolling and a query reply. The byte stream is independent of link mode.
+workload := proc() returns Str {
+    // Materialize input outside the timed section, like bytes read from a PTY.
+    noop_proc()
+    mut text := terminal_escape("[2J")
+    text = format(text, terminal_escape("[H"))
+    for row in 0..48 {
+        text = format(text, terminal_escape("[31m"), "row=", row.to_str(),
+            " abcdefghijklmnopqrstuvwxyz 0123456789 ", terminal_utf8(0x4e00),
+            "e", terminal_utf8(0x301), terminal_escape("[0m"), "\r\n")
+    }
+    return format(text, terminal_escape("[2;5H"), "overwrite", terminal_escape("[K"),
+        terminal_escape("[6n"))
+}
+
+digest := func(screen: TerminalScreen) returns U64 {
+    mut text := format(screen.columns.to_str(), ",", screen.rows.to_str(), ",",
+        screen.x.to_str(), ",", screen.y.to_str(), ",", screen.replies)
+    for y in 0..screen.rows {
+        for x in 0..screen.columns {
+            ref cell : TerminalCell = screen.cell_at(x, y)
+            text = format(text, "|", cell.span.to_str(), ":", cell.text, ":",
+                cell.style.fg.to_str(), ":", cell.style.bg.to_str(), ":",
+                cell.style.bold.to_str(), ":", cell.style.inverse.to_str())
+        }
+    }
+    mut hash : U64 = 14695981039346656037
+    for c in text { hash = hash.bxor(c.cast(U8).cast(U64)).mul(1099511628211) }
+    return hash
+}
+
+main := proc(args: ..Str) {
+    mut iterations : I64 = 40
+    mut chunk : USize = 257
+    if args.len() > 0 { iterations = args[0].to_i64() }
+    if args.len() > 1 { chunk = args[1].to_usize() }
+    if iterations < 0 || chunk == 0 { panic("usage: benchmark [iterations>=0] [chunk>0] [hold-ms]") }
+    stream := workload()
+    mut screen := TerminalScreen.new(80, 24)
+    start := clock_ms()
+    for _ in 0..iterations {
+        mut offset : USize = 0
+        while offset < stream.len() {
+            mut size := chunk
+            if size > stream.len() - offset { size = stream.len() - offset }
+            screen.feed(stream.substr(offset, size))
+            offset = offset + size
+        }
+        screen.take_replies()
+    }
+    elapsed := clock_ms() - start
+    checksum := digest(screen)
+    println("RESULT ms=", elapsed.to_str(), " bytes=", (stream.len().to_i64() * iterations).to_str(),
+        " checksum=", checksum.to_str())
+    if args.len() > 2 {
+        repl_term_flush()
+        sleep_ms(args[2].to_i64())
+        assert(digest(screen) == checksum) // Keep the screen alive during memory sampling.
+    }
+}

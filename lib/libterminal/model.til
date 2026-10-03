@@ -11,12 +11,14 @@ TerminalStyle := struct {
     blink := false
     inverse := false
     hidden := false
+namespace:
+    new := func() returns TerminalStyle { return TerminalStyle() }
 }
 
 TerminalCell := struct {
     text := " "
     span : I64 = 1 // 0 = continuation, 1 = ordinary, 2 = wide base
-    style := TerminalStyle()
+    style := TerminalStyle.new()
 namespace:
     append := func(mut c: TerminalCell, text: Str) { c.text = format(c.text, text) }
 }
@@ -30,14 +32,14 @@ terminal_bound := func(n: I64, lo: I64, hi: I64) returns I64 {
 TerminalScreen := struct {
     columns : I64 = 1
     rows : I64 = 1
-    own cells := Vec(TerminalCell).new()
-    own tabs := Vec(Bool).new()
+    priv own cells := Vec(TerminalCell).new()
+    priv own tabs := Vec(Bool).new()
     x : I64 = 0
     y : I64 = 0
     top : I64 = 0
     bottom : I64 = 0
-    style := TerminalStyle()
-    saved_style := TerminalStyle()
+    style := TerminalStyle.new()
+    saved_style := TerminalStyle.new()
     saved_x : I64 = 0
     saved_y : I64 = 0
     wrap := true
@@ -74,6 +76,12 @@ namespace:
 
     index := func(s: TerminalScreen, x: I64, y: I64) returns USize {
         return (y * s.columns + x).to_usize()
+    }
+
+    // Borrowed until the next feed/resize. Keep element addressing inside the
+    // library instead of making consumers interpret a foreign Vec's stride.
+    cell_at := func(s: TerminalScreen, x: I64, y: I64) returns ref TerminalCell {
+        return s.cells[s.index(x, y)]
     }
 
     blank := func(s: TerminalScreen) returns TerminalCell {
@@ -353,7 +361,7 @@ namespace:
         while i < p.len() {
             n := p[i].clone()
             switch n {
-            case 0: s.style = TerminalStyle()
+            case 0: s.style = TerminalStyle.new()
             case 1: s.style.bold = true
             case 2: s.style.faint = true
             case 4: s.style.underline = true

@@ -7,6 +7,7 @@ import("model")
 TerminalInput := struct {
     keypad_text : I64 = -1
 namespace:
+    new := func() returns TerminalInput { return TerminalInput() }
     encode := func(mut input: TerminalInput, screen: TerminalScreen, key: I64, mods: I32, action: I32) returns Str {
         if action == 1 || action == 2 {
             if key >= 340 && key <= 347 { return "" }

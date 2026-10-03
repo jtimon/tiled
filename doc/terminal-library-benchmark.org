@@ -1,0 +1,193 @@
+* libterminal linking comparison
+
+[[file:terminal.org][Terminal component]] | [[file:../lib/libterminal/README.org][Library build/API]] | [[file:../issues/open/4.org][Issue #4]]
+
+** Result
+
+The measurements do not support adopting shared linking for a CPU-cache
+speedup. Cache counters were unavailable under the host's permissions, and
+shared linking was slower in the deterministic parser workload. It saved
+only 56 KiB of pair PSS against archive linking in the headless memory test.
+Source compilation was faster and used less PSS in the headless comparison.
+
+Static linking is the default library build; shared and source-control modes
+remain available. This keeps the independently built component boundary for
+reuse and ownership, while avoiding the measured additional shared-library
+cost. This is not a claim that archives universally outperform shared objects.
+
+** Method
+
+- Host: AMD Ryzen 9 9950X3D, Linux x86-64; targets pinned to logical CPU 0.
+  Boost remained enabled; the desktop was not an exclusively reserved lab host.
+- Installed compiler: =0.0.1-b444d7223=. All variants used
+  =--cpu=baseline --opt=2 --usize=64=, with no LTO.
+- The original source-linked parser baseline was captured before consumer
+  imports changed: 672 ms for 1,000 iterations at chunk size 257, checksum
+  =15332081183660024344=. That single calibration run is not a comparative
+  result. The repeated comparison below uses the final source-control build
+  and both library forms from the same canonical implementation.
+- The headless workload feeds a deterministic 2,995-byte ANSI/UTF-8 recording
+  1,000 times (2,995,000 bytes), including scrolling, SGR, erase, cursor movement
+  and query replies. Input construction and final digest are outside parser
+  timing. Every measured run produced the same digest as the original baseline.
+- Seven timed trials per mode/chunk, after warm-up, with rotated mode order.
+  Separate data records process wall time, user/system time and maximum RSS.
+- ELF dependencies were checked for every benchmark/application variant:
+  only the shared variant has a =libterminal.so= dependency.
+- Static/shared modes use Til-generated bindings. Source mode derives one
+  source control module from the canonical files. The comparison measures
+  complete build configurations, including separate compilation, exported
+  calls and Til runtime/core boundaries; it does not isolate cache effects
+  or PLT overhead from inlining and code-generation differences.
+
+** Parser timing
+
+Median milliseconds for 2,995,000 bytes (lower is better):
+
+| Chunk bytes | Source control | Static archive | Shared object |
+|-------------+----------------+----------------+---------------|
+|           1 |            949 |           1301 |          1584 |
+|         257 |            803 |           1107 |          1359 |
+|        4096 |            797 |           1104 |          1362 |
+
+For 257-byte chunks, measured ranges were 799-856 ms source, 1103-1115 ms
+static and 1353-1365 ms shared. Shared took about 23% longer than static;
+static took about 38% longer than source. These are workload/build results,
+not evidence identifying CPU-cache misses as the cause.
+
+Thirty warm process launches with zero feed iterations took 52 ms source,
+49 ms static and 52 ms shared in aggregate. This includes process launch,
+screen initialization, digest and collection overhead, not a cold-cache
+loader benchmark. The difference is too small for a startup recommendation.
+
+** Memory
+
+For the headless pair, two distinct executable files per mode ran the same
+workload, flushed a readiness line, and held their screen state while the
+parent read each child's exact =/proc/PID/smaps_rollup= file. Using two
+different files matters: starting the same executable inode twice would
+also share its static code pages. Three trials per mode:
+
+| Mode   | Median pair RSS (KiB) | Median pair PSS (KiB) | Median pair private (KiB) |
+|--------+-----------------------+-----------------------+--------------------------|
+| Source |                  5344 |                  2002 |                     1984 |
+| Static |                  6348 |                  3010 |                     2992 |
+| Shared |                  6532 |                  2954 |                     2700 |
+
+Shared reduced private memory by 292 KiB versus static, but the more useful
+pair PSS difference was only 56 KiB (about 1.9%). Both library configurations
+used roughly 1 MiB more PSS than the source-control pair. Shared-library
+sharing therefore does not imply an overall memory win over source linking.
+
+Actual Tiled and tilminal were also run together, each with a warmed terminal,
+under Xvfb/llvmpipe with =LP_NUM_THREADS=1=. The measurement driver had no
+libterminal dependency (checked with readelf), so it did not add a third
+library consumer to the sharing calculation. Pair PSS in KiB:
+
+| Mode   | Median | Range          |
+|--------+--------+----------------|
+| Source | 322495 | 301130-344103  |
+| Static | 335447 | 325466-346090  |
+| Shared | 311097 | 301432-325231  |
+
+GUI totals vary by tens of MiB, far more than the headless code-sharing effect;
+the source of that variation was not isolated. An earlier batch even reversed
+the static/shared ordering (311224/313325 KiB pair PSS medians). These GUI
+totals do not establish a reliable shared-memory saving.
+
+** Visible output latency
+
+Five fresh-window trials per host/mode sent a command that emitted a
+63,910-byte colored-output trace ending in a unique marker. Actual rendered
+pixels had to match the reference row. This measures command-to-visible
+latency, including event delivery, cat/PTY, parsing, rendering and X11 polling;
+it is not a direct frame-time measurement. Targets used CPU 0 and llvmpipe
+with =LP_NUM_THREADS=1=.
+
+| Host     | Source median/range (ms) | Static median/range (ms) | Shared median/range (ms) |
+|----------+--------------------------+--------------------------+--------------------------|
+| Tiled    | 177 / 167-201           | 179 / 171-241           | 215 / 183-245           |
+| tilminal | 127 / 95-144            | 124 / 104-155           | 144 / 112-147           |
+
+The ranges overlap substantially; source/static differences here do not
+establish a reliable improvement. Shared linking did not produce a better
+median for either host in this batch.
+
+** Hardware counters
+
+The narrow user-space-only request was:
+
+#+begin_src sh
+perf stat -e cycles:u,instructions:u,cache-references:u,cache-misses:u -- taskset -c 0 tmp/terminal-bench/shared/parser 1000 257
+#+end_src
+
+Linux denied access (=kernel.perf_event_paranoid=4=). No kernel setting was
+changed. There are no measured cache-miss or instruction-count results in
+this report. If counter access becomes available, repeat the workload with
+CPU-appropriate instruction/data-cache events as well as these generic events.
+
+** Reproducing
+
+Run from the repository root. The harnesses and workloads are written in Til.
+They build sequentially and leave raw CSV, build logs, ELF dependencies and
+host information under the ignored =tmp/terminal-bench/= directory.
+Shared benchmark consumers use a private =tmp/terminal-bench/sdk/= install,
+so rebuilding the normal application libraries cannot change their code.
+
+#+begin_src sh
+til run -o tmp/compare_terminal -c tmp/compare_terminal.c bench/compare.til 7 1000 0
+til run -o tmp/parser_memory -c tmp/parser_memory.c bench/parser_memory.til
+til build --opt=2 --usize=64 -o tmp/terminal_memory -c tmp/terminal_memory.c bench/memory.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/terminal_memory 3 0
+til build --opt=2 --usize=64 -o tmp/terminal_gui_latency -c tmp/terminal_gui_latency.c bench/gui_latency.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/terminal_gui_latency 5
+til interpret make.til
+#+end_src
+
+The final command restores the default static, unoptimized development build;
+the comparison itself leaves shared, optimized consumers active. The headless
+timing driver accepts trial count, iterations and CPU; the GUI latency and
+parser-memory checks currently use CPU 0. GUI tests require the same X11/XTest
+tools as the normal terminal tests. Raw outputs include =timing.csv=,
+=summary.csv=, =startup.csv=, =memory.csv=, =parser-memory.csv=,
+=gui-latency.csv= and =perf.txt=.
+
+** Verification and next decisions
+
+Compiled model/input/session consumers passed against a temporary installation
+outside the implementation tree. Interpreted model access passes through
+=cell_at=; direct foreign Vec element addressing exposed a stride mismatch
+in the installed compiler and is no longer part of the public API. Both
+archive/shared application builds and rendered-output integration checks pass.
+
+Before making a performance-driven shared-library recommendation, investigate
+the exported-call/inlining boundary and repeat on representative workloads
+with hardware counters available. Repository separation remains useful for
+ownership and independent development, regardless of cache results.
+
+** Planned scaling comparisons
+
+Keep static as the default while investigating these follow-ups. They have
+not been measured by the two-process comparison above:
+
+- Process counts of 1, 2, 4, 8 and 16, using both tilminal-only groups and
+  mixed Tiled/tilminal groups. Record total PSS/private memory, startup cost,
+  CPU use and the incremental cost of each additional process. Use distinct
+  consumer executables where appropriate and pin the exact shared artifacts.
+- Hold the number of terminal sessions constant while comparing many panes
+  in one Tiled process with many standalone processes. Panes already share
+  statically linked code within their process; they do not multiply the
+  potential executable-page saving in the same way as separate processes.
+- Exercise idle sessions, one busy session among idle ones, and all sessions
+  producing output. Measure aggregate throughput and latency distributions,
+  including slower/outlier responses, rather than only median parser time.
+- Compare controlled single-core and multicore scheduling. Keep the main
+  comparison's compiler/options identical, then evaluate LTO and other
+  library-boundary optimizations as separately labelled experiments.
+- Revisit as terminal functionality and its active code footprint grow.
+  Repeat cache-counter measurements when permissions allow, without treating
+  a memory reduction alone as evidence of a CPU-cache speedup.
+
+A shared default would need a meaningful total-memory benefit without an
+unacceptable throughput or latency cost. These tests should identify any
+useful crossover empirically; the current pair result does not predict one.

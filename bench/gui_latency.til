@@ -1,0 +1,83 @@
+mode gui
+import("../test/terminal_gui_helpers")
+
+main := proc(args: ..Str) {
+    mut trials : I64 = 5
+    if args.len() > 0 { trials = args[0].to_i64() }
+    if trials < 1 || args.len() > 1 { panic("usage: gui_latency [trials]") }
+    root := get_cwd_str()
+    dir := format(root, "/tmp/terminal-bench")
+    home := format(dir, "/latency-home")
+    if mkdir_p(home) != 0 { panic("cannot create benchmark home") }
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace")
+    query.env("HOME", home).capture_out(); query.run_checked()
+    InitWindow(960, 80, "terminal GUI reference".c_str)
+    SetWindowPosition(900, 1000)
+    SetExitKey(0)
+    mut view := TerminalView.new(query.out())
+    marker := "LIBRARY_BENCH_DONE"
+    render_reference(view, marker)
+    reference := find_window("terminal GUI reference")
+    name := get_env("DISPLAY")
+    ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    mut trace := ""
+    for row in 0..1000 {
+        trace = format(trace, terminal_escape("[31m"), "output line ", row.to_str(),
+            " abcdefghijklmnopqrstuvwxyz 0123456789", terminal_escape("[0m"), "\r\n")
+    }
+    trace = format(trace, marker, "\r\n")
+    trace_path := format(dir, "/gui-trace.txt")
+    File.writefile(trace_path, trace)
+    modes := array(Str, "source", "static", "shared")
+    mut csv := "mode,trial,program,command_to_visible_ms,output_bytes\n"
+    for trial in 0..trials {
+        for slot in 0..3 {
+            ref mode : Str = modes[(trial + slot).mod(3).to_usize()]
+            for program : Str in array(Str, "tiled", "tilminal") {
+                app := Cmd.new("taskset", "-c", "0", format(dir, "/", mode, "/", program))
+                app.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
+                app.env("LP_NUM_THREADS", "1").env("LIBGL_ALWAYS_SOFTWARE", "1")
+                app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+                pid := app.start()
+                mut title := "tilminal"
+                if program == "tiled" { title = "Tiled - *scratch*" }
+                window := wait_window(app, pid, title)
+                sleep_ms(250)
+                XSetInputFocus(display, window, 2, 0); XFlush(display)
+                if program == "tiled" {
+                    send(display, 65507, 1); send(display, 120, 1); send(display, 120, 0); send(display, 65507, 0)
+                    send(display, 116, 1); send(display, 116, 0)
+                    wait_window(app, pid, "Tiled - *terminal-1*")
+                }
+                sleep_ms(100)
+                start := clock_ms()
+                type_text(display, format("cat ", trace_path))
+                mut visible := false
+                for _ in 0..30000 {
+                    if app.poll() { break }
+                    if has_rendered_row(display, window, reference, (view.cell_width * marker.len().to_i64()).to_i32()) {
+                        visible = true; break
+                    }
+                    sleep_ms(1)
+                }
+                elapsed := clock_ms() - start
+                require(app, pid, visible, "output marker never became visible")
+                csv = format(csv, mode, ",", trial.to_str(), ",", program, ",", elapsed.to_str(), ",", trace.len().to_str(), "\n")
+                if program == "tiled" {
+                    request_close(display, window)
+                    sleep_ms(150)
+                    type_text(display, "terminate")
+                    for _ in 0..100 { if app.poll() { break }; sleep_ms(50) }
+                    require(app, pid, app.poll(), "Tiled did not close")
+                    assert(app.wait() == 0)
+                } else { close_app(app, pid, display, window) }
+            }
+        }
+    }
+    File.writefile(format(dir, "/gui-latency.csv"), csv)
+    println(csv)
+    XCloseDisplay(display)
+    view.close()
+    CloseWindow()
+}
