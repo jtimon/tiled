@@ -14,8 +14,10 @@ now written in Til, launches from =bin/=, verifies rendered =ls= output and
 Unicode pixels, and closes cleanly. Model/session checks also passed under
 ASAN on Linux. Native Windows/macOS validation remains pending.
 
+Host-routed ordered input and mapped modifiers are implemented, with separate
+session updates and rendering and GUI coverage for fast input/remapped Ctrl-C.
 Remaining work includes test-cost reduction, scrollback/selection, alternate
-screens, host-routed input/mapped modifiers, Tiled terminal-buffer integration
+screens, Tiled terminal-buffer integration
 and application-supplied graphics. Related issues: [[./1.org][#1 Tiled environment]] and
 [[./2.org][#2 logo glyph]]. The full earlier design/implementation discussion follows;
 paths under Til's =examples/= and compiler files in that history refer to

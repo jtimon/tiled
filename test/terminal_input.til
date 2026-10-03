@@ -1,0 +1,25 @@
+mode cli
+import("../src/terminal/input")
+
+main := proc() {
+    mut screen := TerminalScreen.new(80, 24)
+    mut input := TerminalInput()
+    mut bytes := input.encode(screen, 65, 0, 1)
+    bytes = format(bytes, input.encode(screen, 97, 0, 3))
+    bytes = format(bytes, input.encode(screen, 263, 0, 1))
+    bytes = format(bytes, input.encode(screen, 98, 0, 3))
+    bytes = format(bytes, input.encode(screen, 257, 0, 1))
+    assert(bytes == format("a", terminal_escape("[D"), "b", terminal_byte(13)))
+    assert(input.encode(screen, 67, 2, 1) == terminal_byte(3))
+    assert(input.encode(screen, 99, 2, 3) == "")
+    assert(input.encode(screen, 120, 4, 3) == terminal_escape("x"))
+    assert(input.encode(screen, 0x4e00, 0, 3) == terminal_utf8(0x4e00))
+    assert(input.encode(screen, 259, 0, 2) == terminal_byte(8))
+    assert(input.encode(screen, 256, 0, 1) == terminal_byte(27))
+    screen.feed(terminal_escape("="))
+    assert(input.encode(screen, 321, 0, 1) == terminal_escape("Oq"))
+    assert(input.encode(screen, 49, 0, 3) == "")
+    assert(input.encode(screen, 49, 0, 1) == "")
+    assert(input.encode(screen, 49, 0, 3) == "1")
+    println("PASS: ordered terminal input, modifiers, UTF-8, repeats and keypad text suppression")
+}

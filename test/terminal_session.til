@@ -1,5 +1,6 @@
 mode cli
 import("../src/terminal/session")
+import("../src/terminal/terminal")
 import("../src/terminal/text")
 import("std/sys")
 
@@ -111,5 +112,22 @@ main := proc(compiler: Str) {
     finish(repl, redrawn)
     require(repl.status() == 0, "unmodified repl exits")
     repl.close()
+    // The host-level object owns its screen/input state with no renderer.
+    mut hosted := Terminal.new(child_path, "hosted")
+    hosted.start()
+    hosted.resize(53, 10)
+    for c in "exit" { hosted.event(c.cast(I64), 0, 3) }
+    hosted.event(257, 0, 1)
+    host_deadline := clock_ms() + 30000
+    while !hosted.ended {
+        hosted.pump()
+        if clock_ms() > host_deadline { panic("hosted terminal did not exit") }
+        sleep_ms(5)
+    }
+    mut visible := ""
+    for cell : TerminalCell in hosted.screen.cells { visible = format(visible, cell.text) }
+    require(visible.contains("FINAL") && hosted.session.status() == 0, "host owns and drains final screen")
+    require(hosted.screen.columns == 53 && hosted.screen.rows == 10, "host-controlled resize")
+    hosted.close()
     println("terminal session OK")
 }

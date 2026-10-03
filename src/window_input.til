@@ -1,0 +1,18 @@
+mode lib
+
+// C glue is needed because Til function values use a closure ABI, whereas
+// GLFW takes a plain C callback. GLFW comes from installed raylib.
+link_c("window_input.c")
+window_init_input := ext_proc() {}
+// action: 1 = press, 2 = repeat, 3 = text, 4 = window close request.
+// For text, key is the codepoint; close requests use a nonzero sentinel key.
+window_next_event := ext_proc(mut mods: I32, mut action: I32) returns shallow I32 {}
+window_close_input := ext_proc() {}
+
+// Hosts drain raylib's duplicate queues after consuming the ordered stream.
+window_drain_input := proc() {
+    mut key := GetKeyPressed()
+    while key > 0 { key = GetKeyPressed() }
+    mut code := GetCharPressed()
+    while code > 0 { code = GetCharPressed() }
+}

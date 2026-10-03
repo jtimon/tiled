@@ -41,7 +41,10 @@ has been replaced by the persistent-session implementation.
 - [[file:../src/terminal/model.til][model.til]]: terminal screen grid, incremental escape parser, cursor,
   scrolling regions, rendition, keypad modes and query replies.
 - [[file:../src/terminal/text.til][text.til]]: incremental UTF-8 and Unicode 17 scalar-width tables.
-- [[file:../src/terminal/view.til][view.til]]: rendering, glyph resources and current keyboard forwarding.
+- [[file:../src/terminal/input.til][input.til]]: headless encoding of host-supplied ordered key/text events.
+- [[file:../src/terminal/terminal.til][terminal.til]]: host-owned session, screen and input state; explicit
+  =start=, =resize=, =pump=, =event= and =close= operations.
+- [[file:../src/terminal/view.til][view.til]]: glyph resources and rendering a supplied screen/viewport.
 
 The terminal component is ordinary shared source, independent of the editor
 model. Its host creates the window and owns the event loop. Til supplies
@@ -49,12 +52,19 @@ core/std, mode gui and its runtime ABI; application-specific development and
 tests belong here. Compiler regressions formerly bundled with the terminal
 tests stay in Til: =test/link_objects.til= and =test/vec_clone_abi.til=.
 
+Both hosts use [[file:../src/window_input.til][window_input]] for ordered events. Character events retain
+their mapped modifier flags, including Alt text. Terminal input processing
+does not poll raylib queues, reorder text before functional keys, or sample
+modifiers later in the frame. A renderer neither pumps nor resizes a session.
+Rendering accepts an explicit viewport and clips wide cells at its boundary.
+
 ** Verification
 
 Run from this repository's root after building the applications:
 
 #+begin_src sh
 til interpret test/terminal_model.til
+til run -o tmp/check_terminal_input -c tmp/check_terminal_input.c test/terminal_input.til
 til run -o tmp/check_terminal_model -c tmp/check_terminal_model.c test/terminal_model.til
 til run -o tmp/check_terminal_session -c tmp/check_terminal_session.c test/terminal_session.til /usr/local/bin/til
 til build -o tmp/check_terminal_gui -c tmp/check_terminal_gui.c test/terminal_gui.til
@@ -74,7 +84,10 @@ the actual =bin/tilminal= with =bin/= as cwd, waits for a real window, types
 against a reference row rendered with the same font. The marker filename
 does not appear in the typed command, so echoed input cannot satisfy the
 assertion; a blank reference is rejected too. It then requests a normal
-window close and requires exit status zero. A second case verifies rendered
+window close and requires exit status zero. It also sends burst text followed
+immediately by Enter and remaps Control with xmodmap while running, verifying
+that a fast Ctrl-C interrupts a foreground job and returns to the shell.
+A second case verifies rendered
 wide/combining Unicode output, retained final screen and one-shot status.
 The test, pixel comparison and window-close handling are written in Til
 using X11 FFI declarations. No C test helper, OCR dependency or test-only
@@ -95,10 +108,8 @@ normal binaries. Native Windows ConPTY and macOS PTY runs remain unverified.
 - Embed terminal buffers in Tiled: separate session/screen ownership from
   view resources, retain hidden sessions, define multi-view resize policy,
   and add terminal-aware buffer/exit lifecycle handling.
-- Move input dispatch to host-supplied ordered events and mapped modifiers.
-  The current view consumes global raylib queues and frame-time modifiers;
-  its bounded text queue can lose synthetic input bursts. The GUI test types
-  at keyboard speed. Tiled's editor already has the ordered input path to reuse.
+- Build on the host-supplied ordered-event boundary for embedded terminal
+  command routing, focus and lifecycle policy.
 - Investigate Kitty graphics and other application-supplied inline graphics
   after the terminal/session integration. [[file:../issues/open/3.org][Tiled #3]] carries the full design
   discussion transferred from Til #408 and tracks subsequent implementation.

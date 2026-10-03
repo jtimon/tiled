@@ -1,0 +1,38 @@
+mode lib
+import("session")
+import("input")
+
+// A host owns one Terminal per session, independently of its visible views.
+// TerminalSession is non-clonable; move this object rather than copying it.
+Terminal := struct {
+    session : TerminalSession
+    screen := TerminalScreen.new(80, 24)
+    input := TerminalInput()
+    ended := false
+namespace:
+    new := proc(args: ..Str) returns Terminal {
+        return Terminal(session = TerminalSession.new(..args))
+    }
+    start := proc(t: Terminal) { t.session.start(t.screen.columns, t.screen.rows) }
+    resize := proc(mut t: Terminal, columns: I64, rows: I64) {
+        cols := terminal_bound(columns, 1, 32767)
+        lines := terminal_bound(rows, 1, 32767)
+        if cols != t.screen.columns || lines != t.screen.rows {
+            t.screen.resize(cols, lines)
+            if t.session.state() == 1 { t.session.resize(cols, lines) }
+        }
+    }
+    pump := proc(mut t: Terminal) {
+        if t.session.state() < 3 {
+            t.screen.feed(t.session.pump())
+            replies := t.screen.take_replies()
+            if replies.len() > 0 && t.session.state() == 1 { t.session.send(replies) }
+        }
+        if t.session.state() == 3 && !t.ended { t.screen.feed("", true); t.ended = true }
+    }
+    event := proc(mut t: Terminal, key: I64, mods: I32, action: I32) {
+        bytes := t.input.encode(t.screen, key, mods, action)
+        if bytes.len() > 0 && t.session.state() == 1 { t.session.send(bytes) }
+    }
+    close := proc(t: Terminal) { t.session.close() }
+}

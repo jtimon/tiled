@@ -178,7 +178,7 @@ The old input loop paired queued =GetKeyPressed()= events with physical
 =IsKeyDown()= modifier state sampled later in the frame. That ignored
 =xmodmap= and missed quick chords when Control had already been released.
 
-The [[file:../src/editor_input.c][input bridge]] chains raylib's GLFW key and character callbacks and
+The [[file:../src/window_input.c][input bridge]] chains GLFW key and character-with-modifier callbacks and
 queues each key press/repeat with its OS-mapped modifiers, alongside text
 events. Prefixes and save/open shortcuts consume those event-time flags.
 The bridge preserves raylib's callbacks for its own state and window handling.

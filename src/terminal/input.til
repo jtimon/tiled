@@ -1,0 +1,24 @@
+mode lib
+import("model")
+
+// Host-delivered event contract: 1 press, 2 repeat, 3 Unicode text.
+// Modifier bits: Shift=1, Control=2, Alt=4, captured at the event's origin.
+// No window, global input queue, frame-time modifier sampling or process I/O.
+TerminalInput := struct {
+    keypad_text : I64 = -1
+namespace:
+    encode := func(mut input: TerminalInput, screen: TerminalScreen, key: I64, mods: I32, action: I32) returns Str {
+        if action == 1 || action == 2 {
+            if key >= 340 && key <= 347 { return "" }
+            input.keypad_text = -1
+            if screen.application_keypad { input.keypad_text = terminal_keypad_scalar(key) }
+            return terminal_key(screen, key, mods.band(1) != 0, mods.band(2) != 0, mods.band(4) != 0)
+        }
+        if action != 3 { return "" }
+        if key == input.keypad_text { input.keypad_text = -1; return "" }
+        if mods.band(2) != 0 { return "" }
+        text := terminal_utf8(key)
+        if mods.band(4) != 0 { return terminal_escape(text) }
+        return text
+    }
+}

@@ -152,22 +152,18 @@ type_text := proc(display: Dynamic, text: Str) {
         send(display, symbol, 1)
         send(display, symbol, 0)
         if shift { send(display, 65505, 0) }
-        // Emulate typing; the current raylib text queue is bounded per frame.
-        sleep_ms(25)
     }
-    // The terminal's present polling input uses frame-time modifiers. Keep
-    // this test about rendering/session integration, rather than modifier timing.
-    sleep_ms(100)
+    // Burst input followed immediately by Enter must survive one-frame queues.
     send(display, 65293, 1)
     send(display, 65293, 0)
 }
 
 render_reference := proc(mut view: TerminalView, text: Str) {
-    view.screen = TerminalScreen.new(80, 3)
-    view.screen.feed(text)
+    mut screen := TerminalScreen.new(80, 3)
+    screen.feed(text)
     BeginDrawing()
     ClearBackground(Color(r = 16, g = 18, b = 24, a = 255))
-    view.draw(0, 0, false)
+    view.draw(screen, 0, 0, 960, 80, false, true)
     EndDrawing()
 }
 
@@ -224,9 +220,29 @@ main := proc() {
     // satisfy the rendered-pixel assertion, not terminal echo of our input.
     type_text(display, format("ls ../", fixture))
     check_pixels(app, pid, display, window, reference, (view.cell_width * marker.len().to_i64()).to_i32())
-    close_app(app, pid, display, window)
     File.remove(marker_path)
-    println("PASS: launch from bin/, real window, typed ls, visible output and clean active-session close")
+    // Live remapping must affect Control even when press/release share a frame.
+    Cmd.new("xmodmap", "-e", "clear control", "-e", "clear mod1",
+        "-e", "keysym Control_L = Alt_L Meta_L", "-e", "keysym Alt_L = Control_L",
+        "-e", "add control = Control_L Control_R",
+        "-e", "add mod1 = Alt_L Alt_R Meta_L Meta_R").run_checked()
+    sleep_ms(100)
+    type_text(display, "sleep 30")
+    sleep_ms(250)
+    send(display, 65507, 1)
+    send(display, 99, 1)
+    send(display, 99, 0)
+    send(display, 65507, 0)
+    sleep_ms(150) // Let the interrupted job return control to the shell.
+    next_marker := "CTRL_C_OK"
+    next_path := format(fixture, "/", next_marker)
+    File.writefile(next_path, "")
+    render_reference(view, next_marker)
+    type_text(display, format("ls ../", fixture))
+    check_pixels(app, pid, display, window, reference, (view.cell_width * next_marker.len().to_i64()).to_i32())
+    close_app(app, pid, display, window)
+    File.remove(next_path)
+    println("PASS: burst text/Enter, remapped Ctrl-C reaches foreground job, visible output and clean close")
 
     // Preserve the old GUI smoke's missing-wide-glyph/combining-mark coverage.
     unicode := format(terminal_utf8(0x4e00), "e", terminal_utf8(0x301))

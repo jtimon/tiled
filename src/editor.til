@@ -2,7 +2,7 @@ mode lib
 
 import("std/sys")
 import("editor_model")
-import("editor_input")
+import("window_input")
 import("editor_buffers")
 import("editor_exit")
 
@@ -262,7 +262,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE.cast(U32))
     InitWindow(config.width, config.height, "Tiled".c_str)
-    editor_init_input()
+    window_init_input()
     // Escape cancels an active prompt; outside prompts it retains quit behavior.
     SetExitKey(0)
     font := LoadFontEx(font_path.c_str, font_size, Option(ref I32).None, 0)
@@ -308,7 +308,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         mut quit := false
         mut mods : I32 = 0
         mut action : I32 = 0
-        mut key := editor_next_key(mods, action)
+        mut key := window_next_event(mods, action)
         while key > 0 {
             mut save := false
             mut open := false
@@ -437,13 +437,10 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                 status_msg = "Opened!"
                 status_timer = 2000
             }
-            key = editor_next_key(mods, action)
+            key = window_next_event(mods, action)
         }
         // The ordered bridge owns keyboard dispatch. Drain raylib's copies.
-        mut queued_key := GetKeyPressed()
-        while queued_key > 0 { queued_key = GetKeyPressed() }
-        mut queued_char := GetCharPressed()
-        while queued_char > 0 { queued_char = GetCharPressed() }
+        window_drain_input()
         if exit_prompt.ready { break }
 
         BeginDrawing()
@@ -464,6 +461,6 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         EndDrawing()
     }
     UnloadFont(font)
-    editor_close_input()
+    window_close_input()
     CloseWindow()
 }
