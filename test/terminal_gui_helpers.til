@@ -2,7 +2,7 @@ mode lib
 
 // Shared Til-only X11 driver and rendered-pixel checks for both terminal hosts.
 import("std/sys")
-import("../src/terminal/view")
+import("../lib/libterminal/view")
 link("X11")
 link(":libXtst.so.6")
 

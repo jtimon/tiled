@@ -81,7 +81,7 @@ collisions. New issue numbers come from =issues/NEXT_ISSUE.txt=.
   desktop raylib/GLFW backend; no Til checkout or GLFW headers are required.
 - [[file:../src/window_layout.til][src/window_layout.til]]: work-area/decorations-aware initial window placement.
 - [[file:../src/tilminal.til][src/tilminal.til]]: standalone terminal with a persistent shell or one-shot command.
-- [[file:../src/terminal/][src/terminal/]]: reusable terminal screen, text, PTY/ConPTY session and renderer.
+- [[file:../lib/libterminal/][lib/libterminal/]]: reusable terminal screen, text, PTY/ConPTY session and renderer.
   See [[file:terminal.org][terminal development and tests]].
 
 The applications began in Til's =examples/= directory and are now developed

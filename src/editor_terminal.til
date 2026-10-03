@@ -1,8 +1,8 @@
 mode lib
 import("std/sys")
 import("editor_model")
-import("terminal/terminal")
-import("terminal/view")
+import("../lib/libterminal/terminal")
+import("../lib/libterminal/view")
 
 EditorTerminal := struct {
     owner : USize = 0

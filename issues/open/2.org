@@ -7,7 +7,7 @@
 Transferred from [[https://github.com/jtimon/til/blob/master/issues/cancelled/159.org][Til #159]], closed there as transferred. The
 [[https://github.com/jtimon/til/blob/c28ab7daf/issues/open/159.org][original Til record]] remains available in its history.
 
-Current sources are [[file:../../src/tilminal.til][src/tilminal.til]] and [[file:../../src/terminal/view.til][src/terminal/view.til]]. Tilminal
+Current sources are [[file:../../src/tilminal.til][src/tilminal.til]] and [[file:../../lib/libterminal/view.til][lib/libterminal/view.til]]. Tilminal
 now runs a persistent PTY/ConPTY shell; its private command-runner prompt
 has been removed. The older plan below predates that change. Logo placement
 must be reconciled with [[./3.org][#3]]'s terminal ownership model. The logo font and

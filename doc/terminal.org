@@ -31,24 +31,27 @@ checkout, and launching from =bin/= works without changing the shell's cwd.
 ** Source ownership and migration
 
 Migrated from Til commit =40eb0682e= (present in =b444d7223=), including its
-terminal tests. [[file:../src/terminal/LICENSE.txt][The original MIT license]] and the Unicode/wcwidth attribution
+terminal tests. [[file:../lib/libterminal/LICENSE.txt][The original MIT license]] and the Unicode/wcwidth attribution
 in =text.til= are retained. Tiled's old =examples/tilminal.til= command runner
 has been replaced by the persistent-session implementation.
 
 - [[file:../src/tilminal.til][src/tilminal.til]]: standalone window, shell startup and lifecycle.
-- [[file:../src/terminal/session.til][session.til]] / [[file:../src/terminal/session.c][session.c]]: PTY/ConPTY transport, child ownership,
+- [[file:../lib/libterminal/session.til][session.til]] / [[file:../lib/libterminal/session.c][session.c]]: PTY/ConPTY transport, child ownership,
   input queuing, resize, final-output draining and teardown.
-- [[file:../src/terminal/model.til][model.til]]: terminal screen grid, incremental escape parser, cursor,
+- [[file:../lib/libterminal/model.til][model.til]]: terminal screen grid, incremental escape parser, cursor,
   scrolling regions, rendition, keypad modes and query replies.
-- [[file:../src/terminal/text.til][text.til]]: incremental UTF-8 and Unicode 17 scalar-width tables.
-- [[file:../src/terminal/input.til][input.til]]: headless encoding of host-supplied ordered key/text events.
-- [[file:../src/terminal/terminal.til][terminal.til]]: host-owned session, screen and input state; explicit
+- [[file:../lib/libterminal/text.til][text.til]]: incremental UTF-8 and Unicode 17 scalar-width tables.
+- [[file:../lib/libterminal/input.til][input.til]]: headless encoding of host-supplied ordered key/text events.
+- [[file:../lib/libterminal/terminal.til][terminal.til]]: host-owned session, screen and input state; explicit
   =start=, =resize=, =pump=, =event= and =close= operations.
-- [[file:../src/terminal/view.til][view.til]]: glyph resources and rendering a supplied screen/viewport.
+- [[file:../lib/libterminal/view.til][view.til]]: glyph resources and rendering a supplied screen/viewport.
 
-The terminal component is ordinary shared source, independent of the editor
-model. Its host creates the window and owns the event loop. Til supplies
-core/std, mode gui and its runtime ABI; application-specific development and
+The terminal component lives in =lib/libterminal/=, separate from the
+application sources in =src/=. Its internal imports and native bridge link
+are relative to that directory. Both hosts and terminal tests import this
+single shared component, independent of the editor model. Hosts create the
+window and own the event loop. Til supplies core/std, mode gui and its runtime
+ABI; application-specific development and
 tests belong here. Compiler regressions formerly bundled with the terminal
 tests stay in Til: =test/link_objects.til= and =test/vec_clone_abi.til=.
 

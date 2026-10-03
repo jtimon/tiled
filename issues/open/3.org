@@ -8,7 +8,7 @@ Transferred from [[https://github.com/jtimon/til/blob/master/issues/cancelled/40
 [[https://github.com/jtimon/til/blob/c28ab7daf/issues/open/408.org][original Til record]] remains available in its history.
 
 The migration landed here in =48eb0d9=. Current sources are
-[[file:../../src/tilminal.til][src/tilminal.til]] and [[file:../../src/terminal/][src/terminal/]]; [[file:../../doc/terminal.org][terminal documentation]] contains
+[[file:../../src/tilminal.til][src/tilminal.til]] and [[file:../../lib/libterminal/][lib/libterminal/]]; [[file:../../doc/terminal.org][terminal documentation]] contains
 build/test commands and the current follow-ups. The permanent GUI test is
 now written in Til, launches from =bin/=, verifies rendered =ls= output and
 Unicode pixels, and closes cleanly. Model/session checks also passed under
@@ -31,7 +31,7 @@ the original Til checkout rather than this repository.
 
 The terminal implementation, standalone application and terminal-specific
 tests now live in [[https://github.com/jtimon/tiled][jtimon/tiled]]. The entry point is =src/tilminal.til=;
-shared terminal modules are under =src/terminal/=. See its =doc/terminal.org=
+shared terminal modules are under =lib/libterminal/=. See its =doc/terminal.org=
 for the migration record, test commands and remaining work. The migration
 starts from Til =40eb0682e= as present at =b444d7223=.
 

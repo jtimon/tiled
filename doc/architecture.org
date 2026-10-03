@@ -72,7 +72,7 @@ operations without treating external windows as buffers.
 ** Hosting modes
 
 Standalone =tilminal= and Tiled live in this repository. The reusable terminal
-component is under =src/terminal/=; =src/tilminal.til= is its standalone host.
+component is under =lib/libterminal/=; =src/tilminal.til= is its standalone host.
 The standalone host owns one persistent session. Tiled's owning terminal pool
 keeps sessions/screens and renderer caches independent of its clonable layout
 tree: buffers reference stable pool slots, and panes reference buffer IDs.

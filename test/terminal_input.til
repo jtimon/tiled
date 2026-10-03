@@ -1,5 +1,5 @@
 mode cli
-import("../src/terminal/input")
+import("../lib/libterminal/input")
 
 main := proc() {
     mut screen := TerminalScreen.new(80, 24)

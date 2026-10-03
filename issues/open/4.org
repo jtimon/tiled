@@ -10,8 +10,10 @@ viewport and owns only graphics resources. Standalone tilminal and the editor
 use the same ordered, mapped-modifier host input bridge. Headless encoding
 and GUI burst-input/remapped-Control checks cover this boundary. Tiled now
 consumes the component through terminal buffers, with hidden-session pumping,
-mirrored views and explicit process lifecycle policy. Independent library
-packaging/installation and repository separation remain subsequent work.
+mirrored views and explicit process lifecycle policy. The shared component
+is now grouped under =lib/libterminal/=, separate from the application hosts.
+Independent library packaging/installation and repository separation remain
+subsequent work.
 
 Establish one reusable terminal library consumed by standalone tilminal and
 Tiled. First organize and verify the boundaries in this repository, then
@@ -19,7 +21,7 @@ separate the library and applications into their own repositories. Repository
 separation should preserve an already-working dependency model.
 
 Related: [[./1.org][#1 integrated environment]] and [[./3.org][#3 terminal implementation and integration]].
-Current terminal sources are under [[file:../../src/terminal/][src/terminal/]], with the standalone
+Current terminal sources are under [[file:../../lib/libterminal/][lib/libterminal/]], with the standalone
 entry point in [[file:../../src/tilminal.til][src/tilminal.til]]. See [[file:../../doc/terminal.org][terminal documentation]] for the
 migration history, current tests and remaining terminal work.
 

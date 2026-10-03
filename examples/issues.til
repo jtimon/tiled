@@ -1,7 +1,7 @@
 mode cli
 
 // Adapted from Til's examples/issues.til at c28ab7daf (MIT; original copyright
-// and license text are also retained in src/terminal/LICENSE.txt).
+// and license text are also retained in lib/libterminal/LICENSE.txt).
 import("std/sys")
 import("std/file")
 

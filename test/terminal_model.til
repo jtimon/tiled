@@ -1,5 +1,5 @@
 mode cli
-import("../src/terminal/model")
+import("../lib/libterminal/model")
 
 check := func(ok: Bool, why: Str) { if ok.not() { panic("terminal model: ", why) } }
 row_text := func(s: TerminalScreen, y: I64) returns Str {

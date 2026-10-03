@@ -1,7 +1,7 @@
 mode cli
-import("../src/terminal/session")
-import("../src/terminal/terminal")
-import("../src/terminal/text")
+import("../lib/libterminal/session")
+import("../lib/libterminal/terminal")
+import("../lib/libterminal/text")
 import("std/sys")
 
 require := func(ok: Bool, why: Str) { if ok.not() { panic("terminal session: ", why) } }
