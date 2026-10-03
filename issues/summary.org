@@ -1,3 +1,6 @@
+* Cleanups
+** Medium
+*** [[./open/4.org][#4]] Organize Tiled, tilminal and libterminal here before splitting repositories
 * Examples
 ** Low
 *** [[./open/1.org][#1]] tiled: editor, window manager, terminal and more

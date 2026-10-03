@@ -1,0 +1,82 @@
+# priority: medium
+# category: cleanups
+** OPEN #4 Organize Tiled, tilminal and libterminal here before splitting repositories
+
+Establish one reusable terminal library consumed by standalone tilminal and
+Tiled. First organize and verify the boundaries in this repository, then
+separate the library and applications into their own repositories. Repository
+separation should preserve an already-working dependency model.
+
+Related: [[./1.org][#1 integrated environment]] and [[./3.org][#3 terminal implementation and integration]].
+Current terminal sources are under [[file:../../src/terminal/][src/terminal/]], with the standalone
+entry point in [[file:../../src/tilminal.til][src/tilminal.til]]. See [[file:../../doc/terminal.org][terminal documentation]] for the
+migration history, current tests and remaining terminal work.
+
+*** Phase 1: organize and verify within this repository
+
+- Define libterminal's responsibilities: PTY/ConPTY session and child
+  lifecycle, terminal screen/parser, Unicode cell handling, terminal modes,
+  query replies and input encoding.
+- Keep the terminal core independent of raylib. Define a rendering adapter
+  that consumes screen state; it can initially live alongside the core.
+- Define ownership and lifetime contracts between session, screen and view.
+  Hosts own windows/event loops and supply ordered input with mapped
+  modifiers. Views must not independently consume the same session's output
+  or compete to resize it. Coordinate terminal-buffer lifecycle and hidden
+  sessions with #3 rather than duplicating that integration work here.
+- Keep tilminal a small standalone host and Tiled the integrated host for
+  buffers, panes, commands, configuration and workspace lifecycle. Both must
+  consume the same terminal implementation through the library boundary.
+- Make the library independently buildable and installable, and establish
+  how applications consume its public Til bindings and native dependencies.
+  Define the compiler/runtime ABI compatibility policy, especially for Str,
+  USize and ownership across the current native bridge.
+- Decide and document static/shared build support, installation paths and
+  dependency discovery before implementing the packaging interface. Verify
+  consumption without reaching into a Til or libterminal development tree.
+- Assign tests to their owners: terminal model/session/renderer tests with
+  the library; standalone lifecycle tests with tilminal; pane/input/buffer
+  integration tests with Tiled. Preserve the existing coverage and commands.
+
+*** Phase 2: split repositories
+
+After both applications work against the phase-1 library boundary:
+
+- Move the library and application projects to the agreed repositories,
+  preserving source history, licensing, tests and issue provenance.
+- Choose a reproducible dependency/version-pinning mechanism. A submodule
+  is one possible development mechanism; installed-library consumption must
+  have a documented contract independent of sibling-checkout paths.
+- Establish library releases and compatible consumer versions, including
+  the required Til compiler/runtime version. Update build instructions and
+  automation to exercise the separated projects.
+- Keep a single authoritative terminal implementation. Fixes and tests must
+  not diverge between private copies in Tiled and tilminal.
+
+*** Performance rationale
+
+Source repository layout, separate installation and static/shared linking
+are distinct choices. Separate installation alone does not improve CPU
+cache behaviour. Shared libraries can share executable pages across running
+applications and reduce duplicated code memory; actual cache/performance
+effects depend on workload, code layout, dispatch and optimization boundaries.
+Session data remains independent. Static linking may permit optimizations
+that a shared boundary restricts.
+
+Use reuse, ownership and independent development as the architectural
+motivation. Measure startup, memory footprint and representative terminal
+workloads before claiming a CPU-cache benefit or choosing linking policy
+on performance grounds.
+
+*** Acceptance
+
+- Phase 1: standalone tilminal and an embedded Tiled terminal use the same
+  independently built component, with explicit ownership and input routing.
+- A clean consumer build works against the installed library and installed
+  Til, without development-checkout path dependencies.
+- Existing model/session and rendered-output checks pass, with integration
+  coverage for focus, resize, process exit and closing or hiding panes.
+- Phase 2 preserves those checks and the dependency contract after moving
+  repositories; versions and source locations are reproducible and documented.
+- Platform validation and performance measurements are reported separately
+  from build success, with no assumed cache speedup from the repository split.
