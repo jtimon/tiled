@@ -30,7 +30,14 @@ per-view anchors, page/wheel navigation, return to live on child input and
 original-width history across resizing. Tests cover eviction, Unicode,
 alternate-screen exclusion, reset, installed consumers and both-host rendered
 navigation; Tiled also covers hidden output and independent split positions.
-Remaining work includes test-cost reduction, selection/clipboard copying, broader terminal compatibility
+Linear mouse selection and clipboard copy/paste are implemented in both hosts,
+with selection-aware Ctrl-C, Ctrl-G cancellation, M-w/C-S-c copy, C-y/C-S-v
+paste and DEC 2004 framing. Tiled editable buffers support Emacs and CUA-style
+region editing. GUI checks verify clipboard contents, highlights, independent
+splits and PTY bytes. New output/resize clears terminal selections in this
+first version; persistent selections, richer selection modes and configurable
+shortcuts can be revisited after use.
+Remaining work includes test-cost reduction, selection refinements, broader terminal compatibility
 and application-supplied graphics. Related issues: [[./1.org][#1 Tiled environment]] and
 [[./2.org][#2 logo glyph]]. The full earlier design/implementation discussion follows;
 paths under Til's =examples/= and compiler files in that history refer to

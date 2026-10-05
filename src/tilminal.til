@@ -5,6 +5,7 @@ import("../lib/libterminal/view")
 import("../gen/terminal_api")
 import("../gen/terminal_profile")
 import("window_input")
+import("terminal_clipboard")
 
 // Use the same system monospace selection as Tiled. No font path depends on
 // a Til source checkout, the executable's directory, or the shell's cwd.
@@ -49,6 +50,7 @@ main := proc(args: ..Str) {
         terminal.resize(width / view.cell_width, height / view.cell_height)
         terminal.pump()
         viewport.sync(terminal.screen)
+        terminal_mouse(viewport, terminal.screen, view.cell_width, view.cell_height, 0, 0, width, height)
         wheel := GetMouseWheelMove()
         if wheel != 0 { viewport.scroll(terminal.screen, (wheel * 3).to_i64()) }
         mut mods : I32 = 0
@@ -57,7 +59,8 @@ main := proc(args: ..Str) {
         mut closing := false
         while key > 0 {
             if action == 4 { closing = true; break }
-            if !viewport.event(terminal.screen, key.cast(I64), mods, action, height / view.cell_height) {
+            if !terminal_clipboard(viewport, terminal, key.cast(I64), mods, action) &&
+                !viewport.event(terminal.screen, key.cast(I64), mods, action, height / view.cell_height) {
                 terminal.event(key.cast(I64), mods, action)
             }
             key = window_next_event(mods, action)
@@ -73,7 +76,7 @@ main := proc(args: ..Str) {
         }
         BeginDrawing()
         ClearBackground(Color(r = 16, g = 18, b = 24, a = 255))
-        view.draw_scrolled(terminal.screen, 0, 0, width, height, IsWindowFocused(), terminal.ended, viewport.offset)
+        view.draw_scrolled(terminal.screen, 0, 0, width, height, IsWindowFocused(), terminal.ended, viewport.offset, viewport.selection)
         EndDrawing()
     }
     terminal.close()

@@ -118,6 +118,26 @@ buffer while keeping the layout. Killing the last buffer creates an empty
 =*scratch*= buffer. This is distinct from =C-x 0=, which closes just a view
 and keeps its buffer.
 
+** Text selection and clipboard
+
+Editable buffers support mouse-drag selection, Shift+arrows/Home/End, and
+=C-Space= to set an Emacs-style mark followed by cursor movement. =C-g= clears
+the mark/selection. Selection belongs to each view; edits to a shared buffer
+invalidate its other selections while adjusting their cursor positions.
+
+| Action | Emacs binding | CUA-style binding                 |
+|--------+---------------+-----------------------------------|
+| Copy   | M-w           | C-c                               |
+| Cut    | C-w           | C-x when a nonempty region exists  |
+| Paste  | C-y           | C-v                               |
+
+These use the system clipboard, not a kill ring. Copy clears the selection;
+typing/pasting replaces it, and Backspace/Delete removes it. Without a
+nonempty region, =C-x= remains Tiled's command prefix. Clear a selection with
+=C-g= before using a =C-x= prefix command if necessary. Host minibuffers and
+pending prefix sequences take priority. UTF-8 movement/deletion respects
+codepoint boundaries; full grapheme-aware text editing remains future work.
+
 ** Terminal buffers
 
 =C-x t= creates a new persistent shell in the focused pane, named
@@ -132,6 +152,12 @@ sends a literal Ctrl+X to the child. Other keys, including Ctrl+C, Ctrl+G,
 Ctrl+S, Ctrl+O and Escape, belong to the terminal when no host prompt/prefix
 is active. =C-g= cancels a pending host prefix or minibuffer. =C-x C-s=
 reports that a terminal cannot be saved as a text file.
+
+Clipboard exceptions: =C-c= copies and clears a mouse selection, otherwise
+it reaches the child normally. =C-S-c= and =M-w= explicitly copy. =C-g= clears
+a selection before being forwarded. =C-S-v= and =C-y= paste, using bracketed
+paste when the child enables it; plain =C-v= remains child input. Terminal
+output can be selected/copied but not cut. See [[file:terminal.org][selection and paste semantics]].
 
 On the primary screen, =Shift+PageUp= / =Shift+PageDown= navigate scrollback;
 the mouse wheel scrolls the pane under the pointer without changing focus.

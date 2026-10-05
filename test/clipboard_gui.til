@@ -1,0 +1,119 @@
+mode gui
+import("terminal_gui_helpers")
+
+XMoveResizeWindow := ext_proc(display: Dynamic, shallow window: UPtr, shallow x: I32, shallow y: I32, shallow width: U32, shallow height: U32) returns shallow I32 {}
+XTestFakeMotionEvent := ext_proc(display: Dynamic, shallow screen: I32, shallow x: I32, shallow y: I32, shallow delay: UPtr) returns shallow I32 {}
+XTestFakeButtonEvent := ext_proc(display: Dynamic, shallow button: U32, shallow pressed: I32, shallow delay: UPtr) returns shallow I32 {}
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0) }
+chord := proc(display: Dynamic, key: UPtr, modifier: UPtr = 65507, shift: Bool = false) {
+    send(display, modifier, 1)
+    if shift { send(display, 65505, 1) }
+    tap(display, key)
+    if shift { send(display, 65505, 0) }
+    send(display, modifier, 0); sleep_ms(100)
+}
+prefix := proc(display: Dynamic, key: UPtr) { chord(display, 120); tap(display, key); sleep_ms(150) }
+drag := proc(display: Dynamic, x: I32, end: I32, y: I32) {
+    XTestFakeMotionEvent(display, 0, x, y, 0); XTestFakeButtonEvent(display, 1, 1, 0); XFlush(display); sleep_ms(100)
+    XTestFakeMotionEvent(display, 0, end, y, 0); XFlush(display); sleep_ms(100)
+    XTestFakeButtonEvent(display, 1, 0, 0); XFlush(display); sleep_ms(100)
+}
+clipboard := proc() returns Str {
+    ref text : I8 = GetClipboardText()
+    if is_null(text) { return "" }
+    return Str.from_c_str(text).clone()
+}
+wait_contents := proc(app: Cmd, pid: I64, path: Str, expected: Str) {
+    for _ in 0..200 {
+        BeginDrawing(); EndDrawing() // Serve X11 clipboard requests from the child host.
+        if File.exists(path) && File.readfile(path) == expected { return }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, false, format("unexpected file contents: ", path))
+}
+
+main := proc() {
+    root := get_cwd_str()
+    dir := format("tmp/clipboard-", process_id().to_str()); assert(mkdir_p(dir) == 0)
+    document := format(dir, "/edit.txt"); File.writefile(document, "EDIT_ME")
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace"); query.capture_out(); query.run_checked()
+    InitWindow(960, 80, "terminal GUI reference".c_str); SetWindowPosition(1000, 1000); SetExitKey(0)
+    mut view := TerminalView.new(query.out()); render_reference(view, "SELECT_ME")
+    reference := find_window("terminal GUI reference")
+    editor_font := LoadFontEx(query.out().c_str, 28, Option(ref I32).None, 0)
+    name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    for host : Str in array(Str, "tilminal", "tiled") {
+        app := Cmd.new(format("./bin/", host))
+        if host == "tiled" { app.arg(document) }
+        app.env("HOME", format(root, "/", dir)).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
+        app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+        pid := app.start()
+        mut title := "tilminal"; if host == "tiled" { title = "Tiled - edit.txt" }
+        window := wait_window(app, pid, title)
+        sleep_ms(250)
+        XMoveResizeWindow(display, window, 0, 0, 960, 640); XSetInputFocus(display, window, 2, 0); XFlush(display); sleep_ms(250)
+        if host == "tiled" { prefix(display, 116); wait_window(app, pid, "Tiled - *terminal-1*") }
+        captured := format(dir, "/", host, "-paste")
+        interrupt := format(dir, "/", host, "-interrupt")
+        cancel := format(dir, "/", host, "-cancel")
+        expected := format(terminal_escape("[200~"), "paste\nline", terminal_escape("[201~"))
+        command := format("stty raw -echo; printf '\\033[H\\033[2J\\033[?2004hSELECT_ME'; dd bs=1 count=", (expected.len() * 2).to_str(),
+            " of=", captured, " 2>/dev/null; dd bs=1 count=1 of=", interrupt,
+            " 2>/dev/null; dd bs=1 count=1 of=", cancel, " 2>/dev/null; stty sane; printf '\\033[?2004l\\r\\nDONE\\n'")
+        type_text(display, command)
+        check_pixels(app, pid, display, window, reference, (view.cell_width * 9).to_i32())
+        if host == "tiled" {
+            prefix(display, 51)
+            drag(display, 0, (view.cell_width * 9).to_i32(), 12)
+            SetClipboardText("unchanged".c_str)
+            prefix(display, 111); chord(display, 99, 65507, true)
+            require(app, pid, clipboard() == "unchanged", "a split copied another pane's selection")
+            prefix(display, 111)
+        }
+        drag(display, 0, (view.cell_width * 9).to_i32(), 12)
+        ref image : Dynamic = XGetImage(display, window, 0, 0, 1, 1, 0xFFFFFF, 2)
+        highlighted := XGetPixel(image, 0, 0).band(0xFFFFFF) == 0x37557d
+        XDestroyImage(image)
+        require(app, pid, highlighted, "selection was not highlighted")
+        chord(display, 99)
+        require(app, pid, clipboard() == "SELECT_ME", "Ctrl-C did not copy selected terminal output")
+        check_pixels(app, pid, display, window, reference, (view.cell_width * 9).to_i32())
+        drag(display, 0, (view.cell_width * 9).to_i32(), 12)
+        chord(display, 119, 65513)
+        require(app, pid, clipboard() == "SELECT_ME", "M-w did not copy")
+        drag(display, 0, (view.cell_width * 9).to_i32(), 12)
+        chord(display, 103)
+        check_pixels(app, pid, display, window, reference, (view.cell_width * 9).to_i32())
+        SetClipboardText("paste\nline".c_str)
+        chord(display, 118, 65507, true)
+        wait_contents(app, pid, captured, expected)
+        chord(display, 121)
+        wait_contents(app, pid, captured, format(expected, expected))
+        chord(display, 99); wait_contents(app, pid, interrupt, Str.from_byte(3))
+        chord(display, 103); wait_contents(app, pid, cancel, Str.from_byte(7))
+        sleep_ms(200)
+        if host == "tiled" {
+            prefix(display, 98); type_text(display, "edit.txt"); wait_window(app, pid, "Tiled - edit.txt"); sleep_ms(150)
+            gutter := MeasureTextEx(editor_font, "1".c_str, 28, 0).x.to_i64().to_i32() + 20
+            text_width := MeasureTextEx(editor_font, "EDIT_ME".c_str, 28, 0).x.to_i64().to_i32()
+            drag(display, gutter, gutter + text_width, 16)
+            chord(display, 99); require(app, pid, clipboard() == "EDIT_ME", "text mouse selection/copy failed")
+            chord(display, 65360, 65505) // Shift-Home selects backward from the end.
+            chord(display, 120); require(app, pid, clipboard() == "EDIT_ME", "CUA cut failed")
+            chord(display, 118)
+            chord(display, 65360, 65505); chord(display, 119)
+            require(app, pid, clipboard() == "EDIT_ME", "C-w cut failed")
+            chord(display, 121)
+            tap(display, 65360); chord(display, 32); tap(display, 65367); chord(display, 119, 65513)
+            require(app, pid, clipboard() == "EDIT_ME", "mark/M-w copy failed")
+            chord(display, 120); chord(display, 115)
+            wait_contents(app, pid, document, "EDIT_ME")
+            request_close(display, window); sleep_ms(150); type_text(display, "terminate")
+            for _ in 0..100 { if app.poll() { break }; sleep_ms(50) }
+            require(app, pid, app.poll(), "Tiled did not close"); assert(app.wait() == 0)
+        } else { close_app(app, pid, display, window) }
+        println("PASS: ", host, " mouse copy/highlight, Ctrl-C/C-g routing, clipboard paste and editor bindings")
+    }
+    XCloseDisplay(display); UnloadFont(editor_font); view.close(); CloseWindow()
+}

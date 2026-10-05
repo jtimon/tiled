@@ -7,6 +7,9 @@ keymaps. Its =tiled= module and command/keymap API are proposals, not
 implemented features. Use [[file:../defaults/init.til][defaults/init.til]] for the working
 [[file:configuration.org][startup configuration]].
 
+Implementation is tracked in [[file:../issues/open/5.org][#5: Til-defined commands and configurable keymaps]]
+for Tiled and tilminal, including the connection to Til interpreter embedding.
+
 The starting combination is i3-style window management, Vim's =h/j/k/l=
 directions, and Emacs-style named commands and editor prefix keys.
 

@@ -48,6 +48,13 @@ navigation have independent per-view positions, anchored output and return to
 live on child input. Alternate screens stay out of history. Tests cover the
 model, installed consumers and both hosts, including hidden and split views.
 
+Both hosts now have linear mouse selection, selection-aware Ctrl-C, explicit
+copy/paste and Ctrl-G cancellation. Copy joins soft wraps and preserves Unicode;
+paste honors DEC 2004. Tiled text buffers have mouse/Shift/mark selection and
+Emacs plus selection-aware CUA clipboard commands. Tests verify actual clipboard
+contents, PTY paste bytes and per-pane routing. Selection persistence during
+new terminal output and richer selection modes remain refinements.
+
 Application sources live in =src/=: [[file:../src/tiled.til][startup]], [[file:../src/editor.til][GUI/input]], and
 [[file:../src/editor_model.til][buffers/views/layout]]. =C-x 2= and =C-x 3= split the focused view;
 =C-x o= changes focus, =C-x 0= closes a view, and =C-x 1= keeps only it.
@@ -257,5 +264,5 @@ attempt a screenshot at =tmp/window-placement-failure.png=.
   are planned; no command prompt or prefix suggestion menu is implemented.
 - Multiple OS frames (=C-x 5=) and
   [[file:architecture.org][desktop hosts]] remain future work.
-- Selection/clipboard copying, native platform
+- Selection refinements, native platform
   validation and inline graphics remain [[file:terminal.org][terminal follow-ups]].

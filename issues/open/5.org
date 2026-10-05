@@ -1,0 +1,73 @@
+# priority: medium
+# category: features
+** OPEN #5 Configure commands and keybindings in Til for Tiled and tilminal
+
+*** Goal
+
+Let users define commands and keymaps in Til, with the extensibility of Emacs
+Lisp or Neovim Lua. Til can be both the application's implementation language
+and its configuration/extension language because it supports compilation and
+interpretation. Users should be able to change clipboard and terminal input
+policy without rebuilding or editing application sources.
+
+This depends on [[https://github.com/jtimon/til/blob/master/issues/open/370.org][Til #370: host program, guest Til]] for live embedding: a running host must be
+able to invoke user-defined Til callbacks against its live application state.
+Track application-facing APIs, configuration loading and key dispatch here;
+coordinate interpreter/runtime embedding requirements with Til #370.
+Using the same language does not by itself provide a live embedding API.
+
+*** Current state
+
+- Tiled loads =~/.tiled/init.til= for startup configuration. Its current
+  development loader generates a driver and launches a compiled child; it
+  does not expose a live command/keymap registry or embedded interpreter.
+- Tilminal does not yet load =~/.tilminal.til=.
+- Input dispatch and clipboard shortcuts are hard-coded in both hosts.
+- [[file:../../doc/keybindings.org][The command/keymap design]] and [[file:../../doc/keybindings.til][Til API sketch]] are proposals,
+  not currently available configuration APIs.
+
+*** Scope
+
+- Load standalone terminal configuration from =~/.tilminal.til= and extend
+  Tiled's existing =~/.tiled/init.til= configuration entry point.
+- Expose named built-in commands and registration of user-defined Til
+  commands/callbacks. Bindings should refer to commands rather than duplicate
+  their implementations. Imported user modules should also be usable.
+- Support binding, rebinding and unbinding keys, multi-stroke prefixes, and
+  distinct text, terminal, minibuffer and other contextual keymaps. Specify
+  precedence, mapped modifiers, repeat behavior and text-event consumption.
+- Make Emacs/CUA preferences, copy/cut/paste, selection-aware Ctrl-C,
+  Ctrl-G cancellation, terminal forwarding and host-prefix handling
+  configurable. Keep the current behavior as the initial default profile.
+- Allow explicit forwarding of keys to terminal children so user mappings
+  can resolve conflicts between host commands and foreground applications.
+- Define callback access to focused buffers/views, selections, clipboard,
+  sessions and application commands, with clear ownership/lifetime rules.
+- Define startup evaluation, reload behavior, useful diagnostics and recovery
+  from failed configuration/callbacks. Specify how host state survives reload.
+- Choose and document the integration with Til's embedding API. Evaluate
+  interpreted callbacks and compiled extension modules against the same
+  host-facing command interfaces; distinguish interim startup configuration
+  from live extensibility.
+
+*** Acceptance checks
+
+- Change terminal paste from Ctrl-Shift-V to Ctrl-V in user configuration,
+  without rebuilding the host, and explicitly retain a way to forward Ctrl-V.
+- Configure Emacs and CUA clipboard bindings and selection-dependent behavior
+  in editable buffers and terminal panes.
+- Register a user Til command, bind a prefix sequence to it, and operate on
+  the focused pane's live state rather than a copied configuration snapshot.
+- Verify context precedence, split-pane isolation, remapped modifiers,
+  repeats, character-event suppression, error handling and reload semantics.
+- Provide working default/sample configurations and document the supported
+  interpreter/compiler/runtime compatibility requirements.
+
+Related: [[file:1.org][#1 integrated environment]], [[file:3.org][#3 terminal development]],
+[[file:4.org][#4 reusable library boundaries]], and [[https://github.com/jtimon/til/blob/master/issues/open/370.org][Til #370]].
+
+Suggested first dependency slice in #370: an installed interpreter session,
+config evaluation, registration of a host function, and a retained guest
+callback invokable after startup, with defined ownership and structured
+errors. This unlocks an end-to-end configurable key command before broader
+extension features are needed.

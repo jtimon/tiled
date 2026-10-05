@@ -75,7 +75,7 @@ namespace:
         v.draw_scrolled(screen, left, top, width, height, focused, ended, 0)
     }
     draw_scrolled := proc(mut v: TerminalView, screen: TerminalScreen, left: I64, top: I64,
-                 width: I64, height: I64, focused: Bool, ended: Bool, offset: I64) {
+                 width: I64, height: I64, focused: Bool, ended: Bool, offset: I64, selection: TerminalSelection = TerminalSelection.new()) {
         if width <= 0 || height <= 0 { return }
         columns := terminal_bound(width / v.cell_width, 0, screen.columns)
         rows := terminal_bound(height / v.cell_height, 0, screen.rows)
@@ -92,6 +92,10 @@ namespace:
                 mut ink := fg
                 mut paper := bg
                 if cell.style.inverse != screen.reverse_screen { ink = bg; paper = fg }
+                if selection.contains(screen, x, y, offset) {
+                    paper = Color(r = 55, g = 85, b = 125, a = 255)
+                    ink = Color(r = 255, g = 255, b = 255, a = 255)
+                }
                 cell_w := terminal_bound(v.cell_width * cell.span, 0, left + width - px)
                 DrawRectangle(px.to_i32(), py.to_i32(), cell_w.to_i32(), v.cell_height.to_i32(), paper)
                 if cell.style.hidden.or(cell.style.blink.and(blink_off)) { continue }

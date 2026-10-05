@@ -42,4 +42,8 @@ namespace:
         if bytes.len() > 0 && t.session.state() == 1 { t.session.send(bytes) }
     }
     close := proc(t: Terminal) { t.session.close() }
+    paste := proc(t: Terminal, text: Str) {
+        bytes := terminal_paste(t.screen, text)
+        if bytes.len() > 0 && t.session.state() == 1 { t.session.send(bytes) }
+    }
 }

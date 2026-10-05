@@ -38,7 +38,8 @@ editor_font_path := proc(config: TiledConfig) returns Str {
 }
 
 editor_text_width := func(font: Font, text: Str, size: I32) returns I32 {
-    return MeasureTextEx(font, text.c_str, size.to_f32(), 0).x.to_i64().to_i32()
+    terminated := text.clone()
+    return MeasureTextEx(font, terminated.c_str, size.to_f32(), 0).x.to_i64().to_i32()
 }
 
 editor_draw_text := proc(font: Font, text: Str, x: I32, y: I32, size: I32, color: Color) {
@@ -83,6 +84,61 @@ editor_open := proc(mut editor: EditorState) returns Bool {
     path := editor_file_path(selected)
     editor.show_buffer(path, File.readfile(path))
     return true
+}
+
+editor_clipboard := proc(mut editor: EditorState, key: I32, mods: I32) returns Bool {
+    ref mut view : EditorView = editor.nodes[editor.focused].view
+    ctrl := mods.band(2) != 0; alt := mods.band(4) != 0
+    if ctrl && !alt && key == 32 {
+        view.mark = view.cursor; view.mark_active = true; view.mark_explicit = true; return true
+    }
+    copy := (alt && !ctrl && key == 87) || (ctrl && !alt && key == 67)
+    cut := ctrl && !alt && (key == 87 || (key == 88 && view.selected()))
+    if copy || cut {
+        text := editor.selected_text()
+        if text.len() > 0 { SetClipboardText(text.c_str) }
+        if cut { editor.cut_selection() } else { view.clear_mark() }
+        return true
+    }
+    if ctrl && !alt && (key == 89 || key == 86) {
+        ref raw : I8 = GetClipboardText()
+        if !is_null(raw) { editor.insert(Str.from_c_str(raw).replace("\r\n", "\n").replace("\r", "\n")) }
+        return true
+    }
+    return false
+}
+
+editor_mouse_text := proc(mut editor: EditorState, font: Font, size: I32, line_h: I32) {
+    mouse := GetMousePosition()
+    for index : USize in editor.views() {
+        ref mut node : EditorNode = editor.nodes[index]
+        ref mut view : EditorView = node.view
+        ref buffer : EditorBuffer = editor.buffers[view.buffer]
+        if buffer.terminal >= 0 { continue }
+        rect := node.rect.clone()
+        inside := mouse.x >= rect.x.to_f32() && mouse.x < (rect.x + rect.width).to_f32() &&
+            mouse.y >= rect.y.to_f32() && mouse.y < (rect.y + rect.height - line_h - 8).to_f32()
+        if !view.dragging && !(inside && IsMouseButtonPressed(0)) { continue }
+        lines := buffer.text.split("\n")
+        gutter := editor_text_width(font, lines.len().to_str(), size) + 20
+        row := terminal_bound(((mouse.y.to_i64() - rect.y.cast(I64) - 8) / line_h.cast(I64)) + view.scroll_y.cast(I64), 0, lines.len().to_i64() - 1)
+        start := text_row_start(buffer.text, row.to_i32())
+        end := text_line_end(buffer.text, start)
+        px := mouse.x.to_i64().to_i32() - rect.x - gutter + view.scroll_x
+        mut pos := start
+        while pos < end {
+            next := text_next(buffer.text, pos)
+            a := editor_text_width(font, buffer.text.substr(start, pos - start), size)
+            b := editor_text_width(font, buffer.text.substr(start, next - start), size)
+            if px < (a + b) / 2 { break }
+            pos = next
+        }
+        if inside && IsMouseButtonPressed(0) {
+            view.mark = pos; view.mark_active = true; view.mark_explicit = false; view.dragging = true
+        }
+        view.cursor = pos
+        if !IsMouseButtonDown(0) { view.dragging = false }
+    }
 }
 
 editor_draw_view := proc(mut editor: EditorState, index: USize, font: Font, size: I32, line_h: I32) {
@@ -137,6 +193,18 @@ editor_draw_view := proc(mut editor: EditorState, index: USize, font: Font, size
             if line_index < lines.len().to_i32() {
                 ref line : Str = lines[line_index.to_usize()]
                 y := rect.y + 8 + row * line_h
+                if view.selected() {
+                    line_start := text_row_start(buffer.text, line_index)
+                    lo := view.selection_start(); hi := view.selection_end()
+                    if hi > line_start && lo <= line_start + line.len() {
+                        a := terminal_bound(lo.to_i64() - line_start.to_i64(), 0, line.len().to_i64()).to_usize()
+                        b := terminal_bound(hi.to_i64() - line_start.to_i64(), 0, line.len().to_i64()).to_usize()
+                        x1 := editor_text_width(font, line.substr(0, a), size)
+                        mut x2 := editor_text_width(font, line.substr(0, b), size)
+                        if hi > line_start + line.len() { x2 = x2 + 8 }
+                        DrawRectangle(rect.x + gutter - view.scroll_x + x1, y, x2 - x1, line_h, Color(r = 55, g = 85, b = 125, a = 255))
+                    }
+                }
                 editor_draw_text(font, line, rect.x + gutter - view.scroll_x, y,
                     size, Color(r = 220, g = 220, b = 220, a = 255))
                 if line_index == cursor_row {
@@ -188,7 +256,8 @@ editor_draw_terminal := proc(mut terminals: EditorTerminals, editor: EditorState
     active := index == editor.focused
     DrawRectangle(rect.x, rect.y, rect.width, rect.height, Color(r = 16, g = 18, b = 24, a = 255))
     slot.view.draw_scrolled(slot.terminal.screen, rect.x.cast(I64), rect.y.cast(I64),
-        rect.width.cast(I64), body_h.cast(I64), active && input_active, slot.terminal.ended, node.view.terminal_viewport.offset)
+        rect.width.cast(I64), body_h.cast(I64), active && input_active, slot.terminal.ended,
+        node.view.terminal_viewport.offset, node.view.terminal_viewport.selection)
     sy := rect.y + body_h
     mut background := Color(r = 38, g = 38, b = 52, a = 255)
     if active { background = Color(r = 60, g = 60, b = 85, a = 255) }
@@ -346,6 +415,10 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         }
 
         terminals.update(editor, line_h + 8)
+        if !prompt.mini.active && !exit_prompt.mini.active && !prefix_pending {
+            terminals.mouse(editor, line_h + 8)
+            editor_mouse_text(editor, font, font_size, line_h)
+        }
         wheel := GetMouseWheelMove()
         if wheel != 0 && !prompt.mini.active && !exit_prompt.mini.active && !prefix_pending {
             mouse := GetMousePosition()
@@ -377,8 +450,13 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                     else if !prefix_pending { editor.insert(typed) }
                 }
             } else if key < 340 || key > 347 {
+                mut handled_clipboard := false
+                if terminal < 0 && !prefix_pending {
+                    if !prompting { handled_clipboard = editor_clipboard(editor, key, mods) }
+                }
                 suppress_text = prefix_pending || (ctrl && (terminal < 0 || prompting))
                 if control && key == 71 && (prefix_pending || prompting || terminal < 0) {
+                    editor.nodes[editor.focused].view.clear_mark()
                     prefix_pending = false
                     prompt.cancel()
                     exit_prompt.cancel()
@@ -422,6 +500,8 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                     } else if !ctrl {
                         prompt.mini.key(key, mods.band(1) != 0)
                     }
+                } else if handled_clipboard {
+                    suppress_text = true
                 } else if terminal >= 0 && !prefix_pending && !(action == 1 && control && key == 88) {
                     terminals.event(editor, terminal, key, mods, action, line_h + 8)
                 } else if key == 256 && action == 1 {
@@ -471,8 +551,8 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                 } else if !prefix_pending && action == 1 && ctrl && key == 79 {
                     open = true
                 } else if !prefix_pending {
-                    if key >= 262 && key <= 265 { editor.move_cursor(key) }
-                    if key == 268 || key == 269 { editor.move_cursor(key) }
+                    if key >= 262 && key <= 265 { editor.select_move(key, mods.band(1) != 0) }
+                    if key == 268 || key == 269 { editor.select_move(key, mods.band(1) != 0) }
                     if key == 257 && !ctrl { editor.insert("\n") }
                     if key == 259 { editor.backspace() }
                     if key == 261 { editor.delete_forward() }

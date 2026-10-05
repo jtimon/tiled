@@ -59,6 +59,43 @@ by a height reduction are not added to history. A clipped wide glyph is blank
 rather than a half glyph. The library can change/disable the history limit;
 there is not yet a host configuration setting for it.
 
+** Selection and clipboard
+
+Drag with the left mouse button to select terminal cells, including printed
+output and scrollback. Selection is linear and independent per pane. Wheel
+or page navigation can move through history while selecting; dragging past
+the pane edge clamps to the edge rather than automatically scrolling.
+
+| Key             | Terminal action                                      |
+|-----------------+------------------------------------------------------|
+| C-c             | Copy an existing selection and clear it; otherwise forward Ctrl-C |
+| C-S-c or M-w    | Copy selection and clear it                          |
+| C-g             | Clear selection; otherwise forward Ctrl-G            |
+| C-S-v or C-y    | Paste the system clipboard                           |
+| C-v             | Forward Ctrl-V to the child                          |
+
+Here =M= is Alt/Meta and =S= is Shift. There is no new interrupt prefix:
+with a selection, two Ctrl-C presses copy first and then forward Ctrl-C.
+Tiled's active host prefixes/prompts still take priority over these bindings.
+Terminal cut/edit commands remain owned by the shell or foreground program;
+the host does not delete displayed cells to simulate editing its input.
+
+Copying preserves wide and combining Unicode text, omits continuation-cell
+placeholders, joins soft-wrapped rows, and inserts newlines at hard row
+boundaries. Trailing padding is trimmed at hard boundaries, including empty
+lines. Copy reflects visible columns at the current width. New child output,
+resize, reset/history clearing or screen changes invalidate selection; ordinary
+scrollback navigation does not. This intentionally conservative first version
+can be revisited alongside configurable bindings and richer selection modes.
+
+Paste returns the receiving pane to live output. DEC mode =2004= enables
+bracketed paste: the payload is enclosed in CSI 200~ / CSI 201~ and retains
+linefeeds. Otherwise line breaks are sent as carriage returns. Clipboard CRLF
+and CR are normalized; embedded NUL and ESC are removed from text payloads.
+Clipboard access is host-owned through raylib; the library owns encoding and
+selection state. Only the system clipboard is used, not an Emacs kill ring or
+X11 PRIMARY/middle-button selection.
+
 ** Alternate screens and terminal profile
 
 The model supports DEC modes =47=, =1047=, =1048= and =1049=. Primary and
@@ -124,6 +161,11 @@ til interpret --usize=64 test/terminal_model.til
 til interpret --usize=64 test/terminal_alternate.til
 til run --usize=64 -o tmp/check_terminal_scrollback -c tmp/check_terminal_scrollback.c test/terminal_scrollback.til
 til interpret --usize=64 test/terminal_scrollback.til
+til run --usize=64 -o tmp/check_terminal_selection -c tmp/check_terminal_selection.c test/terminal_selection.til
+til interpret --usize=64 test/terminal_selection.til
+til run --usize=64 -o tmp/check_editor_selection -c tmp/check_editor_selection.c test/editor_selection.til
+til build --usize=64 -o tmp/check_clipboard_gui -c tmp/check_clipboard_gui.c test/clipboard_gui.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_clipboard_gui
 til build --usize=64 -o tmp/check_terminal_scrollback_gui -c tmp/check_terminal_scrollback_gui.c test/terminal_scrollback_gui.til
 xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_terminal_scrollback_gui
 til run --usize=64 -o tmp/check_terminal_alternate -c tmp/check_terminal_alternate.c test/terminal_alternate.til
@@ -163,6 +205,14 @@ using X11 FFI declarations. No C test helper, OCR dependency or test-only
 application export is used. Failed checks
 attempt an ImageMagick screenshot at =tmp/terminal-gui-failure.png=.
 
+Selection checks cover forward/backward ranges, Unicode, soft wraps across
+history/live rows, blank lines, wide-wrap padding, invalidation and clipboard
+key routing. Compiled/interpreted installed consumers exercise the API. The
+Linux/X11 clipboard GUI test verifies highlighting, actual clipboard text,
+independent terminal split selections, Ctrl-C/C-g forwarding and actual
+bracketed-paste bytes received by a raw PTY child. It also checks mouse/mark
+selection, Emacs/CUA clipboard shortcuts and saving in editable Tiled buffers.
+
 The scrollback suite covers bounded eviction, output anchoring, independent
 viewports, page-key routing, original-width resize, wide/combining characters,
 rendition, input splits, alternate-screen exclusion and history reset. It
@@ -197,7 +247,9 @@ check, not a leak-free GUI claim. Headless ASAN checks retain leak detection.
 - Reduce model/interpreter and test-build cost while retaining coverage.
 - Validate native ConPTY on Windows and PTYs on macOS, including frontend
   font availability. Cross-compilation alone is not runtime validation.
-- Add selection/clipboard copying, then broaden terminal compatibility beyond the
+- Refine selection persistence during output, word/line/rectangular selection,
+  edge auto-scroll and configurable clipboard bindings after using the first
+  linear-selection implementation. Broaden terminal compatibility beyond the
   current VT100-derived profile.
 - Validate packaging beyond Linux, stabilize/version the experimental library
   ABI and split repositories as tracked in [[file:../issues/open/4.org][#4]].

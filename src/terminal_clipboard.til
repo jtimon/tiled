@@ -1,0 +1,33 @@
+mode lib
+import("../gen/terminal_api")
+
+terminal_clipboard := proc(mut viewport: TerminalViewport, terminal: Terminal, key: I64, mods: I32, action: I32) returns Bool {
+    command := viewport.clipboard_command(terminal.screen, key, mods, action)
+    if command == 1 {
+        text := viewport.selection.text(terminal.screen)
+        if text.len() > 0 { SetClipboardText(text.c_str) }
+        viewport.selection.clear()
+    } else if command == 2 {
+        ref raw : I8 = GetClipboardText()
+        if !is_null(raw) { terminal.paste(Str.from_c_str(raw)) }
+    }
+    return command != 0
+}
+
+terminal_mouse := proc(mut viewport: TerminalViewport, screen: TerminalScreen, cell_w: I64, cell_h: I64,
+    left: I64, top: I64, width: I64, height: I64) {
+    mouse := GetMousePosition()
+    x := mouse.x.to_i64() - left; y := mouse.y.to_i64() - top
+    columns := terminal_bound(width / cell_w, 0, screen.columns)
+    rows := terminal_bound(height / cell_h, 0, screen.rows)
+    if columns == 0 || rows == 0 { return }
+    column := terminal_bound(x, 0, columns * cell_w) / cell_w
+    row := terminal_bound(y / cell_h, 0, rows - 1)
+    if IsMouseButtonPressed(0) && x >= 0 && y >= 0 && x < width && y < height {
+        viewport.selection.begin(screen, column, row, viewport.offset)
+    }
+    if viewport.selection.dragging {
+        viewport.selection.extend(screen, column, row, viewport.offset)
+        if !IsMouseButtonDown(0) { viewport.selection.dragging = false }
+    }
+}

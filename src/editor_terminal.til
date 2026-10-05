@@ -4,6 +4,7 @@ import("editor_model")
 import("../gen/terminal_api")
 import("../gen/terminal_profile")
 import("../lib/libterminal/view")
+import("terminal_clipboard")
 
 EditorTerminal := struct {
     owner : USize = 0
@@ -94,8 +95,20 @@ namespace:
         assert(slot.active)
         ref mut node : EditorNode = editor.nodes[editor.focused]
         rows := (node.rect.height - mode_h).cast(I64) / slot.view.cell_height
-        if !node.view.terminal_viewport.event(slot.terminal.screen, key.cast(I64), mods, action, rows) {
+        if !terminal_clipboard(node.view.terminal_viewport, slot.terminal, key.cast(I64), mods, action) &&
+            !node.view.terminal_viewport.event(slot.terminal.screen, key.cast(I64), mods, action, rows) {
             slot.terminal.event(key.cast(I64), mods, action)
+        }
+    }
+
+    mouse := proc(self: EditorTerminals, mut editor: EditorState, mode_h: I32) {
+        for index : USize in editor.views() {
+            ref mut node : EditorNode = editor.nodes[index]
+            id := editor.buffers[node.view.buffer].terminal
+            if id < 0 { continue }
+            ref slot : EditorTerminal = self.slots[id.to_usize()]
+            terminal_mouse(node.view.terminal_viewport, slot.terminal.screen, slot.view.cell_width, slot.view.cell_height,
+                node.rect.x.cast(I64), node.rect.y.cast(I64), node.rect.width.cast(I64), (node.rect.height - mode_h).cast(I64))
         }
     }
 

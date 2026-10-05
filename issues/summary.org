@@ -1,6 +1,9 @@
 * Cleanups
 ** Medium
 *** [[./open/4.org][#4]] Organize Tiled, tilminal and libterminal here before splitting repositories
+* Features
+** Medium
+*** [[./open/5.org][#5]] Configure commands and keybindings in Til for Tiled and tilminal
 * Examples
 ** Low
 *** [[./open/1.org][#1]] tiled: editor, window manager, terminal and more

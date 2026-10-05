@@ -112,6 +112,19 @@ uses =$ORIGIN= to find its matching shared Til runtime/core siblings.
   These avoid positional aggregate defaults in this compiler's generated
   bindings. Constructors use scalar/string arguments rather than exported
   variadic parameters, whose generated bindings this compiler rejects.
+- Each viewport owns a =TerminalSelection=: =begin= / =extend= use cell
+  boundary coordinates and the current scroll offset; =text(screen)= extracts
+  a linear region and =contains= supports highlighting. =sync= invalidates
+  it after output/resize/history reset. Copy text before =clear()=. Selection
+  is per pane, never shared with the process or GPU resource owner.
+- =viewport.clipboard_command(screen, key, mods, action)= returns 1 for copy,
+  2 for paste, 3 for consumed/cancelled input, and 0 for normal routing. Hosts
+  own actual clipboard I/O and call this before viewport navigation or child
+  events. =Terminal.paste(text)= sends =terminal_paste(screen, text)= through
+  the normal queued transport, honoring DEC 2004. The core has no clipboard
+  or window dependency. =draw_scrolled= accepts an optional selection value.
+- Cell wrap metadata, screen revision/paste mode, and viewport selection state
+  extend the experimental ABI. Regenerate bindings and rebuild consumers.
 
 ** Compatibility
 

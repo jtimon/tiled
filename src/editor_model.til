@@ -18,9 +18,24 @@ EditorBuffer := struct {
 EditorView := struct {
     buffer : USize = 0
     cursor : USize = 0
+    mark : USize = 0
+    mark_active := false
+    mark_explicit := false
+    dragging := false
     scroll_y : I32 = 0
     scroll_x : I32 = 0
     terminal_viewport := TerminalViewport.new()
+namespace:
+    selected := func(v: EditorView) returns Bool { return v.mark_active && v.mark != v.cursor }
+    selection_start := func(v: EditorView) returns USize {
+        if v.selected() && v.mark < v.cursor { return v.mark }
+        return v.cursor
+    }
+    selection_end := func(v: EditorView) returns USize {
+        if v.selected() && v.mark > v.cursor { return v.mark }
+        return v.cursor
+    }
+    clear_mark := func(mut v: EditorView) { v.mark_active = false; v.mark_explicit = false; v.dragging = false }
 }
 
 EditorRect := struct {
@@ -49,12 +64,41 @@ editor_buffer_name := func(buffer: EditorBuffer) returns Str {
 }
 
 editor_adjust_point := func(mut view: EditorView, start: USize, count: USize, added: USize) {
+    view.clear_mark()
     end := start + count
     if view.cursor > end || (count > 0 && view.cursor == end) {
         view.cursor = view.cursor - count + added
     } else if view.cursor > start {
         view.cursor = start
     }
+}
+
+text_next := func(text: Str, cursor: USize) returns USize {
+    mut pos := cursor
+    if pos < text.len() { pos++ }
+    while pos < text.len() {
+        if text.get(pos).cast(I64).band(192) != 128 { break }
+        pos++
+    }
+    return pos
+}
+text_previous := func(text: Str, cursor: USize) returns USize {
+    mut pos := cursor
+    if pos > 0 { pos-- }
+    while pos > 0 {
+        if text.get(pos).cast(I64).band(192) != 128 { break }
+        pos--
+    }
+    return pos
+}
+text_row_start := func(text: Str, row: I32) returns USize {
+    mut pos : USize = 0
+    mut line : I32 = 0
+    while pos < text.len() && line < row {
+        if text.get(pos) == '\n' { line++ }
+        pos++
+    }
+    return pos
 }
 
 text_line_start := func(text: Str, cursor: USize) returns USize {
@@ -334,8 +378,8 @@ namespace:
         start := text_line_start(text, view.cursor)
         end := text_line_end(text, view.cursor)
         column := view.cursor - start
-        if key == 263 && view.cursor > 0 { view.cursor-- }
-        if key == 262 && view.cursor < text.len() { view.cursor++ }
+        if key == 263 { view.cursor = text_previous(text, view.cursor) }
+        if key == 262 { view.cursor = text_next(text, view.cursor) }
         if key == 268 { view.cursor = start }
         if key == 269 { view.cursor = end }
         if key == 265 && start > 0 {
@@ -351,6 +395,26 @@ namespace:
             if offset > next_end - next { offset = next_end - next }
             view.cursor = next + offset
         }
+        while view.cursor > 0 && view.cursor < text.len() {
+            if text.get(view.cursor).cast(I64).band(192) != 128 { break }
+            view.cursor--
+        }
+    }
+
+    select_move := func(mut self: EditorState, key: I32, extend: Bool) {
+        ref mut view : EditorView = self.nodes[self.focused].view
+        if extend || view.mark_explicit {
+            if !view.mark_active { view.mark = view.cursor; view.mark_active = true }
+        } else { view.clear_mark() }
+        self.move_cursor(key)
+    }
+    selected_text := func(self: EditorState) returns Str {
+        ref v : EditorView = self.nodes[self.focused].view
+        return self.buffers[v.buffer].text.substr(v.selection_start(), v.selection_end() - v.selection_start()).clone()
+    }
+    cut_selection := func(mut self: EditorState) {
+        ref v : EditorView = self.nodes[self.focused].view
+        if v.selected() { self.replace(v.selection_start(), v.selection_end() - v.selection_start(), "") }
     }
 
     replace := func(mut self: EditorState, start: USize, count: USize, inserted: Str) {
@@ -385,18 +449,21 @@ namespace:
     }
 
     insert := func(mut self: EditorState, text: Str) {
-        cursor := self.nodes[self.focused].view.cursor
-        self.replace(cursor, 0, text)
+        ref v : EditorView = self.nodes[self.focused].view
+        self.replace(v.selection_start(), v.selection_end() - v.selection_start(), text)
     }
 
     backspace := func(mut self: EditorState) {
+        if self.nodes[self.focused].view.selected() { self.cut_selection(); return }
         cursor := self.nodes[self.focused].view.cursor
-        if cursor > 0 { self.replace(cursor - 1, 1, "") }
+        start := text_previous(self.buffers[self.nodes[self.focused].view.buffer].text, cursor)
+        if cursor > 0 { self.replace(start, cursor - start, "") }
     }
 
     delete_forward := func(mut self: EditorState) {
+        if self.nodes[self.focused].view.selected() { self.cut_selection(); return }
         ref view : EditorView = self.nodes[self.focused].view
         cursor := view.cursor
-        if cursor < self.buffers[view.buffer].text.len() { self.replace(cursor, 1, "") }
+        if cursor < self.buffers[view.buffer].text.len() { self.replace(cursor, text_next(self.buffers[view.buffer].text, cursor) - cursor, "") }
     }
 }
