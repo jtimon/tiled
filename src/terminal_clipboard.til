@@ -1,17 +1,29 @@
 mode lib
 import("../gen/terminal_api")
 
-terminal_clipboard := proc(mut viewport: TerminalViewport, terminal: Terminal, key: I64, mods: I32, action: I32) returns Bool {
-    command := viewport.clipboard_command(terminal.screen, key, mods, action)
-    if command == 1 {
+terminal_command := proc(mut viewport: TerminalViewport, terminal: Terminal, name: Str, rows: I64) returns Bool {
+    viewport.sync(terminal.screen)
+    if name == "copy" {
         text := viewport.selection.text(terminal.screen)
         if text.len() > 0 { SetClipboardText(text.c_str) }
         viewport.selection.clear()
-    } else if command == 2 {
+    } else if name == "paste" {
+        viewport.offset = 0; viewport.selection.clear()
         ref raw : I8 = GetClipboardText()
         if !is_null(raw) { terminal.paste(Str.from_c_str(raw)) }
-    }
-    return command != 0
+    } else if name == "cancel-selection" || name == "cancel" { viewport.selection.clear() }
+    else if name == "scroll-page-up" || name == "scroll-page-down" {
+        mut lines := terminal_bound(rows - 1, 1, terminal.screen.rows)
+        if name == "scroll-page-down" { lines = 0 - lines }
+        viewport.scroll(terminal.screen, lines)
+    } else if name != "ignore" { return false }
+    return true
+}
+
+terminal_forward := proc(mut viewport: TerminalViewport, mut terminal: Terminal, key: I64, mods: I32, action: I32) {
+    if key >= 340 && key <= 347 && action != 3 { return }
+    viewport.offset = 0; viewport.selection.clear()
+    terminal.event(key, mods, action)
 }
 
 terminal_mouse := proc(mut viewport: TerminalViewport, screen: TerminalScreen, cell_w: I64, cell_h: I64,

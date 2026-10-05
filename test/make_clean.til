@@ -1,0 +1,18 @@
+mode cli
+import("std/sys")
+import("std/file")
+main := proc() {
+    dir := format("tmp/clean-check-", process_id().to_str())
+    for path : Str in array(Str, "src", "bin", "gen", "tmp", ".inspirations") {
+        assert(mkdir_p(format(dir, "/", path)) == 0)
+        File.writefile(format(dir, "/", path, "/keep"), "fixture")
+    }
+    File.writefile(format(dir, "/make.til"), File.readfile("make.til"))
+    File.writefile(format(dir, "/src/tiled.til"), "fixture")
+    Cmd.new("til", "run", "make.til", "clean").cwd(dir).run_checked()
+    for path : Str in array(Str, "bin", "gen", "tmp") { assert(!File.exists(format(dir, "/", path))) }
+    assert(File.readfile(format(dir, "/.inspirations/keep")) == "fixture")
+    assert(File.readfile(format(dir, "/src/keep")) == "fixture")
+    assert(File.is_file(format(dir, "/make.til")))
+    println("PASS: clean removes only build/scratch directories and preserves reference clones")
+}

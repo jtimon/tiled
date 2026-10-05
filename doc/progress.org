@@ -260,7 +260,8 @@ attempt a screenshot at =tmp/window-placement-failure.png=.
   were added to [[https://github.com/jtimon/til/blob/master/issues/open/370.org][Til issue #370]] for Lua-style embedding.
 - An init path containing a double quote failed import resolution with the
   current compiler, despite escaping the generated string literal.
-- Keybindings are hard-coded. The [[file:keybindings.org][command registry and M-x completion]]
+- [[file:keybindings.org][Named commands and contextual keymaps]] now support compiled Til callbacks
+  and user overrides in both hosts. Live interpreted reload and M-x completion
   are planned; no command prompt or prefix suggestion menu is implemented.
 - Multiple OS frames (=C-x 5=) and
   [[file:architecture.org][desktop hosts]] remain future work.

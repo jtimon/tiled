@@ -193,14 +193,27 @@ cp defaults/init.til ~/.tiled/init.til
 
 It defines =init(mut config: TiledConfig)=, which runs before the editor
 opens. The supported fields are =width=, =height=, =maximized=, =tile_left=, =scratch_text=,
-=initial_file=, =font_path= and =font_size=. A command-line filename takes
+=initial_file=, =font_path=, =font_size= and =commands=. The latter registers
+Til callbacks and overrides the default [[file:keybindings.org][named commands and contextual keymaps]]. A command-line filename takes
 precedence over =initial_file=. If neither specifies a file, Tiled opens scratch.
 Errors in an existing init file are reported and stop startup rather than
 silently loading defaults. =-v= and =--version= bypass configuration and GUI
 startup.
 
-The separate [[file:keybindings.til][keybindings.til]] is a [[file:keybindings.org][future keybinding API sketch]], not
-the working startup configuration.
+Standalone tilminal loads =~/.tilminal.til=, defining
+=init(mut config: TilminalConfig)=. Its first configurable field is =commands=;
+copy [[file:../defaults/tilminal.til][defaults/tilminal.til]] as a starting point. Embedded terminal panes
+use Tiled's command configuration instead of separately loading this file.
+
+For example, in either host's =init=:
+
+#+begin_src til
+config.commands.bind("terminal", "C-v", "paste")
+config.commands.bind("terminal", "C-S-v", "forward-key", true)
+#+end_src
+
+See [[file:keybindings.org][keymap precedence, prefixes and callback examples]]. The separate
+[[file:keybindings.til][keybindings.til]] retains the older, broader future API sketch.
 
 ** Window size
 
@@ -251,10 +264,12 @@ backups are distinct from auto-save/recovery of unsaved buffer edits.
 
 ** Current loading implementation
 
-For now, loading an init file uses the installed =til run=: Tiled generates
+For now, loading an init file uses the installed =til run=: either host generates
 a temporary entry point under this checkout's ignored =tmp/= directory,
-imports the editor and user config, and compiles/runs them in a child
+imports its application module and user config, and compiles/runs them in a child
 process. It removes that entry point, generated C and executable on return.
 Keep the source checkout at its build-time location; this development
-loader requires the installed compiler at startup. Lua-style in-process
+loader requires the installed compiler at startup. Compiled callbacks run
+against live application state in that child, but configuration changes require
+a restart. Invalid configuration stops startup with a diagnostic. Lua-style in-process
 embedding is tracked in [[https://github.com/jtimon/til/blob/master/issues/open/370.org][Til issue #370]].

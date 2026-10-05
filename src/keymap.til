@@ -1,0 +1,214 @@
+mode lib
+
+// Host-neutral key resolution. Commands are names, never recursively generated
+// key events. GLFW mapped modifiers: Shift=1, Control=2, Alt=4, Super=8.
+KeyStroke := struct {
+    key : I32 = 0
+    mods : I32 = 0
+namespace:
+    parse := func(text: Str) returns KeyStroke {
+        mut key := text.clone()
+        mut mods : I32 = 0
+        while key.len() > 2 {
+            mut bit : I32 = 0
+            if key.starts_with("C-") { bit = 2 }
+            else if key.starts_with("M-") { bit = 4 }
+            else if key.starts_with("S-") { bit = 1 }
+            else if key.starts_with("s-") { bit = 8 }
+            if bit == 0 { break }
+            if mods.band(bit) != 0 { panic("duplicate key modifier: ", text) }
+            mods = mods.bor(bit); key = key.substr(2, key.len() - 2).clone()
+        }
+        mut code : I32 = 0
+        if key.len() == 1 {
+            code = key.get(0).cast(I64).to_i32()
+            if code >= 97 && code <= 122 { code = code - 32 }
+            if code < 32 || code > 126 { panic("use a named key or ASCII key: ", text) }
+        } else {
+            code = match key {
+            case "Space": 32 case "Escape", "ESC": 256 case "Enter", "RET": 257
+            case "Tab": 258 case "Backspace": 259 case "Insert": 260 case "Delete": 261
+            case "Right": 262 case "Left": 263 case "Down": 264 case "Up": 265
+            case "PageUp": 266 case "PageDown": 267 case "Home": 268 case "End": 269
+            case: 0
+            }
+            if code == 0 && key.starts_with("F") {
+                n := key.substr(1, key.len() - 1).to_i64()
+                if n >= 1 && n <= 25 { code = (289 + n).to_i32() }
+            }
+        }
+        if code == 0 { panic("unknown key: ", text) }
+        return KeyStroke(key = code, mods = mods)
+    }
+    tag := func(k: KeyStroke) returns Str { return format(k.key.to_str(), ":", k.mods.to_str(), "/") }
+}
+
+key_sequence := func(text: Str) returns Str {
+    mut result := ""
+    for token : Str in text.split(" ") {
+        if token.len() == 0 { continue }
+        result = format(result, KeyStroke.parse(token).tag())
+    }
+    if result.len() == 0 { panic("empty key sequence") }
+    return result
+}
+
+KeyBinding := struct {
+    map := ""
+    sequence := ""
+    label := ""
+    command := ""
+    repeat := false
+}
+
+Keymaps := struct {
+    bindings := Vec(KeyBinding).new()
+    names := Vec(Str).new()
+namespace:
+    declare := func(mut k: Keymaps, name: Str) {
+        if name.len() == 0 { panic("empty command name") }
+        for existing : Str in k.names { if name == existing { return } }
+        k.names.push(own name.clone())
+    }
+    known := func(k: Keymaps, name: Str) returns Bool {
+        for existing : Str in k.names { if existing == name { return true } }
+        return false
+    }
+    bind := func(mut k: Keymaps, map: Str, keys: Str, command: Str, repeat: Bool = false) {
+        if map != "global" && map != "text" && map != "text-selection" && map != "terminal" &&
+            map != "terminal-selection" && map != "terminal-primary" && map != "minibuffer" && map != "prefix" {
+            panic("unknown keymap: ", map)
+        }
+        if !k.known(command) { panic("unknown command: ", command) }
+        sequence := key_sequence(keys)
+        if sequence.find("/") != sequence.len().to_i64() - 1 {
+            if map == "prefix" || repeat { panic("prefix controls and repeat bindings must be single strokes: ", keys) }
+        }
+        value := KeyBinding(map = map.clone(), sequence = sequence, label = keys.clone(), command = command.clone(), repeat = repeat)
+        for index in 0..k.bindings.len() {
+            ref old : KeyBinding = k.bindings[index]
+            if old.map != map { continue }
+            if old.sequence == value.sequence { k.bindings.set(index, own value)!; return }
+            if old.sequence.starts_with(value.sequence) || value.sequence.starts_with(old.sequence) {
+                panic("key is both a command and prefix in ", map, ": ", keys, " / ", old.label)
+            }
+        }
+        k.bindings.push(own value)
+    }
+    unbind := func(mut k: Keymaps, map: Str, keys: Str) {
+        if map != "global" && map != "text" && map != "text-selection" && map != "terminal" &&
+            map != "terminal-selection" && map != "terminal-primary" && map != "minibuffer" && map != "prefix" {
+            panic("unknown keymap: ", map)
+        }
+        sequence := key_sequence(keys)
+        mut kept := Vec(KeyBinding).new()
+        for binding : KeyBinding in k.bindings {
+            if binding.map == map && binding.sequence.starts_with(sequence) { continue }
+            kept.push(own binding.clone())
+        }
+        k.bindings = kept
+    }
+    // -1 absent, -2 prefix; otherwise the matching binding index.
+    lookup := func(k: Keymaps, map: Str, sequence: Str) returns I64 {
+        mut result : I64 = -1
+        for i in 0..k.bindings.len() {
+            ref binding : KeyBinding = k.bindings[i]
+            if binding.map != map { continue }
+            if binding.sequence == sequence { return i.to_i64() }
+            if binding.sequence.starts_with(sequence) { result = -2 }
+        }
+        return result
+    }
+}
+
+KeyDispatch := struct {
+    // 0 forward, 1 command, 2 pending prefix, 3 consumed, 4 undefined sequence.
+    kind : I64 = 0
+    command := ""
+}
+KeyState := struct {
+    pending := ""
+    owner := ""
+    suppress_text := false
+    last_key : I32 = 0
+    last_mods : I32 = 0
+    block_repeat := false
+namespace:
+    cancel := func(mut s: KeyState) { s.pending = "" }
+    context := func(mut s: KeyState, owner: Str) {
+        if s.owner != owner { s.cancel(); s.owner = owner.clone() }
+    }
+    event := func(mut s: KeyState, maps: Keymaps, context: Str, selected: Bool, primary: Bool,
+                 key: I32, mods: I32, action: I32) returns KeyDispatch {
+        if action == 3 {
+            suppress := s.suppress_text && mods.band(15) == s.last_mods
+            s.suppress_text = false
+            if suppress || s.pending.len() > 0 { return KeyDispatch(kind = 3) }
+            return KeyDispatch()
+        }
+        if action != 1 && action != 2 { return KeyDispatch(kind = 3) }
+        if key >= 340 && key <= 347 { return KeyDispatch(kind = 3) }
+        // Non-text keys (Enter, arrows, etc.) have no character callback to
+        // consume. GLFW can deliver later text without another key callback.
+        has_text := (key >= 32 && key < 256) || (key >= 320 && key <= 336)
+        if action == 2 && s.block_repeat && key == s.last_key && mods.band(15) == s.last_mods {
+            s.suppress_text = has_text; return KeyDispatch(kind = 3)
+        }
+        if action == 1 { s.block_repeat = false; s.last_key = key; s.last_mods = mods.band(15) }
+        s.suppress_text = false
+        tag := KeyStroke(key = key, mods = mods.band(15)).tag()
+        had_prefix := s.pending.len() > 0
+        if had_prefix && action == 2 { s.suppress_text = has_text; return KeyDispatch(kind = 3) }
+        mut found : I64 = -1
+        if had_prefix { found = maps.lookup("prefix", tag) }
+        sequence := format(s.pending, tag)
+        if found == -1 {
+            if context == "minibuffer" { found = maps.lookup("minibuffer", sequence) }
+            else {
+                if selected { found = maps.lookup(format(context, "-selection"), sequence) }
+                if found == -1 && context == "terminal" && primary { found = maps.lookup("terminal-primary", sequence) }
+                if found == -1 { found = maps.lookup(context, sequence) }
+                if found == -1 { found = maps.lookup("global", sequence) }
+            }
+        }
+        if found == -2 {
+            s.suppress_text = has_text
+            if action == 2 { return KeyDispatch(kind = 3) }
+            s.pending = sequence
+            return KeyDispatch(kind = 2)
+        }
+        s.cancel()
+        if found >= 0 {
+            s.suppress_text = has_text
+            ref binding : KeyBinding = maps.bindings[found.to_usize()]
+            s.block_repeat = !binding.repeat
+            if action == 2 && !binding.repeat { return KeyDispatch(kind = 3) }
+            // Forwarding bypasses maps and must also permit its text event.
+            if binding.command == "forward-key" { s.suppress_text = false }
+            return KeyDispatch(kind = 1, command = binding.command.clone())
+        }
+        if had_prefix { s.suppress_text = has_text; s.block_repeat = true; return KeyDispatch(kind = 4) }
+        return KeyDispatch()
+    }
+}
+
+terminal_keymaps := func(mut maps: Keymaps) {
+    for name : Str in array(Str, "copy", "paste", "cancel-selection", "scroll-page-up", "scroll-page-down", "forward-key", "ignore", "cancel") { maps.declare(name) }
+    maps.bind("terminal-selection", "C-c", "copy", true)
+    maps.bind("terminal-selection", "C-g", "cancel-selection")
+    maps.bind("terminal", "C-S-c", "copy", true)
+    maps.bind("terminal", "M-w", "copy", true)
+    maps.bind("terminal", "C-S-v", "paste", true)
+    maps.bind("terminal", "C-y", "paste", true)
+    maps.bind("terminal-primary", "S-PageUp", "scroll-page-up", true)
+    maps.bind("terminal-primary", "S-PageDown", "scroll-page-down", true)
+    maps.bind("prefix", "C-g", "cancel")
+}
+
+command_key := func(name: Str) returns I32 {
+    return match name {
+    case "left": 263 case "right": 262 case "up", "previous-choice": 265
+    case "down", "next-choice": 264 case "home": 268 case "end": 269
+    case "backspace": 259 case "delete": 261 case "complete": 258 case: 0
+    }
+}

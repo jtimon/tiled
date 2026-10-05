@@ -61,6 +61,10 @@ there is not yet a host configuration setting for it.
 
 ** Selection and clipboard
 
+The bindings below are defaults, configurable through [[file:keybindings.org][commands and keymaps]].
+Standalone configuration is =~/.tilminal.til=; embedded panes use
+=~/.tiled/init.til=.
+
 Drag with the left mouse button to select terminal cells, including printed
 output and scrollback. Selection is linear and independent per pane. Wheel
 or page navigation can move through history while selecting; dragging past
@@ -124,7 +128,8 @@ terminal tests. [[file:../lib/libterminal/LICENSE.txt][The original MIT license]
 in =text.til= are retained. Tiled's old =examples/tilminal.til= command runner
 has been replaced by the persistent-session implementation.
 
-- [[file:../src/tilminal.til][src/tilminal.til]]: standalone window, shell startup and lifecycle.
+- [[file:../src/tilminal.til][src/tilminal.til]]: standalone entry point/config loading; [[file:../src/tilminal_app.til][tilminal_app.til]] owns
+  the window, shell startup and lifecycle.
 - [[file:../lib/libterminal/session.til][session.til]] / [[file:../lib/libterminal/session.c][session.c]]: PTY/ConPTY transport, child ownership,
   input queuing, resize, final-output draining and teardown.
 - [[file:../lib/libterminal/model.til][model.til]]: terminal screen grid, incremental escape parser, cursor,

@@ -11,10 +11,14 @@ See [[file:doc/build.org][build requirements and details]].
 From the repository root:
 
 #+begin_src sh
-til interpret make.til
+./make.til
 ./bin/tiled
 ./bin/tilminal
 #+end_src
+
+The executable Til build script uses installed =til run=; no GNU Make or
+compiler bootstrap is needed here. =./make.til clean= removes build outputs
+and =tmp/=, preserving reference repositories under =.inspirations/=.
 
 With no user config, Tiled opens =*scratch*= using defaults. The working
 config [[file:defaults/init.til][defaults/init.til]] can be copied to =~/.tiled/init.til= when ready.
@@ -29,4 +33,4 @@ config [[file:defaults/init.til][defaults/init.til]] can be copied to =~/.tiled/
 - [[file:lib/libterminal/README.org][libterminal build/install API]] and [[file:doc/terminal-library-benchmark.org][linking measurements]]
 - [[file:doc/configuration.org][Startup and user configuration]]
 - [[file:doc/architecture.org][Buffers, windows, frames and desktop hosting]]
-- [[file:doc/keybindings.org][Future command and keybinding design]]
+- [[file:doc/keybindings.org][Commands, configurable keymaps and future extensions]]

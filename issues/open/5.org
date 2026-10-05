@@ -1,6 +1,6 @@
 # priority: medium
 # category: features
-** OPEN #5 Configure commands and keybindings in Til for Tiled and tilminal
+** WIP #5 Configure commands and keybindings in Til for Tiled and tilminal
 
 *** Goal
 
@@ -18,13 +18,33 @@ Using the same language does not by itself provide a live embedding API.
 
 *** Current state
 
-- Tiled loads =~/.tiled/init.til= for startup configuration. Its current
-  development loader generates a driver and launches a compiled child; it
-  does not expose a live command/keymap registry or embedded interpreter.
-- Tilminal does not yet load =~/.tilminal.til=.
-- Input dispatch and clipboard shortcuts are hard-coded in both hosts.
-- [[file:../../doc/keybindings.org][The command/keymap design]] and [[file:../../doc/keybindings.til][Til API sketch]] are proposals,
-  not currently available configuration APIs.
+- First step implemented: shared headless keymap resolution, named built-in
+  commands, bind/rebind/unbind, multi-key prefixes, selection-specific maps,
+  minibuffer precedence, explicit forwarding and repeat/text-event policy.
+- Tiled loads =~/.tiled/init.til= and tilminal loads =~/.tilminal.til=.
+  Both expose =config.commands=; their shared development loader compiles a
+  GUI child. User callbacks execute against its live editor/terminal state.
+- The installed host binary need not be rebuilt by the user, but startup
+  still compiles the generated child and requires installed Til and source.
+  No embedded interpreter, live reload or command palette is implemented.
+- [[file:../../doc/keybindings.org][The implemented API]] and working default configs are documented;
+  [[file:../../doc/keybindings.til][the earlier broader API sketch]] remains a proposal.
+- Verification: compiled/interpreted =test/keymap.til=; =test/keymap_gui.til=
+  loads real user configs in both hosts, invokes callbacks after startup,
+  saves a live edited buffer, changes paste to Ctrl-V, forwards Ctrl-Shift-V,
+  overrides prompt cancellation and diagnoses an unknown command. Existing
+  clipboard, mapped-input, terminal lifecycle, scrollback and exit GUI checks
+  pass. =test/make_clean.til= also verifies scratch cleanup preserves references.
+
+*** Remaining Til dependency
+
+The embedding acceptance checks below remain open. In addition, installed
+Til =b444d7223= does not infer procedure effects through a stored proc pointer:
+the host invocation boundary currently uses =noop_proc()= to remain explicitly
+effectful. Calling a stored callback through a local variable also preserves
+the mutable-argument analysis, unlike directly calling the field. Til agents
+should include stored callable effect/mutability tests in the #370 work; this
+session has not modified the compiler.
 
 *** Scope
 

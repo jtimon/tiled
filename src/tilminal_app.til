@@ -1,0 +1,132 @@
+mode lib
+
+import("std/sys")
+import("../lib/libterminal/view")
+import("../gen/terminal_api")
+import("../gen/terminal_profile")
+import("window_input")
+import("terminal_clipboard")
+import("keymap")
+
+TilminalAction := proc(mut Terminal, mut TerminalViewport)
+TilminalUserCommand := struct { name : Str; callback : TilminalAction }
+TilminalCommands := struct {
+    keys := Keymaps()
+    callbacks := Vec(TilminalUserCommand).new()
+namespace:
+    new := func() returns TilminalCommands {
+        mut c := TilminalCommands()
+        terminal_keymaps(c.keys)
+        c.keys.declare("quit")
+        c.keys.bind("prefix", "Escape", "cancel")
+        return c
+    }
+    bind := func(mut c: TilminalCommands, map: Str, keys: Str, command: Str, repeat: Bool = false) { c.keys.bind(map, keys, command, repeat) }
+    unbind := func(mut c: TilminalCommands, map: Str, keys: Str) { c.keys.unbind(map, keys) }
+    command := func(mut c: TilminalCommands, name: Str, callback: TilminalAction) {
+        if name == "forward-key" { panic("forward-key is reserved for bypassing host dispatch") }
+        c.keys.declare(name)
+        value := TilminalUserCommand(name = name.clone(), callback = callback)
+        for i in 0..c.callbacks.len() {
+            if c.callbacks[i].name == name { c.callbacks.set(i, own value)!; return }
+        }
+        c.callbacks.push(own value)
+    }
+    invoke := proc(c: TilminalCommands, name: Str, mut terminal: Terminal, mut viewport: TerminalViewport) returns Bool {
+        noop_proc() // Stored proc effects are not inferred by installed Til.
+        for entry : TilminalUserCommand in c.callbacks {
+            if entry.name == name {
+                callback := entry.callback
+                callback(terminal, viewport)
+                return true
+            }
+        }
+        return false
+    }
+}
+TilminalConfig := struct { commands := TilminalCommands.new() }
+
+// Use the same system monospace selection as Tiled. No font path depends on
+// a Til source checkout, the executable's directory, or the shell's cwd.
+tilminal_font_path := proc() returns Str {
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace")
+    query.capture_out()
+    if query.run() != 0 { panic("cannot resolve terminal font; install fontconfig") }
+    path := query.out()
+    if path.len() == 0 { panic("fontconfig found no monospace font") }
+    return path
+}
+
+start_tilminal := proc(config: TilminalConfig, args: ..Str) {
+    mut shell := get_env("SHELL")
+    windows := host_os() == "windows"
+    if windows {
+        shell = get_env("COMSPEC")
+        if shell.len() == 0 { shell = "cmd.exe" }
+    } else if shell.len() == 0 { shell = "/bin/sh" }
+    mut terminal := Terminal.new(shell)
+    if TERMINAL_TERMINFO.len() > 0 { terminal.session.set_profile("tilminal", TERMINAL_TERMINFO) }
+    if args.len() > 1 { panic("usage: tilminal [command]") }
+    if args.len() == 1 {
+        if windows { terminal.session.arg("/C") } else { terminal.session.arg("-c") }
+        terminal.session.arg(args[0])
+    } else if windows.not() { terminal.session.arg("-i") }
+
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE.cast(U32))
+    InitWindow(960, 640, "tilminal".c_str)
+    SetWindowMinSize(320, 200)
+    SetExitKey(0) // Escape belongs to the foreground terminal application.
+    window_init_input()
+    SetTargetFPS(60)
+    font_path := tilminal_font_path()
+    mut view := TerminalView.new(font_path)
+    mut viewport := TerminalViewport.new()
+    mut key_state := KeyState()
+    terminal.start()
+    mut last_title := "tilminal"
+    while true {
+        width := GetScreenWidth().cast(I64)
+        height := GetScreenHeight().cast(I64)
+        terminal.resize(width / view.cell_width, height / view.cell_height)
+        terminal.pump()
+        viewport.sync(terminal.screen)
+        terminal_mouse(viewport, terminal.screen, view.cell_width, view.cell_height, 0, 0, width, height)
+        wheel := GetMouseWheelMove()
+        if wheel != 0 { viewport.scroll(terminal.screen, (wheel * 3).to_i64()) }
+        mut mods : I32 = 0
+        mut action : I32 = 0
+        mut key := window_next_event(mods, action)
+        mut closing := false
+        while key > 0 {
+            if action == 4 { closing = true; break }
+            dispatch := key_state.event(config.commands.keys, "terminal", viewport.selection.active(), !terminal.screen.alternate_active, key, mods, action)
+            if dispatch.kind == 0 { terminal_forward(viewport, terminal, key.cast(I64), mods, action) }
+            else if dispatch.kind == 1 {
+                name := dispatch.command
+                if config.commands.invoke(name, terminal, viewport) {
+                } else if name == "quit" { closing = true; break }
+                else if name == "forward-key" { terminal_forward(viewport, terminal, key.cast(I64), mods, action) }
+                else if !terminal_command(viewport, terminal, name, height / view.cell_height) { panic("unknown terminal command: ", name) }
+            }
+            key = window_next_event(mods, action)
+        }
+        window_drain_input()
+        if closing { break }
+        mut title := "tilminal"
+        if terminal.ended { title = format(title, " [exit ", terminal.session.status().to_str(), "]") }
+        if viewport.offset > 0 { title = format(title, " [scrollback ", viewport.offset.to_str(), "]") }
+        if key_state.pending.len() > 0 { title = format(title, " [prefix]") }
+        if title != last_title {
+            SetWindowTitle(title.c_str)
+            last_title = title
+        }
+        BeginDrawing()
+        ClearBackground(Color(r = 16, g = 18, b = 24, a = 255))
+        view.draw_scrolled(terminal.screen, 0, 0, width, height, IsWindowFocused(), terminal.ended, viewport.offset, viewport.selection)
+        EndDrawing()
+    }
+    terminal.close()
+    view.close()
+    window_close_input()
+    CloseWindow()
+}

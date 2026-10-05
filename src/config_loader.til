@@ -1,0 +1,31 @@
+mode lib
+import("std/sys")
+
+get_cwd_str := ext_proc() returns Str {}
+get_source_root := macro() returns shallow Str { return get_cwd_str() }
+SOURCE_ROOT := get_source_root()
+
+quote_path := func(path: Str) returns Str {
+    escaped := path.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
+    return format("\"", escaped, "\"")
+}
+
+// Interim compiled configuration: user callbacks live in the actual GUI child,
+// with its live state. This is not an embedded interpreter or hot reload.
+load_user_config := proc(program: Str, module: Str, config_type: Str, start: Str, path: Str, args: ..Str) {
+    tmp_dir := format(SOURCE_ROOT, "/tmp")
+    if mkdir_p(tmp_dir) != 0 { panic("could not create ", tmp_dir) }
+    stem := format(tmp_dir, "/", program, "-init-", process_id().to_str())
+    source := format(stem, ".til")
+    generated_c := format(stem, ".c")
+    File.writefile(source, format(
+        "mode gui\nimport(", quote_path(format(SOURCE_ROOT, "/src/", module)), ")\n",
+        "import(", quote_path(path.strip_suffix(".til")), ")\n",
+        "main := proc(args: ..Str) {\n    mut config := ", config_type, "()\n",
+        "    init(config)\n    ", start, "(config, ..args)\n}\n"))
+    cmd := Cmd.new("til", "run", "--usize=64", "-o", stem, "-c", generated_c, source)
+    for arg : Str in args { cmd.arg(arg) }
+    status := cmd.run()
+    File.remove(source); File.remove(generated_c); File.remove(stem)
+    if status != 0 { exit(1) }
+}

@@ -123,6 +123,10 @@ uses =$ORIGIN= to find its matching shared Til runtime/core siblings.
   events. =Terminal.paste(text)= sends =terminal_paste(screen, text)= through
   the normal queued transport, honoring DEC 2004. The core has no clipboard
   or window dependency. =draw_scrolled= accepts an optional selection value.
+- The viewport =event= and =clipboard_command= helpers above implement fixed
+  default bindings for simple consumers. Repository hosts now use
+  [[file:../../src/keymap.til][configurable keymaps]] and named actions instead; an unmatched event goes
+  directly to the child, without reapplying those fixed bindings.
 - Cell wrap metadata, screen revision/paste mode, and viewport selection state
   extend the experimental ABI. Regenerate bindings and rebuild consumers.
 

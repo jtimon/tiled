@@ -1,6 +1,7 @@
+#!/usr/bin/env -S til run
 mode cli
 
-// Run from the repository root: til interpret make.til
+// Run from the repository root: ./make.til (or til run make.til).
 // std/ resolves against the installed compiler's matching support tree.
 // Core and GUI support are loaded from that same installed distribution.
 import("std/sys")
@@ -71,6 +72,13 @@ terminal_profile := proc() {
 }
 
 main := proc(args: ..Str) {
+    if args.len() == 1 && args[0] == "clean" {
+        if !File.is_file("make.til") || !File.is_file("src/tiled.til") {
+            panic("run clean from the Tiled repository root")
+        }
+        for path : Str in array(Str, "bin", "gen", "tmp") { File.remove_tree(path) }
+        return
+    }
     if mkdir_p("bin") != 0 { panic("could not create bin/") }
     if mkdir_p("gen") != 0 { panic("could not create gen/") }
     if args.len() == 1 && args[0] == "summary" {
@@ -93,7 +101,7 @@ main := proc(args: ..Str) {
     }
     if (mode != "source" && mode != "static" && mode != "shared" && mode != "library") ||
         (opt != "--opt=0" && opt != "--opt=2" && opt != "--opt=3") {
-        panic("usage: til interpret make.til [source|static|shared|library] [--opt=0|--opt=2|--opt=3] [--lib-prefix=PATH], or summary")
+        panic("usage: ./make.til [source|static|shared|library] [--opt=0|--opt=2|--opt=3] [--lib-prefix=PATH], or summary|clean")
     }
     if prefix.len() > 0 && (mode == "source" || mode == "library") { panic("--lib-prefix is for static/shared consumers") }
     if mode != "source" {

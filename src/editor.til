@@ -7,6 +7,7 @@ import("window_layout")
 import("editor_buffers")
 import("editor_exit")
 import("editor_terminal")
+import("editor_commands")
 
 link_c("editor_save.c")
 editor_write_file := ext_proc(path: I8, text: I8, shallow length: UPtr) returns shallow I32 {}
@@ -23,6 +24,7 @@ TiledConfig := struct {
     scratch_text := ""
     font_path := ""
     font_size : I32 = 28
+    commands := EditorCommands.new()
 }
 
 editor_font_path := proc(config: TiledConfig) returns Str {
@@ -86,21 +88,28 @@ editor_open := proc(mut editor: EditorState) returns Bool {
     return true
 }
 
-editor_clipboard := proc(mut editor: EditorState, key: I32, mods: I32) returns Bool {
+editor_key_owner := func(editor: EditorState, prompting: Bool) returns Str {
+    current := editor.nodes[editor.focused].view.buffer
+    mut context := "text"
+    if editor.buffers[current].terminal >= 0 { context = "terminal" }
+    if prompting { context = "minibuffer" }
+    return format(editor.focused.to_str(), ":", current.to_str(), ":", context)
+}
+
+editor_clipboard := proc(mut editor: EditorState, command: Str) returns Bool {
     ref mut view : EditorView = editor.nodes[editor.focused].view
-    ctrl := mods.band(2) != 0; alt := mods.band(4) != 0
-    if ctrl && !alt && key == 32 {
+    if command == "set-mark" {
         view.mark = view.cursor; view.mark_active = true; view.mark_explicit = true; return true
     }
-    copy := (alt && !ctrl && key == 87) || (ctrl && !alt && key == 67)
-    cut := ctrl && !alt && (key == 87 || (key == 88 && view.selected()))
+    copy := command == "copy"
+    cut := command == "cut"
     if copy || cut {
         text := editor.selected_text()
         if text.len() > 0 { SetClipboardText(text.c_str) }
         if cut { editor.cut_selection() } else { view.clear_mark() }
         return true
     }
-    if ctrl && !alt && (key == 89 || key == 86) {
+    if command == "paste" {
         ref raw : I8 = GetClipboardText()
         if !is_null(raw) { editor.insert(Str.from_c_str(raw).replace("\r\n", "\n").replace("\r", "\n")) }
         return true
@@ -355,11 +364,10 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
     mut editor := EditorState.new(filename, text)
     mut status_msg := ""
     mut status_timer : I64 = 0
-    mut prefix_pending := false
+    mut key_state := KeyState()
     mut prompt := EditorBufferPrompt()
     mut exit_prompt := EditorExitPrompt()
     mut terminals := EditorTerminals()
-    mut suppress_text := false
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE.cast(U32))
     InitWindow(config.width, config.height, "Tiled".c_str)
@@ -415,12 +423,15 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         }
 
         terminals.update(editor, line_h + 8)
-        if !prompt.mini.active && !exit_prompt.mini.active && !prefix_pending {
+        had_prefix := key_state.pending.len() > 0
+        key_state.context(editor_key_owner(editor, prompt.mini.active || exit_prompt.mini.active))
+        if had_prefix && key_state.pending.len() == 0 { status_msg = ""; status_timer = 0 }
+        if !prompt.mini.active && !exit_prompt.mini.active && key_state.pending.len() == 0 {
             terminals.mouse(editor, line_h + 8)
             editor_mouse_text(editor, font, font_size, line_h)
         }
         wheel := GetMouseWheelMove()
-        if wheel != 0 && !prompt.mini.active && !exit_prompt.mini.active && !prefix_pending {
+        if wheel != 0 && !prompt.mini.active && !exit_prompt.mini.active && key_state.pending.len() == 0 {
             mouse := GetMousePosition()
             terminals.wheel(editor, (wheel * 3).to_i64(), mouse.x, mouse.y, line_h + 8)
         }
@@ -434,40 +445,47 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             current := editor.nodes[editor.focused].view.buffer
             terminal := editor.buffers[current].terminal
             prompting := prompt.mini.active || exit_prompt.mini.active
-            // GLFW_MOD_CONTROL = 2, GLFW_MOD_ALT = 4. These are mapped
-            // modifier flags, not the physical Control/Alt key identities.
-            control := mods.band(2) != 0
-            ctrl := mods.band(6) != 0
+            mut context := "text"
+            mut selected := editor.nodes[editor.focused].view.selected()
+            mut primary := true
+            if terminal >= 0 {
+                context = "terminal"
+                selected = editor.nodes[editor.focused].view.terminal_viewport.selection.active()
+                primary = !terminals.slots[terminal.to_usize()].terminal.screen.alternate_active
+            }
+            if prompting { context = "minibuffer"; selected = false }
+            key_state.context(editor_key_owner(editor, prompting))
+            dispatch := key_state.event(config.commands.keys, context, selected, primary, key, mods, action)
             if action == 4 {
                 quit = true
-            } else if action == 3 {
-                if terminal >= 0 && !prompting && !prefix_pending && !suppress_text {
-                    terminals.event(editor, terminal, key, mods, action, line_h + 8)
-                } else if !suppress_text && key >= 32 && key < 127 {
+            } else if dispatch.kind == 2 {
+                status_msg = "Prefix..."; status_timer = 0
+            } else if dispatch.kind == 4 {
+                status_msg = "Undefined key sequence"; status_timer = 2000
+            } else if dispatch.kind == 0 {
+                if terminal >= 0 && !prompting {
+                    terminals.forward(editor, terminal, key, mods, action)
+                } else if action == 3 && mods.band(6) == 0 && key >= 32 && key < 127 {
                     typed := Str.from_byte(key.cast(I64).to_u8())
                     if exit_prompt.mini.active { exit_prompt.mini.insert(typed) }
                     else if prompt.mini.active { prompt.mini.insert(typed) }
-                    else if !prefix_pending { editor.insert(typed) }
+                    else { editor.insert(typed) }
                 }
-            } else if key < 340 || key > 347 {
-                mut handled_clipboard := false
-                if terminal < 0 && !prefix_pending {
-                    if !prompting { handled_clipboard = editor_clipboard(editor, key, mods) }
-                }
-                suppress_text = prefix_pending || (ctrl && (terminal < 0 || prompting))
-                if control && key == 71 && (prefix_pending || prompting || terminal < 0) {
+            } else if dispatch.kind == 1 {
+                command := dispatch.command
+                status_msg = ""; status_timer = 2000
+                if config.commands.invoke(command, editor) {
+                    // Registered Til callbacks take precedence over built-ins.
+                } else if command == "cancel" {
                     editor.nodes[editor.focused].view.clear_mark()
-                    prefix_pending = false
+                    key_state.cancel()
                     prompt.cancel()
                     exit_prompt.cancel()
                     status_msg = "Cancelled"
-                    status_timer = 2000
-                } else if exit_prompt.mini.active {
-                    if key == 256 {
-                        exit_prompt.cancel()
-                        status_msg = "Exit cancelled"
-                        status_timer = 2000
-                    } else if key == 257 && action == 1 && !ctrl {
+                } else if command == "ignore" {
+                } else if command == "quit" { quit = true }
+                else if prompting {
+                    if command == "accept" && exit_prompt.mini.active {
                         selected := exit_prompt.mini.choice()
                         if selected < 0 {
                             exit_prompt.mini.hint = "Choose an exit action from the list"
@@ -486,80 +504,50 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                             }
                             status_timer = 4000
                         }
-                    } else if !ctrl {
-                        exit_prompt.mini.key(key, mods.band(1) != 0)
-                    }
-                } else if prompt.mini.active {
-                    if key == 256 {
-                        prompt.cancel()
-                        status_msg = "Cancelled"
-                        status_timer = 2000
-                    } else if key == 257 && action == 1 && !ctrl {
+                    } else if command == "accept" {
                         status_msg = prompt.accept(editor)
-                        status_timer = 2000
-                    } else if !ctrl {
-                        prompt.mini.key(key, mods.band(1) != 0)
-                    }
-                } else if handled_clipboard {
-                    suppress_text = true
-                } else if terminal >= 0 && !prefix_pending && !(action == 1 && control && key == 88) {
-                    terminals.event(editor, terminal, key, mods, action, line_h + 8)
-                } else if key == 256 && action == 1 {
-                    quit = true
-                } else if prefix_pending && action == 1 {
-                    prefix_pending = false
-                    status_msg = ""
-                    if control && key == 67 {
-                        quit = true
-                    } else if control && key == 88 && terminal >= 0 {
-                        terminals.event(editor, terminal, 88, mods, 1, line_h + 8)
-                    } else if control && key == 71 {
-                        status_msg = ""
-                    } else if control && key == 83 {
-                        save = true
-                    } else if control && key == 70 {
-                        open = true
-                    } else if key == 66 {
-                        mut kind := BufferPromptKind.Switch
-                        if control { kind = BufferPromptKind.List }
-                        prompt.begin(editor, kind)
-                    } else if key == 75 {
-                        prompt.begin(editor, BufferPromptKind.Kill)
-                    } else if key == 84 {
-                        terminals.spawn(editor, font_path, status_msg)
-                    } else if key == 50 || key == 51 {
-                        if !editor.split(key == 51, min_view_w, min_view_h) {
-                            status_msg = "View too small to split"
-                        }
-                    } else if key == 79 {
-                        editor.next_view()
-                    } else if key == 48 {
-                        if !editor.close_view() { status_msg = "Cannot close the only view" }
-                    } else if key == 49 {
-                        editor.only_view()
                     } else {
-                        status_msg = "Undefined C-x sequence"
+                        mapped := command_key(command)
+                        if mapped == 0 { status_msg = format("Unavailable in minibuffer: ", command) }
+                        else if exit_prompt.mini.active { exit_prompt.mini.key(mapped, mods.band(1) != 0) }
+                        else { prompt.mini.key(mapped, mods.band(1) != 0) }
                     }
-                    status_timer = 2000
-                    editor.arrange(0, area)
-                } else if !prefix_pending && action == 1 && control && key == 88 {
-                    prefix_pending = true
-                    status_msg = "C-x"
-                    status_timer = 0
-                } else if !prefix_pending && action == 1 && ctrl && key == 83 {
-                    save = true
-                } else if !prefix_pending && action == 1 && ctrl && key == 79 {
-                    open = true
-                } else if !prefix_pending {
-                    if key >= 262 && key <= 265 { editor.select_move(key, mods.band(1) != 0) }
-                    if key == 268 || key == 269 { editor.select_move(key, mods.band(1) != 0) }
-                    if key == 257 && !ctrl { editor.insert("\n") }
-                    if key == 259 { editor.backspace() }
-                    if key == 261 { editor.delete_forward() }
+                } else if command == "save-buffer" { save = true }
+                else if command == "find-file" { open = true }
+                else if command == "switch-buffer" || command == "list-buffers" || command == "kill-buffer" {
+                    mut kind := BufferPromptKind.Switch
+                    if command == "list-buffers" { kind = BufferPromptKind.List }
+                    if command == "kill-buffer" { kind = BufferPromptKind.Kill }
+                    prompt.begin(editor, kind)
+                } else if command == "new-terminal" {
+                    terminals.spawn(editor, font_path, status_msg)
+                } else if command == "split-below" || command == "split-right" {
+                    if !editor.split(command == "split-right", min_view_w, min_view_h) {
+                        status_msg = "View too small to split"
+                    }
+                } else if command == "other-view" {
+                    editor.next_view()
+                } else if command == "close-view" {
+                    if !editor.close_view() { status_msg = "Cannot close the only view" }
+                } else if command == "only-view" {
+                    editor.only_view()
+                } else if terminal >= 0 {
+                    if command == "forward-key" { terminals.forward(editor, terminal, key, mods, action) }
+                    else if command == "send-prefix" { terminals.forward(editor, terminal, 88, 2, 1) }
+                    else if !terminals.command(editor, terminal, command, line_h + 8) { status_msg = format("Unavailable in terminal: ", command) }
+                } else if editor_clipboard(editor, command) {
+                } else if command == "newline" { editor.insert("\n") }
+                else if command == "backspace" { editor.backspace() }
+                else if command == "delete" { editor.delete_forward() }
+                else {
+                    mapped := command_key(command)
+                    if mapped >= 262 && mapped <= 269 { editor.select_move(mapped, mods.band(1) != 0) }
+                    else if command != "forward-key" { status_msg = format("Unavailable in text: ", command) }
                 }
+                editor.arrange(0, area)
             }
             if quit {
-                prefix_pending = false
+                key_state.cancel()
                 prompt.cancel()
                 exit_prompt.begin(editor)
                 quit = false

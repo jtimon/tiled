@@ -1,0 +1,103 @@
+mode gui
+import("terminal_gui_helpers")
+
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
+chord := proc(display: Dynamic, key: UPtr, shift: Bool = false) {
+    send(display, 65507, 1)
+    if shift { send(display, 65505, 1) }
+    tap(display, key)
+    if shift { send(display, 65505, 0) }
+    send(display, 65507, 0); sleep_ms(70)
+}
+wait_contents := proc(app: Cmd, pid: I64, path: Str, expected: Str) {
+    for _ in 0..300 {
+        BeginDrawing(); EndDrawing() // Answer clipboard requests from the host.
+        if File.exists(path) {
+            if File.readfile(path) == expected { return }
+        }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, false, format("unexpected configured command output: ", path))
+}
+
+main := proc() {
+    root := get_cwd_str()
+    home := format(root, "/tmp/keymap-gui-", process_id().to_str())
+    assert(mkdir_p(format(home, "/.tiled")) == 0)
+    document := format(home, "/notes.txt"); File.writefile(document, "")
+    File.writefile(format(home, "/.tiled/init.til"), format(
+        "mode lib\nmarker := func(mut editor: EditorState) { editor.insert(\"KEYMAP_OK\") }\ninit := func(mut config: TiledConfig) {\n"
+        " config.tile_left = false\n config.commands.command(\"marker\", marker)\n"
+        " config.commands.bind(\"text\", \"F6 a b\", \"marker\")\n"
+        " config.commands.bind(\"text\", \"F8\", \"save-buffer\")\n"
+        " config.commands.unbind(\"text\", \"C-s\")\n"
+        " config.commands.bind(\"global\", \"F7 t\", \"new-terminal\")\n"
+        " config.commands.bind(\"minibuffer\", \"F9\", \"cancel\")\n"
+        " config.commands.bind(\"terminal\", \"C-v\", \"paste\")\n"
+        " config.commands.bind(\"terminal\", \"C-S-v\", \"forward-key\")\n}\n"))
+    File.writefile(format(home, "/.tilminal.til"), format(
+        "mode lib\nsend_test := proc(mut terminal: Terminal, mut viewport: TerminalViewport) {\n"
+        " viewport.selection.clear()\n terminal.event(65, 2, 1)\n}\n"
+        "init := func(mut config: TilminalConfig) {\n"
+        " config.commands.command(\"send-test\", send_test)\n"
+        " config.commands.bind(\"terminal\", \"F6 a b\", \"send-test\")\n"
+        " config.commands.bind(\"terminal\", \"C-v\", \"paste\")\n"
+        " config.commands.bind(\"terminal\", \"C-S-v\", \"forward-key\")\n}\n"))
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace"); query.capture_out(); query.run_checked()
+    InitWindow(960, 80, "terminal GUI reference".c_str); SetWindowPosition(1000, 1000); SetExitKey(0)
+    mut view := TerminalView.new(query.out()); render_reference(view, "CONFIG_READY")
+    reference := find_window("terminal GUI reference")
+    name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    for host : Str in array(Str, "tiled", "tilminal") {
+        app := Cmd.new(format("./bin/", host))
+        if host == "tiled" { app.arg(document) }
+        app.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
+        app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+        pid := app.start()
+        mut title := "tilminal"; if host == "tiled" { title = "Tiled - notes.txt" }
+        window := wait_window(app, pid, title)
+        sleep_ms(250); XSetInputFocus(display, window, 2, 0); XFlush(display)
+        if host == "tiled" {
+            tap(display, 65475); tap(display, 97); tap(display, 98) // F6 a b
+            chord(display, 115); sleep_ms(150)
+            require(app, pid, File.readfile(document) == "", "unbound C-s still saved")
+            tap(display, 65477) // F8
+            wait_contents(app, pid, document, "KEYMAP_OK")
+            chord(display, 120); tap(display, 98); tap(display, 65478) // prompt, custom F9 cancel
+            tap(display, 65476); tap(display, 116) // F7 t
+            wait_window(app, pid, "Tiled - *terminal-1*")
+        }
+        pasted := format(home, "/", host, "-paste")
+        forwarded := format(home, "/", host, "-forward")
+        callback_file := format(home, "/callback")
+        mut callback_read := ""
+        if host == "tilminal" { callback_read = format("dd bs=1 count=1 of=", callback_file, " 2>/dev/null; ") }
+        type_text(display, format("stty raw -echo; printf '\\033[H\\033[2JCONFIG_READY'; ", callback_read,
+            "dd bs=1 count=12 of=", pasted, " 2>/dev/null; dd bs=1 count=1 of=", forwarded,
+            " 2>/dev/null; stty sane; printf '\\r\\nDONE\\n'"))
+        render_reference(view, "CONFIG_READY")
+        check_pixels(app, pid, display, window, reference, (view.cell_width * 12).to_i32())
+        if host == "tilminal" {
+            tap(display, 65475); tap(display, 97); tap(display, 98)
+            wait_contents(app, pid, callback_file, Str.from_byte(1))
+        }
+        SetClipboardText("CUSTOM_PASTE".c_str); chord(display, 118)
+        wait_contents(app, pid, pasted, "CUSTOM_PASTE")
+        chord(display, 118, true); wait_contents(app, pid, forwarded, Str.from_byte(22))
+        sleep_ms(200)
+        if host == "tiled" {
+            request_close(display, window); sleep_ms(150); type_text(display, "terminate")
+            for _ in 0..100 { if app.poll() { break }; sleep_ms(50) }
+            require(app, pid, app.poll(), "configured Tiled did not close"); assert(app.wait() == 0)
+        } else { close_app(app, pid, display, window) }
+        println("PASS: ", host, " compiled user config, named commands, prefixes, rebinding and forwarding")
+    }
+    File.writefile(format(home, "/.tilminal.til"),
+        "mode lib\ninit := func(mut config: TilminalConfig) { config.commands.bind(\"terminal\", \"C-v\", \"missing-command\") }\n")
+    bad := Cmd.new("./bin/tilminal"); bad.env("HOME", home); bad.capture()
+    assert(bad.run() != 0)
+    assert(format(bad.out(), bad.err()).contains("unknown command: missing-command"))
+    XCloseDisplay(display); view.close(); CloseWindow()
+    println("PASS: invalid configuration reports the unknown command and exits")
+}

@@ -1,0 +1,11 @@
+mode lib
+
+// Copy to ~/.tilminal.til. Defaults are installed before this function runs.
+init := func(mut config: TilminalConfig) {
+    config.commands.bind("terminal", "C-S-v", "paste", true)
+    // To paste with plain Ctrl-V while retaining a way to send Ctrl-V:
+    // config.commands.bind("terminal", "C-v", "paste")
+    // config.commands.bind("terminal", "C-S-v", "forward-key", true)
+    // To always interrupt on Ctrl-C, even with a selection:
+    // config.commands.unbind("terminal-selection", "C-c")
+}

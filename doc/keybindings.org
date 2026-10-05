@@ -1,11 +1,124 @@
-* Future keybinding API sketch
+* Commands and keymaps
 
 [[file:../README.org][Tiled]] | [[file:build.org][Build and run]] | [[file:configuration.org][Startup and configuration]]
 
-[[file:keybindings.til][keybindings.til]] is the earlier design sketch for named commands and
-keymaps. Its =tiled= module and command/keymap API are proposals, not
-implemented features. Use [[file:../defaults/init.til][defaults/init.til]] for the working
-[[file:configuration.org][startup configuration]].
+** Implemented first step
+
+Both hosts now resolve keyboard input through named commands and contextual
+keymaps. Configure =config.commands= in =~/.tiled/init.til= or
+=~/.tilminal.til=. Defaults are installed before =init= runs. User commands
+are compiled Til callbacks, invoked against live state in the GUI process.
+See [[file:configuration.org][startup configuration]] and [[file:../defaults/tilminal.til][the standalone terminal sample]].
+
+For either host, these lines in =init= change terminal paste to plain Ctrl-V
+and retain explicit forwarding of Ctrl-V to the foreground program:
+
+#+begin_src til
+config.commands.bind("terminal", "C-v", "paste")
+config.commands.bind("terminal", "C-S-v", "forward-key", true)
+#+end_src
+
+A complete Tiled configuration with a custom command:
+
+#+begin_src til
+mode lib
+insert_greeting := func(mut editor: EditorState) {
+    editor.insert("Hello from Til!")
+}
+init := func(mut config: TiledConfig) {
+    config.commands.command("insert-greeting", insert_greeting)
+    config.commands.bind("text", "C-k h", "insert-greeting")
+    config.commands.bind("text", "F8", "save-buffer")
+    config.commands.unbind("text-selection", "C-x") // Always keep C-x as prefix.
+}
+#+end_src
+
+=command(name, callback)= registers or replaces a callback; register before
+binding its name. Tiled callbacks have signature =proc(mut EditorState)=
+(pure =func= callbacks also work). Standalone callbacks have signature
+=proc(mut Terminal, mut TerminalViewport)=. They borrow the receiving host's
+live state for the duration of the call. Top-level functions can come from
+imported user modules. Callbacks may override built-in command names, except
+=forward-key=, whose dispatch-bypass meaning is reserved.
+
+=bind(map, sequence, command, repeat=false)= replaces an existing binding.
+=unbind(map, sequence)= removes it and any descendants of that prefix in
+that map, exposing lower-precedence bindings. =ignore= consumes a key without
+an action; =forward-key= bypasses host maps and sends the original event to
+the terminal. There is no recursive key-to-key expansion.
+
+*** Contexts and precedence
+
+- Text: =text-selection= (when nonempty), then =text=, then =global=.
+- Terminal: =terminal-selection= (when nonempty), =terminal-primary= (outside
+  alternate screen), =terminal=, then =global=.
+- Prompts: =minibuffer= only, so ordinary application commands do not leak
+  into a prompt. =prefix= contains single-stroke controls checked first while
+  a sequence is pending, such as =C-g= cancellation.
+
+The first applicable map with an exact or prefix match wins each lookup.
+Prefix continuations can fall back to lower maps. For example, selection-aware
+Ctrl-C is a binding in =terminal-selection=; removing it restores child Ctrl-C
+even while selecting. Rebinding only =terminal= does not override that higher map.
+
+Sequences use spaces: =C-x C-s= or =F6 a b=. Modifiers are =C-= Control,
+=M-= Alt, =S-= Shift and =s-= Super, taken from mapped event flags. ASCII
+letters are case-insensitive in binding descriptions; express Shift explicitly.
+Named keys include =Space=, =Enter=/=RET=, =Escape=/=ESC=, =Tab=, =Backspace=,
+=Delete=, =Insert=, arrows, =Home=, =End=, =PageUp=, =PageDown= and =F1=..=F25=.
+Character-key bindings beyond ASCII are not implemented yet.
+
+Consumed keypresses also consume their associated character events. Prefixes
+have no timeout: a command, undefined continuation, cancellation or change of
+focused pane/buffer/prompt ends them. An undefined continuation is consumed,
+not replayed into the child. Repeats are opt-in for single-stroke bindings;
+prefix controls and multi-stroke commands do not repeat. A key cannot be both
+a command and a prefix in the same map: unbind the old subtree first.
+
+*** Built-in command names
+
+- Both hosts: =copy=, =paste=, =cancel-selection=, =scroll-page-up=,
+  =scroll-page-down=, =forward-key=, =ignore=, =cancel= and =quit=.
+- Tiled: =save-buffer=, =find-file=, =switch-buffer=, =list-buffers=,
+  =kill-buffer=, =new-terminal=, =split-below=, =split-right=, =other-view=,
+  =close-view=, =only-view=, =send-prefix= (literal Ctrl-X), =set-mark=, =cut=,
+  =left=, =right=, =up=, =down=, =home=, =end=, =newline=, =backspace=,
+  =delete=, =accept=, =complete=, =previous-choice= and =next-choice=.
+
+Commands still have appropriate contexts: buffer editing requires a text
+buffer; prompt acceptance/completion requires a prompt; terminal scrolling
+requires a terminal. Known but unavailable built-ins report a status message
+in Tiled. Unknown command/map/key names and ambiguous prefixes are config
+errors. The registered names and bindings are inspectable as
+=config.commands.keys.names= and =config.commands.keys.bindings=; an interactive
+command palette and general built-in command invocation from callbacks remain
+follow-up work. Tiled callbacks currently receive editor state, not the native
+terminal pool or prompt machinery. Mouse gestures remain host-defined.
+
+This is still the compiled startup loader: it needs installed Til and the
+source checkout and launches a generated GUI child. It does not provide hot
+reload, an embedded interpreter, or recovery from arbitrary callback failures.
+Those depend on [[https://github.com/jtimon/til/blob/master/issues/open/370.org][Til #370]].
+
+*** Verification
+
+#+begin_src sh
+./make.til
+til run --usize=64 -o tmp/check_keymap -c tmp/check_keymap.c test/keymap.til
+til interpret --usize=64 test/keymap.til
+til build --usize=64 -o tmp/check_keymap_gui -c tmp/check_keymap_gui.c test/keymap_gui.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_keymap_gui
+#+end_src
+
+The model checks map precedence, prefixes, repeat policy, unbinding, character
+suppression and callback mutation. The GUI check loads both actual user-config
+paths, edits/saves a live buffer via a user command, rebinds prompt cancellation
+and paste, checks bytes delivered to a PTY child, and rejects an unknown command.
+
+** Future API sketch
+
+[[file:keybindings.til][keybindings.til]] is the earlier, broader design sketch. Its =tiled= module
+and exact API spelling remain proposals; the working API is described above.
 
 Implementation is tracked in [[file:../issues/open/5.org][#5: Til-defined commands and configurable keymaps]]
 for Tiled and tilminal, including the connection to Til interpreter embedding.
@@ -70,14 +183,26 @@ side by side, and a horizontal divider places it above and below.
 =close-window= requests an application close; =close-view= removes an editor
 view without discarding its buffer.
 
-The editor already implements hard-coded [[file:configuration.org][bindings]] for splitting, focus,
+The editor supplies default [[file:configuration.org][bindings]] for splitting, focus,
 closing views, open/save, buffer switching/listing and buffer killing. Its
 minibuffer supplies filtering/completion and =C-g= cancellation for buffer
 commands. See [[file:architecture.org][the buffer/window/frame model]] for =C-x 2= and =C-x 3=
 behavior, and [[file:progress.org][progress]] for mapped-modifier and fast-prefix checks.
-The configurable command/keymap API above remains a proposal.
+The broader command-prompt/window-manager API in this sketch remains a proposal.
 
 ** References
+
+Consulted source checkouts live under Git-ignored =.inspirations/=, outside
+the directories removed by =./make.til clean=. Design references:
+
+- [[https://github.com/emacs-mirror/emacs/blob/master/lisp/keymap.el][Emacs keymap.el]] and its active-keymap rules: named commands, local/global
+  precedence and prefix lookup.
+- [[https://github.com/neovim/neovim/blob/master/runtime/lua/vim/keymap.lua][Neovim vim.keymap]]: scoped bindings, callback registration and nonrecursive
+  mappings by default.
+- [[https://github.com/tmux/tmux/blob/master/key-bindings.c][tmux key-bindings.c]]: named tables, command lists and explicit repeat policy.
+- [[https://github.com/ghostty-org/ghostty/blob/main/src/input/Binding.zig][Ghostty Binding.zig]]: actions separated from triggers, consumption and
+  performable-only bindings. Tiled's selection maps provide the conditional
+  copy behavior without adding a general predicate language in this first step.
 
 - [[https://github.com/i3/i3/blob/next/etc/config][i3's default configuration]]: launching, focus/movement, workspaces and resize mode.
 - [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Key-Bindings.html][Emacs keybindings]]: named commands and prefix keymaps.

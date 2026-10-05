@@ -11,10 +11,13 @@
 
 ** Build and verification
 
-- Build both hosts with =til interpret make.til=. See [[file:build.org][build instructions]]
+- Build both hosts with =./make.til= (installed =til run=, no GNU Make or
+  compiler bootstrap). See [[file:build.org][build instructions]]
   and [[file:terminal.org][terminal tests]]. Run checks relevant to the change and report results.
 - Prefer tests written in Til. Keep scratch files and logs in =tmp/=;
   =gen/= and =bin/= are generated outputs, not files to edit by hand.
+- =./make.til clean= removes =bin/=, =gen/= and =tmp/=. Keep reference clones
+  in Git-ignored =.inspirations/=, which clean preserves.
 - Run long builds/tests in the foreground, one at a time. Documentation-only
   work does not need an application rebuild.
 - Til development is at =~/code/jt/til/=. Consult it for compiler/runtime

@@ -8,6 +8,10 @@ Tiled currently targets installed Til version =0.0.1-b444d7223= (check with
 =til -v=). The =til= executable must be on =PATH=, with its standard library
 and GUI support installed. Til's native build also requires a C compiler.
 
+The build driver is Til code: =make.til=, not a GNU Makefile. GNU Make is not
+required to build this project. Unlike the Til compiler's own bootstrap,
+Tiled assumes a working installed Til compiler and builds directly with it.
+
 Til's =make install= installs its support tree under =<prefix>/lib/til/=
 (normally =/usr/local/lib/til/=). Core and the GUI prelude are loaded from
 that tree automatically. Tiled uses =import("std/sys")= for system utilities.
@@ -40,15 +44,24 @@ this repository.
 From the repository root:
 
 #+begin_src sh
-til interpret make.til
+./make.til
 #+end_src
+
+=make.til= is executable, with =#!/usr/bin/env -S til run=. The equivalent
+explicit invocation is =til run make.til=; =til interpret make.til= also
+works. Using =run= allows Til to reuse its cached compiled driver.
+
+=./make.til clean= removes =bin/=, =gen/= and =tmp/= from the repository
+root. Rebuild afterwards before running the applications. Reference checkouts
+live in Git-ignored =.inspirations/= (Emacs, Neovim, tmux and Ghostty), which
+=clean= preserves. Treat =tmp/= as disposable scratch, not reference storage.
 
 This builds =libterminal= independently and statically links =bin/tiled= and
 =bin/tilminal= sequentially, using the installed compiler. Defaults are
 =--cpu=baseline --usize=64 --opt=0=. Generated C, bindings and libraries go
 under =gen/=. These build outputs
-are ignored by Git. The proposed [[file:keybindings.til][keybindings.til]] configuration
-is not built yet.
+are ignored by Git. User configs can now register compiled Til commands and
+override [[file:keybindings.org][keymaps]] at startup; the older =keybindings.til= API sketch remains a proposal.
 
 #+begin_src sh
 ./bin/tiled

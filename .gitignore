@@ -1,6 +1,7 @@
 /bin/
 /gen/
 /tmp/
+/.inspirations/
 
 # Emacs backups, auto-save files and lock files
 *~

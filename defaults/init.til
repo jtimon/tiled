@@ -11,6 +11,10 @@ init := func(mut config: TiledConfig) {
     config.height = 700
     // Font size in pixels; increase or decrease this to suit your display.
     config.font_size = 28
+    // Commands/keymaps are ordinary Til configuration; see doc/keybindings.org.
+    // config.commands.bind("terminal", "C-v", "paste")
+    // config.commands.bind("terminal", "C-S-v", "forward-key", true)
+    // config.commands.unbind("text-selection", "C-x") // Always use C-x as prefix.
     // Empty means the system monospace font, resolved through fontconfig.
     // config.font_path = "/path/to/your/monospace.ttf"
     config.scratch_text = "Welcome to Tiled!\n\nC-x t: new terminal\nC-x b: switch buffer\nC-x C-b: list buffers\nC-x k: kill buffer\nC-x 2: split top/bottom\nC-x 3: split side by side\nC-x o: focus next view\nC-x 0: close view\nC-x 1: keep only this view\nC-x C-f / Ctrl+O: open a file\nC-x C-s / Ctrl+S: save text buffer\nC-x C-c: exit Tiled\n"

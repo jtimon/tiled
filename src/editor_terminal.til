@@ -90,15 +90,14 @@ namespace:
         }
     }
 
-    event := proc(mut self: EditorTerminals, mut editor: EditorState, index: I64, key: I32, mods: I32, action: I32, mode_h: I32) {
+    forward := proc(mut self: EditorTerminals, mut editor: EditorState, index: I64, key: I32, mods: I32, action: I32) {
         ref mut slot : EditorTerminal = self.slots[index.to_usize()]
-        assert(slot.active)
+        terminal_forward(editor.nodes[editor.focused].view.terminal_viewport, slot.terminal, key.cast(I64), mods, action)
+    }
+    command := proc(self: EditorTerminals, mut editor: EditorState, index: I64, name: Str, mode_h: I32) returns Bool {
+        ref slot : EditorTerminal = self.slots[index.to_usize()]
         ref mut node : EditorNode = editor.nodes[editor.focused]
-        rows := (node.rect.height - mode_h).cast(I64) / slot.view.cell_height
-        if !terminal_clipboard(node.view.terminal_viewport, slot.terminal, key.cast(I64), mods, action) &&
-            !node.view.terminal_viewport.event(slot.terminal.screen, key.cast(I64), mods, action, rows) {
-            slot.terminal.event(key.cast(I64), mods, action)
-        }
+        return terminal_command(node.view.terminal_viewport, slot.terminal, name, (node.rect.height - mode_h).cast(I64) / slot.view.cell_height)
     }
 
     mouse := proc(self: EditorTerminals, mut editor: EditorState, mode_h: I32) {
