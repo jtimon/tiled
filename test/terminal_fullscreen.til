@@ -1,0 +1,99 @@
+mode cli
+import("std/sys")
+import("std/file")
+import("../gen/terminal_api")
+import("../gen/terminal_profile")
+
+screen_text := func(screen: TerminalScreen) returns Str {
+    mut text := ""
+    for y in 0..screen.rows {
+        for x in 0..screen.columns { text = format(text, screen.cell_at(x, y).text) }
+        text = format(text, "\n")
+    }
+    return text
+}
+
+wait_screen := proc(mut terminal: Terminal, marker: Str, alternate: Bool) {
+    deadline := clock_ms() + 10000
+    while true {
+        terminal.pump()
+        if terminal.screen.alternate_active == alternate && screen_text(terminal.screen).contains(marker) { return }
+        if terminal.ended || clock_ms() > deadline {
+            terminal.close()
+            panic("did not reach expected screen: ", marker, "\n", screen_text(terminal.screen))
+        }
+        sleep_ms(5)
+    }
+}
+
+main := proc() {
+    if TERMINAL_TERMINFO.len() == 0 { panic("POSIX terminfo/application check") }
+    for cap : Str in array(Str, "smcup", "rmcup") {
+        cmd := Cmd.new("tput", "-T", "tilminal", cap)
+        cmd.env("TERMINFO", TERMINAL_TERMINFO).capture_out(); cmd.run_checked()
+        mut expected := terminal_escape("[?1049h")
+        if cap == "rmcup" { expected = terminal_escape("[?1049l") }
+        assert(cmd.out() == expected)
+    }
+    fixture := "tmp/fullscreen-content.txt"
+    mut content := "FULLSCREEN_FILE\n"
+    for row in 0..200 { content = format(content, "line ", row.to_str(), "\n") }
+    File.writefile(fixture, content)
+    assert(mkdir_p("tmp/fullscreen-home") == 0)
+    for app : Str in array(Str, "less", "vim.tiny", "top") {
+        mut terminal := Terminal.new("env")
+        terminal.session.arg("HOME=tmp/fullscreen-home")
+        terminal.session.arg("ENV=")
+        terminal.session.arg("LESS=")
+        terminal.session.arg("LESSOPEN=")
+        terminal.session.arg("LC_ALL=C")
+        terminal.session.arg("PS1=$ ")
+        terminal.session.arg("/bin/sh"); terminal.session.arg("-i")
+        terminal.session.set_profile("tilminal", TERMINAL_TERMINFO)
+        terminal.start()
+        mut command := format(app, " ", fixture)
+        mut marker := "FULLSCREEN_FILE"
+        mut quit := "q"
+        if app == "vim.tiny" {
+            command = format("vim.tiny -u NONE -i NONE -n ", fixture)
+            quit = format(terminal_byte(27), ":q!\r")
+        }
+        // This procps top does not request smcup itself. Exercise it inside
+        // explicit terminfo page controls, showing only this test's own shell.
+        if app == "top" { command = "tput smcup; top -d 0.1 -p $$; tput rmcup"; marker = "Tasks:" }
+        terminal.session.send(format("printf '\\033[H\\033[2JPRIMARY_SHELL\\n'; ", command, "; printf '\\nAPP_RETURNED\\n'\n"))
+        wait_screen(terminal, marker, true)
+        assert(!screen_text(terminal.screen).contains("PRIMARY_SHELL"))
+        terminal.resize(57, 13)
+        for _ in 0..50 { terminal.pump(); sleep_ms(5) }
+        wait_screen(terminal, marker, true)
+        terminal.session.send(quit)
+        wait_screen(terminal, "APP_RETURNED", false)
+        assert(screen_text(terminal.screen).contains("PRIMARY_SHELL"))
+        terminal.session.send("exit\n")
+        deadline := clock_ms() + 10000
+        while !terminal.ended {
+            terminal.pump()
+            if clock_ms() > deadline { terminal.close(); panic("shell did not exit") }
+            sleep_ms(5)
+        }
+        assert(terminal.session.status() == 0 && !terminal.screen.alternate_active)
+        terminal.close()
+        println("PASS: ", app, " alternate entry, resize and primary restoration")
+    }
+
+    mut exited := Terminal.new("/bin/sh")
+    exited.session.arg("-c")
+    exited.session.arg("printf '\\033[?1049hFINAL_ALT'; exit 7")
+    exited.start()
+    deadline := clock_ms() + 10000
+    while !exited.ended {
+        exited.pump()
+        if clock_ms() > deadline { exited.close(); panic("one-shot child did not exit") }
+        sleep_ms(5)
+    }
+    assert(exited.session.status() == 7 && exited.screen.alternate_active)
+    assert(screen_text(exited.screen).contains("FINAL_ALT"))
+    exited.close()
+    println("PASS: child exit preserves the final alternate screen")
+}

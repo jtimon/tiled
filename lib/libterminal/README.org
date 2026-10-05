@@ -67,6 +67,12 @@ uses =$ORIGIN= to find its matching shared Til runtime/core siblings.
 
 - =TerminalSession.new(program)= creates a configured native session;
   =arg(value)= appends each argument before =start(columns, rows)=.
+- On POSIX, =session.set_profile(term, database)= before startup selects
+  child-local =TERM= and, when nonempty, =TERMINFO=. It does not modify the
+  host environment. The default is =vt100=; Windows reports this optional
+  API as unsupported. Hosts package the terminfo database: the headless
+  library install does not install one. Repository GUI builds compile
+  =terminfo.src= with =tic= and embed the absolute =gen/terminfo/= path.
 - =Terminal.new(program)= owns a session, screen and input encoder. Configure
   arguments through =terminal.session.arg(...)=, then call =start()= or
   =try_start()=. The latter returns an empty string on success and closes
@@ -78,7 +84,9 @@ uses =$ORIGIN= to find its matching shared Til runtime/core siblings.
   it. Sessions and Terminal objects must not be cloned.
 - =TerminalScreen.new(columns, rows)=, =feed=, =resize= and =take_replies=
   are available independently of a process. Screen cloning makes an
-  independent snapshot.
+  independent snapshot of both primary and alternate pages. =alternate_active=
+  identifies the visible page; DEC 47/1047/1048/1049 are supported. Resize
+  updates both pages, RIS clears both, and EOF retains the active page.
 - =screen.cell_at(x, y)= borrows a cell until the next feed/resize or screen
   destruction. Clone it if a longer-lived snapshot is needed. Cell/tab
   vectors are private: their allocation and element addressing belong to

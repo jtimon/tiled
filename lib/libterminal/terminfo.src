@@ -1,0 +1,13 @@
+# A deliberately small profile: existing VT100 text behavior plus the
+# implemented alternate-screen and cursor-visibility controls. No xterm,
+# color, mouse, bracketed-paste or graphics compatibility claim.
+tilminal|Tilminal VT100 text with alternate screen,
+    smcup=\E[?1049h,
+    rmcup=\E[?1049l,
+    civis=\E[?25l,
+    cnorm=\E[?25h,
+    mc0@,
+    mc4@,
+    mc5@,
+    mc5i@,
+    use=vt100,

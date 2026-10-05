@@ -252,5 +252,5 @@ attempt a screenshot at =tmp/window-placement-failure.png=.
   are planned; no command prompt or prefix suggestion menu is implemented.
 - Multiple OS frames (=C-x 5=) and
   [[file:architecture.org][desktop hosts]] remain future work.
-- Scrollback/alternate screens, native platform
+- Scrollback/selection, native platform
   validation and inline graphics remain [[file:terminal.org][terminal follow-ups]].

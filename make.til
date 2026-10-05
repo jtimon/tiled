@@ -59,6 +59,17 @@ build := proc(name: Str, source: Str, opt: Str) {
     cmd.run_checked()
 }
 
+terminal_profile := proc() {
+    mut database := ""
+    if host_os() != "windows" {
+        database = format(get_cwd_str(), "/gen/terminfo")
+        if mkdir_p(database) != 0 { panic("cannot create terminal description directory") }
+        Cmd.new("tic", "-x", "-o", database, "lib/libterminal/terminfo.src").run_checked()
+    }
+    escaped := database.replace("\\", "\\\\").replace("\"", "\\\"")
+    File.writefile("gen/terminal_profile.til", format("mode lib\nTERMINAL_TERMINFO := \"", escaped, "\"\n"))
+}
+
 main := proc(args: ..Str) {
     if mkdir_p("bin") != 0 { panic("could not create bin/") }
     if mkdir_p("gen") != 0 { panic("could not create gen/") }
@@ -91,6 +102,7 @@ main := proc(args: ..Str) {
     }
     if mode == "library" { select_api("shared"); return }
     select_api(mode, prefix)
+    terminal_profile()
     build("tiled", "src/tiled.til", opt)
     build("tilminal", "src/tilminal.til", opt)
 }

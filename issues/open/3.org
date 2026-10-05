@@ -20,8 +20,12 @@ Tiled terminal buffers are implemented through C-x t, with buffer switching,
 mirrored splits, hidden pumping, one resize owner per session, mapped input
 routing and terminal-aware kill/exit confirmation. Real GUI checks cover
 rendered output, child input, process cleanup and failed-start recovery.
-Remaining work includes test-cost reduction, scrollback/selection, alternate
-screens, broader terminal compatibility
+Alternate screens now support DEC 47/1047/1048/1049, page-local cursor/save
+state and margins, resizing both pages and reset/EOF behavior. Both POSIX
+hosts select a minimal VT100-derived =tilminal= terminfo profile. Model and
+installed-consumer checks pass, as do real PTY and both-host GUI checks with
+less, vim.tiny and explicitly alternate-screen-wrapped top.
+Remaining work includes test-cost reduction, scrollback/selection, broader terminal compatibility
 and application-supplied graphics. Related issues: [[./1.org][#1 Tiled environment]] and
 [[./2.org][#2 logo glyph]]. The full earlier design/implementation discussion follows;
 paths under Til's =examples/= and compiler files in that history refer to

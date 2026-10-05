@@ -24,6 +24,13 @@ The editor resolves its default monospace font through =fc-match= from
 fontconfig. Install fontconfig and a monospace font, or set an explicit
 =font_path= in your [[file:configuration.org][user configuration]].
 
+POSIX application builds also require ncurses =tic= (usually supplied by
+=ncurses-bin=). The build compiles =lib/libterminal/terminfo.src= into
+=gen/terminfo/= and generates =gen/terminal_profile.til=. Both hosts set
+child-local =TERM=tilminal= and =TERMINFO= to this absolute database location.
+Keep the database available at runtime and rebuild after moving the checkout.
+The =library= target does not require =tic= or package a terminal profile.
+
 =src/tiled.til='s =VERSION= constant follows Til's =0.0.1-<short git revision>=
 pattern, computed at build time. Building it requires Git and a checkout of
 this repository.

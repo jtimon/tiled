@@ -2,6 +2,7 @@ mode lib
 import("std/sys")
 import("editor_model")
 import("../gen/terminal_api")
+import("../gen/terminal_profile")
 import("../lib/libterminal/view")
 
 EditorTerminal := struct {
@@ -29,6 +30,7 @@ namespace:
         if windows { shell = get_env("COMSPEC"); if shell.len() == 0 { shell = "cmd.exe" } }
         else if shell.len() == 0 { shell = "/bin/sh" }
         mut terminal := Terminal.new(shell)
+        if TERMINAL_TERMINFO.len() > 0 { terminal.session.set_profile("tilminal", TERMINAL_TERMINFO) }
         if !windows { terminal.session.arg("-i") }
         error := terminal.try_start()
         if error.len() > 0 {

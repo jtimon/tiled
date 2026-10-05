@@ -28,6 +28,27 @@ install fontconfig and a monospace font. The standalone frontend currently
 uses 20-pixel glyphs. Neither its imports nor its font path need a Til source
 checkout, and launching from =bin/= works without changing the shell's cwd.
 
+** Alternate screens and terminal profile
+
+The model supports DEC modes =47=, =1047=, =1048= and =1049=. Primary and
+alternate pages retain independent cells, cursor/save state and scrolling
+margins. =47= preserves both pages; =1047= clears the alternate page on
+leaving; =1048= saves/restores the cursor without switching; =1049= saves
+the primary cursor, clears/homes the alternate page and restores the primary
+cursor on return. Repeated =1049= entry/exit is idempotent, not a nesting stack.
+Saved state includes rendition, character sets, origin/wrap and pending wrap.
+Resize updates both pages and repairs clipped wide cells. RIS resets both;
+child exit keeps the final active page visible.
+
+On POSIX, both hosts select =TERM=tilminal= with a child-local =TERMINFO=
+pointing at =gen/terminfo/=. The build needs ncurses =tic= and compiles
+=lib/libterminal/terminfo.src=. This minimal profile inherits =vt100= and
+adds alternate-screen/cursor-visibility capabilities; it does not advertise
+full xterm compatibility. The generated absolute database path must remain
+available at runtime, including when launching from another directory.
+Rebuild after moving the checkout. Core-only consumers default to =vt100=
+and can select/package their own profile through =session.set_profile=.
+
 ** Source ownership and migration
 
 Migrated from Til commit =40eb0682e= (present in =b444d7223=), including its
@@ -69,6 +90,11 @@ Run from this repository's root after building the applications:
 
 #+begin_src sh
 til interpret --usize=64 test/terminal_model.til
+til interpret --usize=64 test/terminal_alternate.til
+til run --usize=64 -o tmp/check_terminal_alternate -c tmp/check_terminal_alternate.c test/terminal_alternate.til
+til run --usize=64 -o tmp/check_terminal_fullscreen -c tmp/check_terminal_fullscreen.c test/terminal_fullscreen.til
+til build --usize=64 -o tmp/check_terminal_fullscreen_gui -c tmp/check_terminal_fullscreen_gui.c test/terminal_fullscreen_gui.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_terminal_fullscreen_gui
 til run -o tmp/check_terminal_input -c tmp/check_terminal_input.c test/terminal_input.til
 til run -o tmp/check_terminal_model -c tmp/check_terminal_model.c test/terminal_model.til
 til run -o tmp/check_terminal_session -c tmp/check_terminal_session.c test/terminal_session.til /usr/local/bin/til
@@ -102,6 +128,14 @@ using X11 FFI declarations. No C test helper, OCR dependency or test-only
 application export is used. Failed checks
 attempt an ImageMagick screenshot at =tmp/terminal-gui-failure.png=.
 
+The alternate-screen suite covers cursor banks, repeated transitions, hidden
+page resize, wide cells, cloning, input splits, EOF and reset. It passes in
+source/static/shared builds and installed compiled/interpreted consumers.
+Real PTY and GUI tests use =less=, =vim.tiny= and =top=, checking entry, resize,
+quit and restored shell output in both hosts. They require these programs
+and =tput=. This procps =top= does not request an alternate screen itself;
+its test explicitly wraps it in =tput smcup= / =tput rmcup=.
+
 The migrated model passed interpreted, compiled and ASAN checks on Linux.
 The session suite passed normal and ASAN runs; GUI acceptance passed with
 normal binaries. Native Windows ConPTY and macOS PTY runs remain unverified.
@@ -120,8 +154,8 @@ check, not a leak-free GUI claim. Headless ASAN checks retain leak detection.
 - Reduce model/interpreter and test-build cost while retaining coverage.
 - Validate native ConPTY on Windows and PTYs on macOS, including frontend
   font availability. Cross-compilation alone is not runtime validation.
-- Add scrollback/selection and alternate-screen support, then broaden
-  terminal compatibility beyond the current vt100 text profile.
+- Add scrollback/selection, then broaden terminal compatibility beyond the
+  current VT100-derived profile.
 - Validate packaging beyond Linux, stabilize/version the experimental library
   ABI and split repositories as tracked in [[file:../issues/open/4.org][#4]].
 - Investigate Kitty graphics and other application-supplied inline graphics

@@ -31,6 +31,8 @@ extern char **environ;
 typedef struct TerminalNative {
     char **argv;
     size_t argc;
+    char *term_env;
+    char *terminfo_env;
     char *input;
     size_t input_len;
     int started, exited, eof, closed;
@@ -117,6 +119,29 @@ void terminal_session_arg(const void *handle, const Str *arg) {
     memcpy(copy, arg->c_str, arg->count);
     s->argv[s->argc++] = copy;
     s->argv[s->argc] = NULL;
+}
+
+void terminal_session_profile(const void *handle, const Str *term, const Str *database) {
+    TerminalNative *s = (TerminalNative *)handle;
+    if (s->started || s->closed || !term->count ||
+        memchr(term->c_str, 0, term->count) || memchr(database->c_str, 0, database->count)) {
+        terminal_error(s, "invalid terminal profile/state", EINVAL); return;
+    }
+#if defined(_WIN32)
+    terminal_error(s, "terminfo profiles are POSIX-only", ERROR_NOT_SUPPORTED);
+#else
+    char *term_env = terminal_alloc((size_t)term->count + 6);
+    memcpy(term_env, "TERM=", 5);
+    memcpy(term_env + 5, term->c_str, term->count);
+    char *info_env = NULL;
+    if (database->count) {
+        info_env = terminal_alloc((size_t)database->count + 10);
+        memcpy(info_env, "TERMINFO=", 9);
+        memcpy(info_env + 9, database->c_str, database->count);
+    }
+    free(s->term_env); free(s->terminfo_env);
+    s->term_env = term_env; s->terminfo_env = info_env;
+#endif
 }
 
 #if defined(_WIN32)
@@ -304,11 +329,13 @@ void terminal_session_start(const void *handle, I64 columns, I64 rows) {
     }
     size_t env_count = 0;
     while (environ[env_count]) ++env_count;
-    char **child_env = terminal_alloc((env_count + 2) * sizeof(*child_env));
+    char **child_env = terminal_alloc((env_count + 3) * sizeof(*child_env));
     size_t env_used = 0;
     for (size_t i = 0; i < env_count; ++i)
-        if (strncmp(environ[i], "TERM=", 5)) child_env[env_used++] = environ[i];
-    child_env[env_used] = "TERM=vt100";
+        if (strncmp(environ[i], "TERM=", 5) &&
+            (!s->terminfo_env || strncmp(environ[i], "TERMINFO=", 9))) child_env[env_used++] = environ[i];
+    child_env[env_used++] = s->term_env ? s->term_env : "TERM=vt100";
+    if (s->terminfo_env) child_env[env_used++] = s->terminfo_env;
     s->child = fork();
     if (s->child == 0) {
         close(errors[0]);
@@ -523,6 +550,8 @@ void terminal_session_free(const void *handle) {
     for (size_t i = 0; i < s->argc; ++i) free(s->argv[i]);
     free(s->argv);
     free(s->input);
+    free(s->term_env);
+    free(s->terminfo_env);
 #if defined(_WIN32)
     DeleteCriticalSection(&s->lock);
 #endif

@@ -3,6 +3,7 @@ mode gui
 import("std/sys")
 import("../lib/libterminal/view")
 import("../gen/terminal_api")
+import("../gen/terminal_profile")
 import("window_input")
 
 // Use the same system monospace selection as Tiled. No font path depends on
@@ -24,6 +25,7 @@ main := proc(args: ..Str) {
         if shell.len() == 0 { shell = "cmd.exe" }
     } else if shell.len() == 0 { shell = "/bin/sh" }
     mut terminal := Terminal.new(shell)
+    if TERMINAL_TERMINFO.len() > 0 { terminal.session.set_profile("tilminal", TERMINAL_TERMINFO) }
     if args.len() > 1 { panic("usage: tilminal [command]") }
     if args.len() == 1 {
         if windows { terminal.session.arg("/C") } else { terminal.session.arg("-c") }

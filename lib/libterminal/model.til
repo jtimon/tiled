@@ -29,11 +29,50 @@ terminal_bound := func(n: I64, lo: I64, hi: I64) returns I64 {
     return n
 }
 
+// Cursor presentation saved by DECSC/DECRC and by each screen page. Parser
+// state, tabs and terminal-wide input modes do not belong to a page.
+TerminalCursor := struct {
+    x : I64 = 0
+    y : I64 = 0
+    style := TerminalStyle.new()
+    g0 := false
+    g1 := false
+    use_g1 := false
+    origin := false
+    wrap := true
+    pending_wrap := false
+namespace:
+    new := func() returns TerminalCursor { return TerminalCursor() }
+    clamp := func(mut cursor: TerminalCursor, columns: I64, rows: I64) {
+        cursor.x = terminal_bound(cursor.x, 0, columns - 1)
+        cursor.y = terminal_bound(cursor.y, 0, rows - 1)
+        cursor.pending_wrap = false
+    }
+}
+
+priv terminal_resized_cells := func(cells: Vec(TerminalCell), old_columns: I64, old_rows: I64,
+                               columns: I64, rows: I64) returns Vec(TerminalCell) {
+    mut resized := Vec(TerminalCell).new()
+    for y in 0..rows {
+        for x in 0..columns {
+            if y < old_rows && x < old_columns { resized.push(own cells[(y * old_columns + x).to_usize()].clone()) }
+            else { resized.push(own TerminalCell()) }
+        }
+    }
+    return resized
+}
+
 TerminalScreen := struct {
     columns : I64 = 1
     rows : I64 = 1
     priv own cells := Vec(TerminalCell).new()
     priv own tabs := Vec(Bool).new()
+    alternate_active := false
+    priv own other_cells := Vec(TerminalCell).new()
+    priv other_cursor := TerminalCursor.new()
+    priv other_saved := TerminalCursor.new()
+    priv other_top : I64 = 0
+    priv other_bottom : I64 = 0
     x : I64 = 0
     y : I64 = 0
     top : I64 = 0
@@ -60,6 +99,7 @@ TerminalScreen := struct {
     saved_use_g1 := false
     saved_origin := false
     saved_wrap := true
+    saved_pending_wrap := false
     parser : I64 = 0
     control := ""
     pending := ""
@@ -82,6 +122,84 @@ namespace:
     // library instead of making consumers interpret a foreign Vec's stride.
     cell_at := func(s: TerminalScreen, x: I64, y: I64) returns ref TerminalCell {
         return s.cells[s.index(x, y)]
+    }
+
+    priv current_cursor := func(s: TerminalScreen) returns TerminalCursor {
+        mut cursor := TerminalCursor.new()
+        cursor.x = s.x; cursor.y = s.y; cursor.style = s.style
+        cursor.g0 = s.g0_graphics; cursor.g1 = s.g1_graphics; cursor.use_g1 = s.use_g1
+        cursor.origin = s.origin; cursor.wrap = s.wrap; cursor.pending_wrap = s.pending_wrap
+        return cursor
+    }
+
+    priv saved_cursor := func(s: TerminalScreen) returns TerminalCursor {
+        mut cursor := TerminalCursor.new()
+        cursor.x = s.saved_x; cursor.y = s.saved_y; cursor.style = s.saved_style
+        cursor.g0 = s.saved_g0; cursor.g1 = s.saved_g1; cursor.use_g1 = s.saved_use_g1
+        cursor.origin = s.saved_origin; cursor.wrap = s.saved_wrap; cursor.pending_wrap = s.saved_pending_wrap
+        return cursor
+    }
+
+    priv apply_cursor := func(mut s: TerminalScreen, cursor: TerminalCursor) {
+        s.style = cursor.style
+        s.g0_graphics = cursor.g0; s.g1_graphics = cursor.g1; s.use_g1 = cursor.use_g1
+        s.origin = cursor.origin; s.wrap = cursor.wrap
+        s.move_to(cursor.x, cursor.y)
+        s.pending_wrap = cursor.pending_wrap && s.wrap && cursor.x == s.x && cursor.y == s.y && s.x == s.columns - 1
+    }
+
+    priv store_saved := func(mut s: TerminalScreen, cursor: TerminalCursor) {
+        s.saved_x = cursor.x; s.saved_y = cursor.y; s.saved_style = cursor.style
+        s.saved_g0 = cursor.g0; s.saved_g1 = cursor.g1; s.saved_use_g1 = cursor.use_g1
+        s.saved_origin = cursor.origin; s.saved_wrap = cursor.wrap; s.saved_pending_wrap = cursor.pending_wrap
+    }
+
+    priv switch_screen := func(mut s: TerminalScreen, alternate: Bool) {
+        if alternate == s.alternate_active { return }
+        if s.other_cells.len() == 0 {
+            for _ in 0..(s.columns * s.rows) { s.other_cells.push(own s.blank()) }
+            mut initial := s.current_cursor()
+            initial.x = 0; initial.y = 0; initial.pending_wrap = false
+            s.other_cursor = initial
+            s.other_bottom = s.rows - 1
+        }
+        cursor := s.current_cursor()
+        saved := s.saved_cursor()
+        next_cursor := s.other_cursor.clone()
+        next_saved := s.other_saved.clone()
+        top := s.top; bottom := s.bottom
+        cells := s.cells.take()
+        s.cells = s.other_cells.take()
+        s.other_cells = cells
+        s.top = s.other_top; s.bottom = s.other_bottom
+        s.other_top = top; s.other_bottom = bottom
+        s.other_cursor = cursor; s.other_saved = saved
+        s.apply_cursor(next_cursor)
+        s.store_saved(next_saved)
+        s.alternate_active = alternate
+    }
+
+    priv alternate_mode := func(mut s: TerminalScreen, mode: I64, enabled: Bool) {
+        if mode == 1048 {
+            if enabled { s.save() } else { s.restore() }
+        } else if mode == 47 {
+            s.switch_screen(enabled)
+        } else if mode == 1047 {
+            if !enabled && s.alternate_active { s.erase(0, s.columns * s.rows) }
+            s.switch_screen(enabled)
+        } else if mode == 1049 {
+            // Modes select one of two pages, not a nesting stack. Repeated
+            // entry must not overwrite the primary cursor or erase live output.
+            if enabled && !s.alternate_active {
+                s.save()
+                s.switch_screen(true)
+                s.erase(0, s.columns * s.rows)
+                s.move_to(0, 0)
+            } else if !enabled && s.alternate_active {
+                s.switch_screen(false)
+                s.restore()
+            }
+        }
     }
 
     blank := func(s: TerminalScreen) returns TerminalCell {
@@ -214,12 +332,9 @@ namespace:
     resize := func(mut s: TerminalScreen, columns: I64, rows: I64) {
         if columns < 1 || rows < 1 { panic("terminal dimensions must be positive") }
         if columns == s.columns && rows == s.rows { return }
-        mut cells := Vec(TerminalCell).new()
-        for y in 0..rows {
-            for x in 0..columns {
-                if y < s.rows && x < s.columns { cells.push(own s.cells[s.index(x, y)].clone()) }
-                else { cells.push(own TerminalCell()) }
-            }
+        cells := terminal_resized_cells(s.cells, s.columns, s.rows, columns, rows)
+        if s.other_cells.len() > 0 {
+            s.other_cells = terminal_resized_cells(s.other_cells, s.columns, s.rows, columns, rows)
         }
         mut tabs := Vec(Bool).new()
         for x in 0..columns {
@@ -232,21 +347,28 @@ namespace:
         s.rows = rows
         s.top = 0
         s.bottom = rows - 1
+        s.other_top = 0; s.other_bottom = rows - 1
+        s.other_cursor.clamp(columns, rows)
+        s.other_saved.clamp(columns, rows)
+        mut saved := s.saved_cursor()
+        saved.clamp(columns, rows)
+        s.store_saved(saved)
         s.move_to(s.x, s.y)
         for y in 0..rows { s.repair_row(y) }
+        if s.other_cells.len() > 0 {
+            original := s.alternate_active
+            s.switch_screen(!original)
+            for y in 0..rows { s.repair_row(y) }
+            s.switch_screen(original)
+        }
     }
 
     save := func(mut s: TerminalScreen) {
-        s.saved_x = s.x; s.saved_y = s.y; s.saved_style = s.style
-        s.saved_g0 = s.g0_graphics; s.saved_g1 = s.g1_graphics
-        s.saved_use_g1 = s.use_g1; s.saved_origin = s.origin; s.saved_wrap = s.wrap
+        s.store_saved(s.current_cursor())
     }
 
     restore := func(mut s: TerminalScreen) {
-        s.style = s.saved_style
-        s.g0_graphics = s.saved_g0; s.g1_graphics = s.saved_g1
-        s.use_g1 = s.saved_use_g1; s.origin = s.saved_origin; s.wrap = s.saved_wrap
-        s.move_to(s.saved_x, s.saved_y)
+        s.apply_cursor(s.saved_cursor())
     }
 
     take_replies := func(mut s: TerminalScreen) returns Str {
@@ -285,6 +407,7 @@ namespace:
                         if enabled { s.move_to(0, s.top) } else { s.move_to(0, 0) }
                     case 7: s.wrap = enabled; s.pending_wrap = false
                     case 25: s.cursor_visible = enabled
+                    case 47, 1047, 1048, 1049: s.alternate_mode(mode, enabled)
                     }
                 } else {
                     if mode == 4 { s.insert = enabled }

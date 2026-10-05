@@ -1,0 +1,136 @@
+mode cli
+import("../gen/terminal_api")
+
+row_text := func(screen: TerminalScreen, row: I64) returns Str {
+    mut text := ""
+    for x in 0..screen.columns { text = format(text, screen.cell_at(x, row).text) }
+    return text
+}
+
+same := func(a: TerminalScreen, b: TerminalScreen) returns Bool {
+    if a.alternate_active != b.alternate_active || a.x != b.x || a.y != b.y ||
+        a.pending_wrap != b.pending_wrap || a.top != b.top || a.bottom != b.bottom ||
+        a.style.fg != b.style.fg || a.saved_x != b.saved_x || a.saved_y != b.saved_y { return false }
+    for y in 0..a.rows {
+        for x in 0..a.columns {
+            ref left : TerminalCell = a.cell_at(x, y)
+            ref right : TerminalCell = b.cell_at(x, y)
+            if left.text != right.text || left.span != right.span || left.style.fg != right.style.fg { return false }
+        }
+    }
+    return true
+}
+
+main := proc() {
+    mut s := TerminalScreen.new(8, 4)
+    s.feed("PRIMARY")
+    s.feed(terminal_escape("[32m"))
+    s.feed(terminal_escape("[2;4H"))
+    s.feed(terminal_escape("[?7l"))
+    s.feed(terminal_escape("[?1049h"))
+    assert(s.alternate_active && s.x == 0 && s.y == 0)
+    assert(row_text(s, 0) == "        ")
+    s.feed("ALT")
+    s.feed(terminal_escape("[?1049h"))
+    assert(row_text(s, 0) == "ALT     " && s.x == 3)
+    s.feed(terminal_escape("[31m"))
+    s.feed(terminal_escape("[3;3H"))
+    s.feed(terminal_escape("7")) // Alternate save must not overwrite primary save.
+    s.feed(terminal_escape("[2;3r"))
+    s.feed(terminal_escape("[?1049l"))
+    assert(!s.alternate_active && row_text(s, 0) == "PRIMARY ")
+    assert(s.x == 3 && s.y == 1 && s.style.fg == 2 && !s.wrap)
+    assert(s.top == 0 && s.bottom == 3)
+    s.feed("!")
+    s.feed(terminal_escape("[?1049l"))
+    assert(s.x == 4) // Redundant reset does not rewind the primary cursor.
+
+    // 47 retains alternate contents/cursor/margins; 1047 clears it on exit.
+    s.feed(terminal_escape("[?47h"))
+    assert(row_text(s, 0) == "ALT     " && s.top == 1 && s.bottom == 2)
+    s.feed(terminal_escape("[H"))
+    s.feed("Z")
+    s.feed(terminal_escape("[?47l"))
+    assert(s.x == 4 && s.y == 1)
+    s.feed(terminal_escape("[?47h"))
+    assert(row_text(s, 0) == "ZLT     ")
+    s.feed(terminal_escape("[?1047l"))
+    s.feed(terminal_escape("[?47h"))
+    assert(row_text(s, 0) == "        ")
+    s.feed(terminal_escape("[?47l"))
+
+    // 1048 is DECSC/DECRC without a page switch, including pending wrap and
+    // graphics/origin/SGR state. Escape 7/8 uses the same saved-cursor slot.
+    mut cursor := TerminalScreen.new(4, 3)
+    cursor.feed("abcd")
+    assert(cursor.pending_wrap)
+    cursor.feed(terminal_escape("[?1048h"))
+    cursor.feed(terminal_escape("[H"))
+    cursor.feed(terminal_escape("[?1048l"))
+    assert(cursor.pending_wrap && cursor.x == 3 && !cursor.alternate_active)
+    cursor.feed("e")
+    assert(cursor.x == 1 && cursor.y == 1)
+    cursor.feed(terminal_escape("[2;3r"))
+    cursor.feed(terminal_escape("[?6h"))
+    cursor.feed(terminal_escape("(0"))
+    cursor.feed(terminal_escape("[31m"))
+    cursor.feed(terminal_escape("7"))
+    cursor.feed(terminal_escape("[?6l"))
+    cursor.feed(terminal_escape("(B"))
+    cursor.feed(terminal_escape("[0m"))
+    cursor.feed(terminal_escape("[?1048l"))
+    assert(cursor.origin && cursor.g0_graphics && cursor.style.fg == 1)
+    cursor.feed("q")
+    assert(cursor.cell_at(0, 1).text == terminal_utf8(0x2500))
+
+    // Both grids and saved points resize together, including hidden wide cells.
+    mut resized := TerminalScreen.new(5, 3)
+    resized.feed(format("abc", terminal_utf8(0x4e00)))
+    resized.feed(terminal_escape("[?1049h"))
+    resized.feed(format("xyz", terminal_utf8(0x4e00)))
+    resized.resize(4, 2)
+    assert(resized.alternate_active && row_text(resized, 0) == "xyz ")
+    resized.feed(terminal_escape("[?1049l"))
+    assert(row_text(resized, 0) == "abc " && resized.x == 3 && !resized.pending_wrap)
+    resized.resize(8, 4)
+    resized.feed(terminal_escape("[?47h"))
+    assert(row_text(resized, 0) == "xyz     " && resized.bottom == 3)
+
+    // Cloning copies both grids independently, not just the visible page.
+    mut cloned := resized.clone()
+    cloned.feed(terminal_escape("[Hchanged"))
+    cloned.feed(terminal_escape("[?47l"))
+    cloned.feed(terminal_escape("[Hother"))
+    resized.feed(terminal_escape("[?47l"))
+    assert(row_text(resized, 0) == "abc     ")
+    resized.feed(terminal_escape("[?47h"))
+    assert(row_text(resized, 0) == "xyz     ")
+
+    stream := format("before", terminal_escape("[?1048;1047h"), terminal_escape("[H"),
+        terminal_utf8(0x4e00), "e", terminal_utf8(0x301), terminal_escape("7"),
+        terminal_escape("[?1047;1048l"), "!", terminal_escape("[?1049h"), "last", terminal_escape("[?1049l"))
+    mut whole := TerminalScreen.new(10, 4)
+    whole.feed(stream)
+    for split in 0..(stream.len() + 1) {
+        mut split_screen := TerminalScreen.new(10, 4)
+        split_screen.feed(stream.substr(0, split))
+        split_screen.feed(stream.substr(split, stream.len() - split))
+        assert(same(split_screen, whole))
+        split_screen.feed(terminal_escape("[?47h"))
+        assert(row_text(split_screen, 0) == "last      ")
+    }
+    mut bytewise := TerminalScreen.new(10, 4)
+    for c in stream { bytewise.feed(Str.from_byte(c.cast(U8))) }
+    assert(same(bytewise, whole))
+
+    // EOF keeps the final active page; only RIS discards both page histories.
+    bytewise.feed(terminal_escape("[?1049hFINAL"))
+    bytewise.feed("", true)
+    assert(bytewise.alternate_active && row_text(bytewise, 0) == "FINAL     ")
+    bytewise.feed(terminal_escape("c"))
+    assert(!bytewise.alternate_active && bytewise.x == 0 && bytewise.y == 0)
+    assert(row_text(bytewise, 0) == "          ")
+    bytewise.feed(terminal_escape("[?47h"))
+    assert(row_text(bytewise, 0) == "          ")
+    println("PASS: alternate pages, cursor banks, DEC modes, resize, cloning, chunk boundaries, EOF and reset")
+}

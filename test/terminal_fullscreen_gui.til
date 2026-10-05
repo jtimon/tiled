@@ -1,0 +1,93 @@
+mode gui
+import("terminal_gui_helpers")
+
+XResizeWindow := ext_proc(display: Dynamic, shallow window: UPtr, shallow width: U32, shallow height: U32) returns shallow I32 {}
+
+main := proc() {
+    root := get_cwd_str()
+    dir := format("tmp/fullscreen-gui-", process_id().to_str())
+    assert(mkdir_p(dir) == 0)
+    file := format(dir, "/content.txt")
+    mut contents := "FULLSCREEN_FILE\n"
+    for row in 0..200 { contents = format(contents, "line ", row.to_str(), "\n") }
+    File.writefile(file, contents)
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace")
+    query.capture_out(); query.run_checked()
+    InitWindow(960, 80, "terminal GUI reference".c_str)
+    SetWindowPosition(1000, 1000)
+    SetExitKey(0)
+    mut view := TerminalView.new(query.out())
+    render_reference(view, "PRIMARY_SHELL")
+    reference := find_window("terminal GUI reference")
+    name := get_env("DISPLAY")
+    ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+
+    for host : Str in array(Str, "tilminal", "tiled") {
+        app := Cmd.new(format("./bin/", host))
+        app.env("HOME", format(root, "/", dir)).env("SHELL", "/bin/sh").env("ENV", "")
+        app.env("LESS", "").env("LESSOPEN", "").env("LC_ALL", "C").env("PS1", "$ ")
+        app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+        pid := app.start()
+        mut title := "tilminal"
+        if host == "tiled" { title = "Tiled - *scratch*" }
+        window := wait_window(app, pid, title)
+        sleep_ms(250)
+        XSetInputFocus(display, window, 2, 0); XFlush(display)
+        if host == "tiled" {
+            send(display, 65507, 1); send(display, 120, 1); send(display, 120, 0); send(display, 65507, 0)
+            send(display, 116, 1); send(display, 116, 0)
+            wait_window(app, pid, "Tiled - *terminal-1*")
+        }
+        for tool : Str in array(Str, "less", "vim.tiny", "top") {
+            XResizeWindow(display, window, 960, 640); XFlush(display)
+            sleep_ms(250)
+            done := format(dir, "/", host, "-", tool, "-done")
+            primary := format("PRIMARY_", tool)
+            mut command := format("less ", file)
+            mut marker := "FULLSCREEN_FILE"
+            if tool == "vim.tiny" { command = format("vim.tiny -u NONE -i NONE -n ", file) }
+            if tool == "top" { command = "tput smcup; top -d 0.1 -p $$; tput rmcup"; marker = "top - " }
+            render_reference(view, primary)
+            type_text(display, format("printf '\\033[H\\033[2J", primary, "\\n'"))
+            check_pixels(app, pid, display, window, reference, (view.cell_width * primary.len().to_i64()).to_i32())
+            type_text(display, format(command, "; printf done > ", done))
+            render_reference(view, marker)
+            check_pixels(app, pid, display, window, reference, (view.cell_width * marker.len().to_i64()).to_i32())
+            render_reference(view, primary)
+            require(app, pid, !has_rendered_row(display, window, reference, (view.cell_width * primary.len().to_i64()).to_i32()),
+                "primary screen leaked into full-screen application")
+            XResizeWindow(display, window, 740, 520); XFlush(display)
+            sleep_ms(250)
+            render_reference(view, marker)
+            check_pixels(app, pid, display, window, reference, (view.cell_width * marker.len().to_i64()).to_i32())
+            if tool == "vim.tiny" {
+                send(display, 65307, 1); send(display, 65307, 0)
+                type_text(display, ":q!")
+            } else { send(display, 113, 1); send(display, 113, 0) }
+            render_reference(view, primary)
+            check_pixels(app, pid, display, window, reference, (view.cell_width * primary.len().to_i64()).to_i32())
+            // rmcup can precede the application's final termios flush. Wait
+            // for the shell, not merely restored pixels, before typing again.
+            for _ in 0..200 {
+                if File.exists(done) && File.readfile(done) == "done" { break }
+                if app.poll() { break }
+                sleep_ms(50)
+            }
+            require(app, pid, File.exists(done) && File.readfile(done) == "done", "application did not return to the shell")
+            sleep_ms(100)
+            println("PASS: ", host, " / ", tool, " rendered entry, resize, quit and restored shell")
+        }
+        if host == "tiled" {
+            request_close(display, window)
+            sleep_ms(150)
+            type_text(display, "terminate")
+            for _ in 0..100 { if app.poll() { break }; sleep_ms(50) }
+            require(app, pid, app.poll(), "Tiled did not close")
+            assert(app.wait() == 0)
+        } else { close_app(app, pid, display, window) }
+    }
+    XCloseDisplay(display)
+    view.close()
+    CloseWindow()
+}

@@ -20,6 +20,11 @@ The ABI currently requires matching compiler/target/profile/USize settings;
 constructors take a program plus separate arguments and cell storage is
 accessed through borrowed =cell_at= results.
 
+Alternate-page state and =TerminalSession.set_profile= extend the experimental
+ABI; regenerate bindings and rebuild consumers together. Installed consumers
+also pass the alternate-screen suite. The core stays headless; terminfo
+compilation/packaging belongs to the host build (=tic=, =gen/terminfo/=).
+
 [[file:../../doc/terminal-library-benchmark.org][The comparison]] measured identical parser results across source/static/shared
 builds. Shared was slower than static in the repeated parser workload and
 saved only 56 KiB of pair PSS in the headless memory test; hardware cache
