@@ -25,6 +25,11 @@ ABI; regenerate bindings and rebuild consumers together. Installed consumers
 also pass the alternate-screen suite. The core stays headless; terminfo
 compilation/packaging belongs to the host build (=tic=, =gen/terminfo/=).
 
+Scrollback storage belongs to the screen model; each host pane owns a clonable
+=TerminalViewport= anchor independently of the session and renderer resources.
+Installed compiled/interpreted consumers cover the new history API. These
+screen-layout additions also require regenerated bindings and rebuilt hosts.
+
 [[file:../../doc/terminal-library-benchmark.org][The comparison]] measured identical parser results across source/static/shared
 builds. Shared was slower than static in the repeated parser workload and
 saved only 56 KiB of pair PSS in the headless memory test; hardware cache

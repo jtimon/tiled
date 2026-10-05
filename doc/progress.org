@@ -43,6 +43,11 @@ to the child. Live-session kill/exit requires confirmation, while normal
 child exit retains the final screen. [[file:terminal.org][Terminal tests]] cover this in real GUI
 sessions, including remapped keys, large hidden output and child cleanup.
 
+Primary-screen scrollback now retains 2,000 rows. Wheel and Shift+PageUp/Down
+navigation have independent per-view positions, anchored output and return to
+live on child input. Alternate screens stay out of history. Tests cover the
+model, installed consumers and both hosts, including hidden and split views.
+
 Application sources live in =src/=: [[file:../src/tiled.til][startup]], [[file:../src/editor.til][GUI/input]], and
 [[file:../src/editor_model.til][buffers/views/layout]]. =C-x 2= and =C-x 3= split the focused view;
 =C-x o= changes focus, =C-x 0= closes a view, and =C-x 1= keeps only it.
@@ -252,5 +257,5 @@ attempt a screenshot at =tmp/window-placement-failure.png=.
   are planned; no command prompt or prefix suggestion menu is implemented.
 - Multiple OS frames (=C-x 5=) and
   [[file:architecture.org][desktop hosts]] remain future work.
-- Scrollback/selection, native platform
+- Selection/clipboard copying, native platform
   validation and inline graphics remain [[file:terminal.org][terminal follow-ups]].

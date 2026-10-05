@@ -28,6 +28,37 @@ install fontconfig and a monospace font. The standalone frontend currently
 uses 20-pixel glyphs. Neither its imports nor its font path need a Til source
 checkout, and launching from =bin/= works without changing the shell's cwd.
 
+** Scrollback
+
+Both hosts retain up to 2,000 rows of primary-screen output. Use
+=Shift+PageUp= / =Shift+PageDown= to move by a page (with one row of overlap),
+or the mouse wheel to move three rows per notch. In Tiled, keyboard scrolling
+uses the focused pane and the wheel uses the pane under the pointer without
+changing focus. Each split has its own scrollback position. The title or
+pane mode line shows the offset while reviewing history, and the live cursor
+is hidden.
+
+New output keeps a scrolled view anchored, including while its buffer is
+hidden. If those rows are evicted, the view clamps to the oldest retained
+row. Scrolling down to offset zero follows live output again. Typing or
+sending another non-modifier key to the child also returns that view to live;
+Tiled's host prefixes/prompts do not move other views. Entering an alternate
+screen returns views to live output. Alternate-screen output never enters
+history, and Shift+PageUp/PageDown is passed to the application there.
+
+History records full-screen upward scrolling (linefeeds, wrapping, and CSI S),
+not partial scrolling regions, reverse scrolling, deleted lines, or erased
+screens. CSI 3 J clears primary history without erasing the live page; CSI 2 J
+erases the page without clearing history. Alternate-screen CSI 3 J leaves
+primary history alone. RIS clears history; process exit retains it.
+
+Historical rows retain their original width, style and Unicode cells. Resize
+clips/pads them without reflow; expanding again reveals retained columns.
+The live grid keeps its existing top-left crop/pad resize policy: rows cropped
+by a height reduction are not added to history. A clipped wide glyph is blank
+rather than a half glyph. The library can change/disable the history limit;
+there is not yet a host configuration setting for it.
+
 ** Alternate screens and terminal profile
 
 The model supports DEC modes =47=, =1047=, =1048= and =1049=. Primary and
@@ -91,6 +122,10 @@ Run from this repository's root after building the applications:
 #+begin_src sh
 til interpret --usize=64 test/terminal_model.til
 til interpret --usize=64 test/terminal_alternate.til
+til run --usize=64 -o tmp/check_terminal_scrollback -c tmp/check_terminal_scrollback.c test/terminal_scrollback.til
+til interpret --usize=64 test/terminal_scrollback.til
+til build --usize=64 -o tmp/check_terminal_scrollback_gui -c tmp/check_terminal_scrollback_gui.c test/terminal_scrollback_gui.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_terminal_scrollback_gui
 til run --usize=64 -o tmp/check_terminal_alternate -c tmp/check_terminal_alternate.c test/terminal_alternate.til
 til run --usize=64 -o tmp/check_terminal_fullscreen -c tmp/check_terminal_fullscreen.c test/terminal_fullscreen.til
 til build --usize=64 -o tmp/check_terminal_fullscreen_gui -c tmp/check_terminal_fullscreen_gui.c test/terminal_fullscreen_gui.til
@@ -128,6 +163,14 @@ using X11 FFI declarations. No C test helper, OCR dependency or test-only
 application export is used. Failed checks
 attempt an ImageMagick screenshot at =tmp/terminal-gui-failure.png=.
 
+The scrollback suite covers bounded eviction, output anchoring, independent
+viewports, page-key routing, original-width resize, wide/combining characters,
+rendition, input splits, alternate-screen exclusion and history reset. It
+passes compiled source/static and interpreted builds, plus installed compiled
+and interpreted consumers. GUI checks in both hosts cover rendered history,
+page/wheel navigation and return to live; Tiled additionally checks hidden
+buffer output and independent split positions.
+
 The alternate-screen suite covers cursor banks, repeated transitions, hidden
 page resize, wide cells, cloning, input splits, EOF and reset. It passes in
 source/static/shared builds and installed compiled/interpreted consumers.
@@ -154,7 +197,7 @@ check, not a leak-free GUI claim. Headless ASAN checks retain leak detection.
 - Reduce model/interpreter and test-build cost while retaining coverage.
 - Validate native ConPTY on Windows and PTYs on macOS, including frontend
   font availability. Cross-compilation alone is not runtime validation.
-- Add scrollback/selection, then broaden terminal compatibility beyond the
+- Add selection/clipboard copying, then broaden terminal compatibility beyond the
   current VT100-derived profile.
 - Validate packaging beyond Linux, stabilize/version the experimental library
   ABI and split repositories as tracked in [[file:../issues/open/4.org][#4]].

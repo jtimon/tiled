@@ -1,0 +1,106 @@
+mode gui
+import("terminal_gui_helpers")
+
+XMoveResizeWindow := ext_proc(display: Dynamic, shallow window: UPtr, shallow x: I32, shallow y: I32,
+    shallow width: U32, shallow height: U32) returns shallow I32 {}
+XTestFakeMotionEvent := ext_proc(display: Dynamic, shallow screen: I32, shallow x: I32, shallow y: I32, shallow delay: UPtr) returns shallow I32 {}
+XTestFakeButtonEvent := ext_proc(display: Dynamic, shallow button: U32, shallow pressed: I32, shallow delay: UPtr) returns shallow I32 {}
+
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0) }
+prefix := proc(display: Dynamic, key: UPtr) {
+    send(display, 65507, 1); tap(display, 120); send(display, 65507, 0)
+    tap(display, key); sleep_ms(100)
+}
+pages := proc(display: Dynamic, key: UPtr) {
+    send(display, 65505, 1)
+    for _ in 0..12 { tap(display, key); sleep_ms(30) }
+    send(display, 65505, 0); sleep_ms(150)
+}
+wait_file := proc(app: Cmd, pid: I64, path: Str) {
+    for _ in 0..200 { if File.exists(path) || app.poll() { break }; sleep_ms(50) }
+    require(app, pid, File.exists(path), format("missing shell acknowledgement: ", path))
+    sleep_ms(150)
+}
+
+main := proc() {
+    root := get_cwd_str()
+    dir := format("tmp/scrollback-gui-", process_id().to_str())
+    assert(mkdir_p(dir) == 0)
+    fixture := format(dir, "/output")
+    mut text := "HISTORY_MARKER\n"
+    for _ in 0..80 { text = format(text, "\n") }
+    File.writefile(fixture, text)
+    more := format(dir, "/more")
+    File.writefile(more, "\n\n\n\n\n\n\n\n\n\n")
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace")
+    query.capture_out(); query.run_checked()
+    InitWindow(960, 80, "terminal GUI reference".c_str)
+    SetWindowPosition(1000, 1000); SetExitKey(0)
+    mut view := TerminalView.new(query.out())
+    render_reference(view, "HISTORY_MARKER")
+    reference := find_window("terminal GUI reference")
+    name := get_env("DISPLAY")
+    ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    pixels := (view.cell_width * 14).to_i32()
+    for host : Str in array(Str, "tilminal", "tiled") {
+        app := Cmd.new(format("./bin/", host))
+        app.env("HOME", format(root, "/", dir)).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
+        app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+        pid := app.start()
+        mut title := "tilminal"
+        if host == "tiled" { title = "Tiled - *scratch*" }
+        window := wait_window(app, pid, title)
+        XMoveResizeWindow(display, window, 0, 0, 960, 640)
+        XSetInputFocus(display, window, 2, 0); XFlush(display); sleep_ms(250)
+        if host == "tiled" { prefix(display, 116); wait_window(app, pid, "Tiled - *terminal-1*") }
+        ready := format(dir, "/", host, "-ready")
+        trigger := format(dir, "/", host, "-trigger")
+        done := format(dir, "/", host, "-done")
+        command := format("cat ", fixture, "; touch ", ready, "; while [ ! -f ", trigger,
+            " ]; do sleep 0.05; done; cat ", more, "; touch ", done)
+        type_text(display, command)
+        wait_file(app, pid, ready)
+        require(app, pid, !has_rendered_row(display, window, reference, pixels), "history marker remained on live screen")
+        pages(display, 65365)
+        check_pixels(app, pid, display, window, reference, pixels)
+        pages(display, 65366)
+        require(app, pid, !has_rendered_row(display, window, reference, pixels), "PageDown did not return to live output")
+        XTestFakeMotionEvent(display, 0, 100, 100, 0)
+        for _ in 0..40 {
+            XTestFakeButtonEvent(display, 4, 1, 0); XTestFakeButtonEvent(display, 4, 0, 0)
+            XFlush(display); sleep_ms(20)
+        }
+        check_pixels(app, pid, display, window, reference, pixels)
+        if host == "tiled" {
+            prefix(display, 98); type_text(display, "*scratch*"); sleep_ms(200)
+        }
+        File.writefile(trigger, "go")
+        wait_file(app, pid, done)
+        if host == "tiled" {
+            prefix(display, 98); type_text(display, "*terminal-1*"); sleep_ms(200)
+        }
+        check_pixels(app, pid, display, window, reference, pixels)
+        if host == "tiled" {
+            prefix(display, 51)
+            pages(display, 65366)
+            require(app, pid, !has_rendered_row(display, window, reference, pixels), "focused split did not return to live")
+            require(app, pid, has_rendered_row(display, window, reference, pixels, 482), "scrolling one split changed the other")
+            // Typing in the focused live pane must preserve the other pane's anchor.
+            type_text(display, "printf 'LIVE_OUTPUT\\n'"); sleep_ms(200)
+            require(app, pid, has_rendered_row(display, window, reference, pixels, 482), "typing changed another view's anchor")
+            prefix(display, 111)
+        }
+        type_text(display, "printf 'BACK_TO_LIVE\\n'"); sleep_ms(200)
+        mut left : I32 = 0
+        if host == "tiled" { left = 482 }
+        require(app, pid, !has_rendered_row(display, window, reference, pixels, left), "typing did not leave scrollback")
+        if host == "tiled" {
+            request_close(display, window); sleep_ms(150); type_text(display, "terminate")
+            for _ in 0..100 { if app.poll() { break }; sleep_ms(50) }
+            require(app, pid, app.poll(), "Tiled did not close"); assert(app.wait() == 0)
+        } else { close_app(app, pid, display, window) }
+        println("PASS: ", host, " scrollback pixels, page/wheel navigation, output anchoring and return to live")
+    }
+    XCloseDisplay(display); view.close(); CloseWindow()
+}

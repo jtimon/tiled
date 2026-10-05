@@ -40,32 +40,40 @@ main := proc(args: ..Str) {
     SetTargetFPS(60)
     font_path := tilminal_font_path()
     mut view := TerminalView.new(font_path)
+    mut viewport := TerminalViewport.new()
     terminal.start()
-    mut reported_exit := false
+    mut last_title := "tilminal"
     while true {
         width := GetScreenWidth().cast(I64)
         height := GetScreenHeight().cast(I64)
         terminal.resize(width / view.cell_width, height / view.cell_height)
         terminal.pump()
+        viewport.sync(terminal.screen)
+        wheel := GetMouseWheelMove()
+        if wheel != 0 { viewport.scroll(terminal.screen, (wheel * 3).to_i64()) }
         mut mods : I32 = 0
         mut action : I32 = 0
         mut key := window_next_event(mods, action)
         mut closing := false
         while key > 0 {
             if action == 4 { closing = true; break }
-            terminal.event(key.cast(I64), mods, action)
+            if !viewport.event(terminal.screen, key.cast(I64), mods, action, height / view.cell_height) {
+                terminal.event(key.cast(I64), mods, action)
+            }
             key = window_next_event(mods, action)
         }
         window_drain_input()
         if closing { break }
-        if terminal.ended && reported_exit.not() {
-            title := format("tilminal [exit ", terminal.session.status().to_str(), "]")
+        mut title := "tilminal"
+        if terminal.ended { title = format(title, " [exit ", terminal.session.status().to_str(), "]") }
+        if viewport.offset > 0 { title = format(title, " [scrollback ", viewport.offset.to_str(), "]") }
+        if title != last_title {
             SetWindowTitle(title.c_str)
-            reported_exit = true
+            last_title = title
         }
         BeginDrawing()
         ClearBackground(Color(r = 16, g = 18, b = 24, a = 255))
-        view.draw(terminal.screen, 0, 0, width, height, IsWindowFocused(), terminal.ended)
+        view.draw_scrolled(terminal.screen, 0, 0, width, height, IsWindowFocused(), terminal.ended, viewport.offset)
         EndDrawing()
     }
     terminal.close()

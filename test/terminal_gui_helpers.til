@@ -46,7 +46,7 @@ request_close := proc(display: Dynamic, window: UPtr) {
     XFlush(display)
 }
 
-has_rendered_row := proc(display: Dynamic, window: UPtr, reference: UPtr, width: I32) returns Bool {
+has_rendered_row := proc(display: Dynamic, window: UPtr, reference: UPtr, width: I32, left: I32 = 0) returns Bool {
     mut root : UPtr = 0
     mut x : I32 = 0
     mut y : I32 = 0
@@ -58,11 +58,11 @@ has_rendered_row := proc(display: Dynamic, window: UPtr, reference: UPtr, width:
         panic("cannot read terminal window geometry")
     }
     if depth != 24 { panic("GUI pixel test requires a 24-bit X display") }
-    if actual_width < width.cast(U32) || actual_height < 24 { return false }
+    if actual_width < (left + width).cast(U32) || actual_height < 24 { return false }
     mask : UPtr = 0xFFFFFF
     ref expected : Dynamic = XGetImage(display, reference, 0, 0, width.cast(U32), 24, mask, 2)
     if is_null(expected) { panic("cannot capture reference window") }
-    ref actual : Dynamic = XGetImage(display, window, 0, 0, width.cast(U32), actual_height, mask, 2)
+    ref actual : Dynamic = XGetImage(display, window, left, 0, width.cast(U32), actual_height, mask, 2)
     if is_null(actual) { XDestroyImage(expected); panic("cannot capture terminal window") }
     first := XGetPixel(expected, 0, 0).band(mask)
     mut visible := false

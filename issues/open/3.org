@@ -25,7 +25,12 @@ state and margins, resizing both pages and reset/EOF behavior. Both POSIX
 hosts select a minimal VT100-derived =tilminal= terminfo profile. Model and
 installed-consumer checks pass, as do real PTY and both-host GUI checks with
 less, vim.tiny and explicitly alternate-screen-wrapped top.
-Remaining work includes test-cost reduction, scrollback/selection, broader terminal compatibility
+Bounded primary scrollback is implemented (2,000 rows by default), with
+per-view anchors, page/wheel navigation, return to live on child input and
+original-width history across resizing. Tests cover eviction, Unicode,
+alternate-screen exclusion, reset, installed consumers and both-host rendered
+navigation; Tiled also covers hidden output and independent split positions.
+Remaining work includes test-cost reduction, selection/clipboard copying, broader terminal compatibility
 and application-supplied graphics. Related issues: [[./1.org][#1 Tiled environment]] and
 [[./2.org][#2 logo glyph]]. The full earlier design/implementation discussion follows;
 paths under Til's =examples/= and compiler files in that history refer to

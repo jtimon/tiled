@@ -15,7 +15,7 @@ main := proc() {
         format("--prefix=", prefix), "lib/libterminal/terminal.til").run_checked()
     binding := format(prefix, "/lib/til/lib/terminal")
     escaped := binding.replace("\\", "\\\\").replace("\"", "\\\"")
-    for name : Str in array(Str, "terminal_model", "terminal_input", "terminal_alternate", "terminal_session") {
+    for name : Str in array(Str, "terminal_model", "terminal_input", "terminal_alternate", "terminal_scrollback", "terminal_session") {
         source := File.readfile(format("test/", name, ".til"))
         File.writefile(format(consumer, "/test/", name, ".til"),
             source.replace("../gen/terminal_api", escaped))
@@ -24,7 +24,7 @@ main := proc() {
     compiler := Cmd.new("sh", "-c", "command -v til")
     compiler.capture_out(); compiler.run_checked()
     path := compiler.out().replace("\n", "")
-    for name : Str in array(Str, "terminal_model", "terminal_input", "terminal_alternate", "terminal_session") {
+    for name : Str in array(Str, "terminal_model", "terminal_input", "terminal_alternate", "terminal_scrollback", "terminal_session") {
         cmd := Cmd.new(path, "run", "--cpu=baseline", "--opt=2", "--usize=64",
             "-o", format("tmp/", name), "-c", format("tmp/", name, ".c"), format("test/", name, ".til"))
         if name == "terminal_session" { cmd.arg(path) }
@@ -41,5 +41,8 @@ main := proc() {
     alternate := Cmd.new(path, "interpret", "--usize=64", "test/terminal_alternate.til")
     alternate.cwd(consumer).env("LD_LIBRARY_PATH", format(prefix, "/lib"))
     alternate.run_checked()
-    println("PASS: installed libterminal model/input/alternate/session consumers outside the source tree")
+    scrollback := Cmd.new(path, "interpret", "--usize=64", "test/terminal_scrollback.til")
+    scrollback.cwd(consumer).env("LD_LIBRARY_PATH", format(prefix, "/lib"))
+    scrollback.run_checked()
+    println("PASS: installed libterminal model/input/alternate/scrollback/session consumers outside the source tree")
 }

@@ -187,8 +187,8 @@ editor_draw_terminal := proc(mut terminals: EditorTerminals, editor: EditorState
     if body_h < 0 { body_h = 0 }
     active := index == editor.focused
     DrawRectangle(rect.x, rect.y, rect.width, rect.height, Color(r = 16, g = 18, b = 24, a = 255))
-    slot.view.draw(slot.terminal.screen, rect.x.cast(I64), rect.y.cast(I64),
-        rect.width.cast(I64), body_h.cast(I64), active && input_active, slot.terminal.ended)
+    slot.view.draw_scrolled(slot.terminal.screen, rect.x.cast(I64), rect.y.cast(I64),
+        rect.width.cast(I64), body_h.cast(I64), active && input_active, slot.terminal.ended, node.view.terminal_viewport.offset)
     sy := rect.y + body_h
     mut background := Color(r = 38, g = 38, b = 52, a = 255)
     if active { background = Color(r = 60, g = 60, b = 85, a = 255) }
@@ -197,6 +197,7 @@ editor_draw_terminal := proc(mut terminals: EditorTerminals, editor: EditorState
     if active { DrawRectangle(rect.x, sy, rect.width, 2, Color(r = 255, g = 200, b = 0, a = 255)) }
     mut state := "running"
     if slot.terminal.ended { state = format("exit ", buffer.terminal_status.to_str()) }
+    if node.view.terminal_viewport.offset > 0 { state = format(state, "; scrollback ", node.view.terminal_viewport.offset.to_str()) }
     editor_draw_text(font, format(buffer.terminal_name, " [", state, "]"), rect.x + 8, sy + 4, size,
         Color(r = 220, g = 220, b = 220, a = 255))
     EndScissorMode()
@@ -345,6 +346,11 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         }
 
         terminals.update(editor, line_h + 8)
+        wheel := GetMouseWheelMove()
+        if wheel != 0 && !prompt.mini.active && !exit_prompt.mini.active && !prefix_pending {
+            mouse := GetMousePosition()
+            terminals.wheel(editor, (wheel * 3).to_i64(), mouse.x, mouse.y, line_h + 8)
+        }
         mut quit := false
         mut mods : I32 = 0
         mut action : I32 = 0
@@ -363,7 +369,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                 quit = true
             } else if action == 3 {
                 if terminal >= 0 && !prompting && !prefix_pending && !suppress_text {
-                    terminals.event(terminal, key, mods, action)
+                    terminals.event(editor, terminal, key, mods, action, line_h + 8)
                 } else if !suppress_text && key >= 32 && key < 127 {
                     typed := Str.from_byte(key.cast(I64).to_u8())
                     if exit_prompt.mini.active { exit_prompt.mini.insert(typed) }
@@ -417,7 +423,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                         prompt.mini.key(key, mods.band(1) != 0)
                     }
                 } else if terminal >= 0 && !prefix_pending && !(action == 1 && control && key == 88) {
-                    terminals.event(terminal, key, mods, action)
+                    terminals.event(editor, terminal, key, mods, action, line_h + 8)
                 } else if key == 256 && action == 1 {
                     quit = true
                 } else if prefix_pending && action == 1 {
@@ -426,7 +432,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                     if control && key == 67 {
                         quit = true
                     } else if control && key == 88 && terminal >= 0 {
-                        terminals.event(terminal, 88, mods, 1)
+                        terminals.event(editor, terminal, 88, mods, 1, line_h + 8)
                     } else if control && key == 71 {
                         status_msg = ""
                     } else if control && key == 83 {

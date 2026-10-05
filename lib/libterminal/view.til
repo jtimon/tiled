@@ -72,6 +72,10 @@ namespace:
     }
     draw := proc(mut v: TerminalView, screen: TerminalScreen, left: I64, top: I64,
                  width: I64, height: I64, focused: Bool, ended: Bool) {
+        v.draw_scrolled(screen, left, top, width, height, focused, ended, 0)
+    }
+    draw_scrolled := proc(mut v: TerminalView, screen: TerminalScreen, left: I64, top: I64,
+                 width: I64, height: I64, focused: Bool, ended: Bool, offset: I64) {
         if width <= 0 || height <= 0 { return }
         columns := terminal_bound(width / v.cell_width, 0, screen.columns)
         rows := terminal_bound(height / v.cell_height, 0, screen.rows)
@@ -79,7 +83,7 @@ namespace:
         blink_off := GetTime().to_i64().mod(2) == 1
         for y in 0..rows {
             for x in 0..columns {
-                ref cell : TerminalCell = screen.cell_at(x, y)
+                ref cell : TerminalCell = screen.display_cell(x, y, offset)
                 if cell.span == 0 { continue }
                 px := left + x * v.cell_width
                 py := top + y * v.cell_height
@@ -104,7 +108,7 @@ namespace:
                 EndScissorMode()
             }
         }
-        if focused && screen.cursor_visible && !ended && !blink_off && screen.x < columns && screen.y < rows {
+        if offset == 0 && focused && screen.cursor_visible && !ended && !blink_off && screen.x < columns && screen.y < rows {
             x := left + screen.x * v.cell_width
             y := top + screen.y * v.cell_height
             DrawRectangleLines(x.to_i32(), y.to_i32(), v.cell_width.to_i32(), v.cell_height.to_i32(), Color(r = 255, g = 255, b = 255, a = 255))

@@ -91,6 +91,23 @@ uses =$ORIGIN= to find its matching shared Til runtime/core siblings.
   destruction. Clone it if a longer-lived snapshot is needed. Cell/tab
   vectors are private: their allocation and element addressing belong to
   the library, including across interpreted FFI boundaries.
+- Primary output history defaults to 2,000 rows, with constant-time ring
+  eviction. =set_history_limit(rows)= clears history and chooses a new limit
+  (zero disables it); =clear_history()= retains the limit. =history_rows()=
+  reports the retained count. =display_cell(x, y, offset)= borrows a cell in
+  the history/live viewport, with the same lifetime contract as =cell_at=.
+  Coordinates must be inside the current screen; offset is clamped. Historical
+  rows keep their original width and are clipped/padded without reflow.
+- Create one =TerminalViewport.new()= per pane, independently of the renderer.
+  =sync(screen)= keeps its anchor stable across new output and eviction;
+  =scroll(screen, lines)= navigates. =event(screen, key, mods, action, rows)=
+  consumes primary-screen Shift+PageUp/PageDown and returns to live on other
+  child input; forward events when it returns false. Hosts pass =offset= to
+  =TerminalView.draw_scrolled=. Plain =draw= continues to render the live page.
+  Viewports are clonable values; hidden ones catch up when synchronized again.
+  =history_total= and =history_generation= are model-maintained synchronization
+  counters, not host configuration. Regenerate bindings and rebuild consumers
+  for these screen-layout/API additions.
 - =TerminalStyle.new()= and =TerminalInput.new()= provide explicit factories.
   These avoid positional aggregate defaults in this compiler's generated
   bindings. Constructors use scalar/string arguments rather than exported

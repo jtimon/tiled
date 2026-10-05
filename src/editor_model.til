@@ -1,4 +1,5 @@
 mode lib
+import("../gen/terminal_api")
 
 // Buffers own text or reference host-owned terminals. Leaves own views;
 // branches own layout decisions, never native terminal resources.
@@ -19,6 +20,7 @@ EditorView := struct {
     cursor : USize = 0
     scroll_y : I32 = 0
     scroll_x : I32 = 0
+    terminal_viewport := TerminalViewport.new()
 }
 
 EditorRect := struct {

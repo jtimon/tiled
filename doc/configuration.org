@@ -133,9 +133,18 @@ Ctrl+S, Ctrl+O and Escape, belong to the terminal when no host prompt/prefix
 is active. =C-g= cancels a pending host prefix or minibuffer. =C-x C-s=
 reports that a terminal cannot be saved as a text file.
 
+On the primary screen, =Shift+PageUp= / =Shift+PageDown= navigate scrollback;
+the mouse wheel scrolls the pane under the pointer without changing focus.
+History retains 2,000 rows, with independent positions in split panes.
+Typing returns only the receiving pane to live output. New output keeps
+history views anchored until their rows are evicted. The mode line shows
+the scrollback offset. Alternate-screen applications receive the page keys
+normally and do not contribute to shell history. See [[file:terminal.org][scrollback semantics]].
+
 Splitting a terminal mirrors the same session instead of starting another
 shell. The focused pane sets its terminal size; otherwise the first visible
-pane sets it. Other panes display the same screen clipped to their bounds.
+pane sets it. Other panes display their own history/live viewport clipped to
+their bounds.
 Hidden sessions retain their last size and continue processing output.
 =C-x 0= closes a pane while retaining its buffer/session.
 

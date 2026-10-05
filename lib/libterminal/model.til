@@ -20,6 +20,7 @@ TerminalCell := struct {
     span : I64 = 1 // 0 = continuation, 1 = ordinary, 2 = wide base
     style := TerminalStyle.new()
 namespace:
+    blank_default := func() returns TerminalCell { return TerminalCell() }
     append := func(mut c: TerminalCell, text: Str) { c.text = format(c.text, text) }
 }
 
@@ -62,11 +63,19 @@ priv terminal_resized_cells := func(cells: Vec(TerminalCell), old_columns: I64, 
     return resized
 }
 
+TerminalHistoryRow := struct { own cells := Vec(TerminalCell).new() }
+
 TerminalScreen := struct {
     columns : I64 = 1
     rows : I64 = 1
     priv own cells := Vec(TerminalCell).new()
     priv own tabs := Vec(Bool).new()
+    priv own history := Vec(TerminalHistoryRow).new()
+    priv history_head : I64 = 0
+    priv history_limit : I64 = 2000
+    history_total : I64 = 0
+    history_generation : I64 = 0
+    priv history_blank := TerminalCell.blank_default()
     alternate_active := false
     priv own other_cells := Vec(TerminalCell).new()
     priv other_cursor := TerminalCursor.new()
@@ -122,6 +131,48 @@ namespace:
     // library instead of making consumers interpret a foreign Vec's stride.
     cell_at := func(s: TerminalScreen, x: I64, y: I64) returns ref TerminalCell {
         return s.cells[s.index(x, y)]
+    }
+
+    history_rows := func(s: TerminalScreen) returns I64 { return s.history.len().to_i64() }
+
+    clear_history := func(mut s: TerminalScreen) {
+        s.history = Vec(TerminalHistoryRow).new()
+        s.history_head = 0; s.history_total = 0
+        s.history_generation++
+    }
+
+    // Changing the capacity starts a fresh history. Zero disables recording.
+    set_history_limit := func(mut s: TerminalScreen, rows: I64) {
+        if rows < 0 { panic("negative terminal history limit") }
+        s.clear_history()
+        s.history_limit = rows
+    }
+
+    priv remember := func(mut s: TerminalScreen, amount: I64) {
+        if s.alternate_active || s.top != 0 || s.bottom != s.rows - 1 || s.history_limit == 0 { return }
+        for y in 0..terminal_bound(amount, 0, s.rows) {
+            mut row := TerminalHistoryRow()
+            for x in 0..s.columns { row.cells.push(own s.cell_at(x, y).clone()) }
+            if s.history_rows() < s.history_limit { s.history.push(own row) }
+            else {
+                s.history.set(s.history_head.to_usize(), own row)!
+                s.history_head = (s.history_head + 1).mod(s.history_limit)
+            }
+            s.history_total++
+        }
+    }
+
+    // Logical rows: retained history followed by the live page. History keeps
+    // its original width; resizing clips/pads without destructive reflow.
+    display_cell := func(s: TerminalScreen, x: I64, y: I64, offset: I64) returns ref TerminalCell {
+        if s.alternate_active { return s.cell_at(x, y) }
+        row := s.history_rows() + y - terminal_bound(offset, 0, s.history_rows())
+        if row >= s.history_rows() { return s.cell_at(x, row - s.history_rows()) }
+        ref saved : TerminalHistoryRow = s.history[((s.history_head + row).mod(s.history_rows())).to_usize()]
+        if x >= saved.cells.len().to_i64() { return s.history_blank }
+        ref cell : TerminalCell = saved.cells[x.to_usize()]
+        if cell.span == 2 && x + 1 >= s.columns { return s.history_blank }
+        return cell
     }
 
     priv current_cursor := func(s: TerminalScreen) returns TerminalCursor {
@@ -180,6 +231,9 @@ namespace:
     }
 
     priv alternate_mode := func(mut s: TerminalScreen, mode: I64, enabled: Bool) {
+        // Invalidate even hidden viewport anchors if an entire alternate-screen
+        // visit occurs between host updates. Internal resize swaps do not count.
+        if mode != 1048 && enabled && !s.alternate_active { s.history_generation++ }
         if mode == 1048 {
             if enabled { s.save() } else { s.restore() }
         } else if mode == 47 {
@@ -244,7 +298,7 @@ namespace:
 
     linefeed := func(mut s: TerminalScreen) {
         s.pending_wrap = false
-        if s.y == s.bottom { s.scroll(s.top, s.bottom, 1) }
+        if s.y == s.bottom { s.remember(1); s.scroll(s.top, s.bottom, 1) }
         else if s.y < s.rows - 1 { s.y = s.y + 1 }
     }
 
@@ -437,7 +491,8 @@ namespace:
             cursor := s.y * s.columns + s.x
             if a == 0 { s.erase(cursor, s.rows * s.columns) }
             if a == 1 { s.erase(0, cursor + 1) }
-            if a == 2 || a == 3 { s.erase(0, s.rows * s.columns) }
+            if a == 2 { s.erase(0, s.rows * s.columns) }
+            if a == 3 && !s.alternate_active { s.clear_history() }
         case 75:
             start := s.y * s.columns
             if a == 0 { s.erase(start + s.x, start + s.columns) }
@@ -450,7 +505,7 @@ namespace:
         case 64: s.shift(n)
         case 80: s.shift(0 - n)
         case 88: s.erase(s.y * s.columns + s.x, s.y * s.columns + terminal_bound(s.x + n, 0, s.columns))
-        case 83: s.scroll(s.top, s.bottom, n)
+        case 83: s.remember(n); s.scroll(s.top, s.bottom, n)
         case 84: s.scroll(s.top, s.bottom, 0 - n)
         case 103:
             if a == 0 { s.tabs[s.x.to_usize()] = false }
@@ -574,7 +629,9 @@ namespace:
                 case 72: s.tabs[s.x.to_usize()] = true
                 case 90: s.replies = format(s.replies, terminal_escape("[?1;2c"))
                 case 99:
-                    fresh := TerminalScreen.new(s.columns, s.rows)
+                    mut fresh := TerminalScreen.new(s.columns, s.rows)
+                    fresh.history_limit = s.history_limit
+                    fresh.history_generation = s.history_generation + 1
                     s = fresh
                 }
                 pos++; continue
@@ -598,6 +655,37 @@ namespace:
             if c == -1 { s.pending = data.substr(pos, data.len() - pos).clone(); break }
             s.put(c)
         }
+    }
+}
+
+// One viewport per host pane, independent of the shared session/GPU resources.
+TerminalViewport := struct {
+    offset : I64 = 0
+    priv total : I64 = 0
+    priv generation : I64 = 0
+namespace:
+    new := func() returns TerminalViewport { return TerminalViewport() }
+    sync := func(mut v: TerminalViewport, s: TerminalScreen) {
+        if v.generation != s.history_generation || s.alternate_active { v.offset = 0 }
+        else if v.offset > 0 { v.offset = v.offset + s.history_total - v.total }
+        v.offset = terminal_bound(v.offset, 0, s.history_rows())
+        v.total = s.history_total; v.generation = s.history_generation
+    }
+    scroll := func(mut v: TerminalViewport, s: TerminalScreen, lines: I64) {
+        v.sync(s)
+        if !s.alternate_active { v.offset = terminal_bound(v.offset + lines, 0, s.history_rows()) }
+    }
+    // True consumes navigation. Other actual input returns only this view to live.
+    event := func(mut v: TerminalViewport, s: TerminalScreen, key: I64, mods: I32, action: I32, rows: I64) returns Bool {
+        v.sync(s)
+        if !s.alternate_active && mods.band(7) == 1 && (key == 266 || key == 267) && (action == 1 || action == 2) {
+            mut amount := terminal_bound(rows - 1, 1, s.rows)
+            if key == 267 { amount = 0 - amount }
+            v.scroll(s, amount)
+            return true
+        }
+        if action == 3 || ((action == 1 || action == 2) && (key < 340 || key > 347)) { v.offset = 0 }
+        return false
     }
 }
 

@@ -79,15 +79,36 @@ namespace:
                     (rect.height - mode_h).cast(I64) / slot.view.cell_height)
             }
             slot.terminal.pump()
+            for index : USize in editor.views() {
+                if editor.nodes[index].view.buffer == slot.owner {
+                    editor.nodes[index].view.terminal_viewport.sync(slot.terminal.screen)
+                }
+            }
             buffer.terminal_running = !slot.terminal.ended
             if slot.terminal.ended { buffer.terminal_status = slot.terminal.session.status() }
         }
     }
 
-    event := proc(mut self: EditorTerminals, index: I64, key: I32, mods: I32, action: I32) {
+    event := proc(mut self: EditorTerminals, mut editor: EditorState, index: I64, key: I32, mods: I32, action: I32, mode_h: I32) {
         ref mut slot : EditorTerminal = self.slots[index.to_usize()]
         assert(slot.active)
-        slot.terminal.event(key.cast(I64), mods, action)
+        ref mut node : EditorNode = editor.nodes[editor.focused]
+        rows := (node.rect.height - mode_h).cast(I64) / slot.view.cell_height
+        if !node.view.terminal_viewport.event(slot.terminal.screen, key.cast(I64), mods, action, rows) {
+            slot.terminal.event(key.cast(I64), mods, action)
+        }
+    }
+
+    wheel := func(self: EditorTerminals, mut editor: EditorState, lines: I64, x: F32, y: F32, mode_h: I32) {
+        for index : USize in editor.views() {
+            ref mut node : EditorNode = editor.nodes[index]
+            ref rect : EditorRect = node.rect
+            terminal := editor.buffers[node.view.buffer].terminal
+            if terminal >= 0 && x >= rect.x.to_f32() && x < (rect.x + rect.width).to_f32() &&
+                y >= rect.y.to_f32() && y < (rect.y + rect.height - mode_h).to_f32() {
+                node.view.terminal_viewport.scroll(self.slots[terminal.to_usize()].terminal.screen, lines)
+            }
+        }
     }
 
     close := proc(mut self: EditorTerminals) {
