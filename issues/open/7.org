@@ -1,0 +1,48 @@
+# priority: medium
+# category: features
+** OPEN #7 Detach and reattach terminal sessions across GUI lifetimes
+
+Provide tmux/Screen-style process continuity to tilminal and embedded Tiled
+terminals: closing or restarting a frontend can detach while its shell and
+jobs remain alive. This complements disk-backed workspace restoration in
+[[file:../fixed/6.org][#6]]; neither feature is a substitute for the other.
+
+*** Design and scope
+
+- Define ownership outside the GUI process: a session service or equivalent
+  persistent owner for PTY/ConPTY handles, child processes and final-output
+  draining. Keep terminal emulation in the existing libterminal rather than
+  adding another parser/screen implementation.
+- Specify whether the owner also retains screen/parser/input-mode/scrollback
+  state and how a frontend obtains a consistent initial snapshot plus ordered
+  subsequent output. Reattaching must not lose output, duplicate input or
+  mistake an alternate screen for the primary shell.
+- Use stable session identities. Separate detach, attach, new shell, terminate
+  and forget operations, with clear default close/quit policy in both hosts.
+- Specify multiple attachments: who owns input/focus and PTY size, how hidden
+  or detached output is handled, and what happens when a client disappears.
+- Define local transport, discovery, version/ownership contracts, disconnect
+  handling and lifecycle of abandoned/exited sessions before adding a protocol.
+- Coordinate command and cwd metadata with shell integration where needed;
+  do not infer editable shell state from rendered prompt text.
+- Specify a staged POSIX implementation and the ConPTY differences. Keep
+  ordinary in-process sessions available to consumers that do not need a
+  persistent service. Library code need not imply a mandatory daemon.
+
+Detach survives frontend exit or connection loss while the session owner is
+alive. Reboot, owner failure and arbitrary application-state checkpointing are
+different problems. Recovery must distinguish a still-running process from a
+new process launched using recorded metadata; do not silently replay commands.
+
+*** Acceptance
+
+- Start a job, detach, exit/restart the GUI and reattach to the same job.
+- Preserve alternate-screen state and output produced while detached.
+- Verify ordered input/output, one resize owner, explicit termination/reaping,
+  multiple clients, client crashes and owner-unavailable recovery.
+- Reattach from either tilminal or Tiled using the shared session interface.
+
+References: tmux's server/client/session ownership (=tmux.1= in the reference
+checkout), and [[https://www.gnu.org/software/screen/manual/html_node/Detach.html][GNU Screen detach/autodetach]].
+Related: [[file:3.org][#3 terminals]], [[file:4.org][#4 libterminal organization]],
+[[file:../fixed/6.org][#6 workspace restoration]] and [[file:8.org][#8 shared workspace/WM libraries]].

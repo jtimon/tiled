@@ -1,0 +1,134 @@
+* Saved workspaces
+
+[[file:../README.org][Tiled]] | [[file:configuration.org][Configuration]] | [[file:terminal.org][Terminals]]
+
+Tiled and interactive tilminal save and restore the =default= session
+automatically. Checkpoints are taken every two seconds when state changes,
+and at normal exit. No editor configuration or plugin is needed to enable it.
+
+** What is restored
+
+- Tiled: open files, scratch text, unsaved edits, split tree, focused pane,
+  independent text points/scroll positions, buffer-switching histories and
+  frame geometry. Native buffer slots and window handles are not persisted;
+  the file contains stable resource/view identities and a validated tree.
+- Clean file buffers reload current disk contents. Dirty buffers restore their
+  checkpoint text without writing to the original file. If the file changed
+  or disappeared, the mode line identifies the recovery; cursor positions are
+  clamped to valid UTF-8 boundaries after reload.
+- Embedded terminals restore as editable, clearly labelled saved-output buffers,
+  including scrollback and an alternate-screen transcript when applicable.
+  Their original processes are not attached. =C-x t= from such a buffer starts
+  a new shell in its saved directory if still available.
+- Standalone tilminal restores output into the new screen/history and starts a
+  fresh shell, with an explicit banner. Linux records the shell process's last
+  known cwd through =/proc=; other platforms retain the configured launch cwd.
+  Missing directories fall back to the current launch directory with a notice.
+- Frame geometry is clamped to the current monitor work area. Current hosts
+  have one OS frame; tabs and external desktop clients will be integrated when
+  those features arrive.
+
+This restores a workspace, not process memory. Shell variables, running jobs,
+terminal rendition/parser state and live selections are not recreated by
+replaying commands. [[file:../issues/open/7.org][Detach/reattach]] is the separate mechanism for keeping
+processes alive across GUI lifetimes.
+
+** Exit and recovery
+
+Dirty text buffers still offer Save, Discard and Cancel. With session saving
+available they also offer =keep=: retain unsaved text in the session without
+saving over the document. If that checkpoint fails, Keep leaves the editor
+open so the user can retry or save/discard explicitly. Cancelling an exit
+attempt preserves all in-memory edits, including earlier discard decisions.
+
+A completed exit applies discard/close decisions to both stored generations;
+fallback recovery will not resurrect deliberately discarded edits from the
+previous checkpoint. A crash can lose changes since the latest checkpoint.
+Session saving is distinct from document backups and explicit file saves.
+
+The current checkpoint is written through a temporary file, flushed and
+atomically renamed. The previous valid generation is retained. On Linux the
+file and parent directory are synced. Loading validates framing, checksum,
+version, identities, references and layout bounds before adopting state.
+Truncated/invalid current data falls back to =.previous=. If neither generation
+can be loaded, the originals are preserved and a separately named recovery
+session is used instead of overwriting them.
+
+** Names, fresh starts and concurrent instances
+
+#+begin_src sh
+./bin/tiled --session work
+./bin/tiled --session work README.org
+./bin/tiled --session scratch-test --fresh
+./bin/tiled --no-session README.org
+./bin/tilminal --session work
+#+end_src
+
+=--session NAME= selects a profile. Names contain 1..128 letters, digits,
+hyphens or underscores. =--fresh= skips restoration and starts replacing the
+selected profile with the new workspace as checkpoints are saved.
+=--no-session= disables both loading and writing. =--= ends option parsing.
+A command-line file opens in the restored focused pane, reusing an existing
+buffer (and its unsaved edits) when already present. =config.initial_file= is
+used only when there is no restored workspace or command-line file.
+
+One process holds the profile's OS lock. A second instance automatically gets
+a fresh profile named =NAME-PID-N= and reports that name; it does not overwrite
+the first instance. Reopen that exact name to resume its workspace later.
+The lock is released on process exit/crash; a leftover =.lock= filename does
+not mean a session is still locked.
+
+One-shot =tilminal 'command'= invocations do not touch the interactive default
+session. An explicit =--session NAME= opts a one-shot invocation into persistence.
+
+** Configuration and storage
+
+In either host's existing Til =init= function:
+
+#+begin_src til
+config.session.enabled = true
+config.session.restore = true
+config.session.name = "default"
+config.session.interval_ms = 2000 // Minimum 100 ms.
+// config.commands.bind("global", "F12", "session-save")
+#+end_src
+
+These are the defaults; CLI flags override the corresponding settings.
+=session-save= requests a checkpoint at the next update. Configuration remains
+in =~/.tiled/init.til= or =~/.tilminal.til=; saved state is data, never executed
+as configuration code.
+
+Files live under =~/.tiled/sessions/= and =~/.tilminal/sessions/= respectively:
+=NAME.session=, =NAME.session.previous= and =NAME.session.lock=. The shared
+version-1 codec uses length-framed fields with a =tiled-session-1= envelope and
+an FNV-1a-derived integrity checksum. It stores editor/terminal resource data,
+not memory layouts. Unknown versions are preserved rather than guessed at.
+Checkpoints are bounded to 64 MiB, 10,000 editor resources/layout nodes and
+10,000 history entries per pane; text baselines count toward the byte limit.
+Oversized writes are refused with a diagnostic. Native Windows/macOS runtime
+validation remains pending.
+
+** Verification and references
+
+#+begin_src sh
+./make.til
+til run --usize=64 -o tmp/check_session_model -c tmp/check_session_model.c test/session_model.til
+til interpret --usize=64 test/session_model.til
+til run --asan --usize=64 -o tmp/check_session_store -c tmp/check_session_store.c test/session_store.til
+til run --usize=64 -o tmp/check_session_directory -c tmp/check_session_directory.c test/session_directory.til
+til build --usize=64 -o tmp/check_session_gui -c tmp/check_session_gui.c test/session_gui.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_session_gui
+til build --usize=64 -o tmp/check_tilminal_session_gui -c tmp/check_tilminal_session_gui.c test/tilminal_session_gui.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_tilminal_session_gui
+#+end_src
+
+Tests cover normal restart/Keep, SIGKILL recovery, discard sealing, changed and
+missing files, corrupt/truncated data, write failure, concurrent writers,
+fresh/disabled sessions, terminal output and cwd restoration. The store/native
+checkpoint bridge passes ASAN with leak detection. Existing exit tests use
+=--fresh= where each case requires an independent fixture state.
+
+References include Emacs desktop/save-place/savehist, tmux/Screen process
+ownership, Ghostty restoration, and [[https://github.com/retroj/conkeror][Conkeror]]'s =modules/session.js= for named
+browser-buffer sessions. Their source references live in =.inspirations/=;
+no personal editor configuration is needed or accessed.

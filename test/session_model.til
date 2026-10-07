@@ -1,0 +1,38 @@
+mode cli
+import("../src/editor_session")
+
+main := proc() {
+    assert(SessionArgs.parse("").has_operand)
+    assert(!SessionArgs.parse("--fresh").has_operand)
+    assert(SessionArgs.parse("--", "--literal").operand == "--literal")
+    mut editor := EditorState.new("", "hello 界\nworld")
+    editor.arrange(0, EditorRect(width = 1000, height = 700))
+    assert(editor.split(true, 100, 100))
+    editor.insert("unsaved ")
+    other := editor.add_buffer("", "hidden")
+    editor.switch_buffer(other)
+    editor.next_view()
+    bytes := EditorCheckpoint.encode(editor, SessionFrame(x = -50, y = 10), Vec(SessionTerminalOutput).new(), Vec(USize).new())
+    mut restored := EditorCheckpoint.decode(bytes)
+    assert(restored.error == "")
+    assert(restored.editor.buffers[0].text == "unsaved hello 界\nworld")
+    assert(restored.editor.buffers[0].dirty)
+    assert(restored.editor.views().len() == 2)
+    assert(restored.frame.x == -50)
+    assert(restored.editor.nodes[restored.editor.focused].session_id == editor.nodes[editor.focused].session_id)
+    assert(restored.recover_files() == 0)
+    assert(EditorCheckpoint.decode(bytes.substr(0, bytes.len() - 1)).error.len() > 0)
+    assert(EditorCheckpoint.decode(bytes.replace("hello", "jello")).error.len() > 0)
+    for size in 0..bytes.len() { assert(EditorCheckpoint.decode(bytes.substr(0, size)).error.len() > 0) }
+    mut duplicate := editor.clone()
+    ref mut second : EditorBuffer = duplicate.buffers[1]
+    second.session_id = duplicate.buffers[0].session_id
+    invalid := EditorCheckpoint.encode(duplicate, SessionFrame(), Vec(SessionTerminalOutput).new(), Vec(USize).new())
+    assert(EditorCheckpoint.decode(invalid).error.contains("duplicate identity"))
+    mut bad_root := editor.clone()
+    ref mut root : EditorNode = bad_root.nodes[0]
+    root.session_id = bad_root.buffers[0].session_id
+    invalid_root := EditorCheckpoint.encode(bad_root, SessionFrame(), Vec(SessionTerminalOutput).new(), Vec(USize).new())
+    assert(EditorCheckpoint.decode(invalid_root).error.contains("duplicate identity"))
+    println("PASS: workspace encoding, identities, layouts, Unicode and corruption detection")
+}

@@ -1,0 +1,203 @@
+mode lib
+import("editor_model")
+import("session_codec")
+
+SessionTerminalOutput := struct { id : I64; text : Str; directory := "" }
+EditorCheckpoint := struct {
+    editor := EditorState.new("", "")
+    frame := SessionFrame()
+    error := ""
+namespace:
+    write_view := func(mut w: SessionWriter, editor: EditorState, view: EditorView) {
+        w.number(editor.buffers[view.buffer].session_id)
+        w.number(view.cursor.to_i64()); w.number(view.scroll_x.cast(I64)); w.number(view.scroll_y.cast(I64))
+        w.number(view.terminal_viewport.offset)
+    }
+    write_node := func(mut w: SessionWriter, editor: EditorState, index: USize) {
+        ref node : EditorNode = editor.nodes[index]
+        w.number(node.session_id)
+        if node.first >= 0 {
+            if node.side_by_side { w.put("columns") } else { w.put("rows") }
+            EditorCheckpoint.write_node(w, editor, node.first.to_usize())
+            EditorCheckpoint.write_node(w, editor, node.second.to_usize())
+        } else {
+            w.put("view"); EditorCheckpoint.write_view(w, editor, node.view)
+            w.number(node.history.len().to_i64())
+            for view : EditorView in node.history { EditorCheckpoint.write_view(w, editor, view) }
+        }
+    }
+    encode := func(editor: EditorState, frame: SessionFrame, outputs: Vec(SessionTerminalOutput), discarded: Vec(USize)) returns Str {
+        // Refuse states beyond the reader's documented bounds rather than
+        // publishing a checkpoint that this version cannot reopen.
+        if editor.live_buffers().len() > 10000 || editor.views().len() > 5000 { return "" }
+        for index : USize in editor.views() { if editor.nodes[index].history.len() > 10000 { return "" } }
+        mut w := SessionWriter()
+        w.put("editor"); frame.write(w)
+        w.number(editor.next_session_id); w.number(editor.nodes[editor.focused].session_id)
+        w.number(editor.live_buffers().len().to_i64())
+        for index : USize in editor.live_buffers() {
+            ref buffer : EditorBuffer = editor.buffers[index]
+            w.number(buffer.session_id)
+            mut kind := "text"
+            mut text := buffer.text.clone()
+            mut baseline := buffer.disk_text.clone()
+            mut label := buffer.label.clone()
+            mut dirty := buffer.dirty
+            mut directory := buffer.saved_directory.clone()
+            if buffer.restored_terminal { kind = "terminal-output" }
+            if buffer.terminal >= 0 {
+                kind = "terminal-output"; label = format(buffer.terminal_name, " [saved output]")
+                mut found := false
+                for output : SessionTerminalOutput in outputs {
+                    if output.id == buffer.session_id { text = output.text.clone(); directory = output.directory.clone(); found = true; break }
+                }
+                if !found { panic("missing terminal output for checkpoint") }
+                baseline = text.clone(); dirty = false
+            }
+            for id : USize in discarded { if id == index { text = baseline.clone(); dirty = false } }
+            w.put(kind); w.put(buffer.filename); w.put(text); w.put(baseline)
+            if dirty { w.number(1) } else { w.number(0) }
+            w.put(label)
+            w.put(directory)
+        }
+        EditorCheckpoint.write_node(w, editor, 0)
+        w.put("end")
+        return w.finish()
+    }
+    claim := func(mut r: SessionReader, mut ids: Vec(I64), limit: I64) returns I64 {
+        id := r.number()
+        if r.error.len() > 0 { return 0 }
+        if id == 0 || id >= limit { r.error = "invalid resource/view identity"; return 0 }
+        for old : I64 in ids { if old == id { r.error = "duplicate identity"; return 0 } }
+        ids.push(own id.clone())
+        return id
+    }
+    read_view := func(mut r: SessionReader, editor: EditorState) returns EditorView {
+        id := r.number()
+        mut buffer : I64 = -1
+        for index in 0..editor.buffers.len() { if editor.buffers[index].session_id == id { buffer = index.to_i64(); break } }
+        point := r.number(67108864); x := r.number(2147483647); y := r.number(2147483647); offset := r.number(1000000)
+        if buffer < 0 { r.error = "view references an absent buffer"; return EditorView() }
+        mut view := EditorView(buffer = buffer.to_usize(), cursor = point.to_usize(), scroll_x = x.to_i32(), scroll_y = y.to_i32())
+        view.terminal_viewport.offset = offset
+        return view
+    }
+    read_node := func(mut r: SessionReader, mut out: EditorCheckpoint, mut ids: Vec(I64), parent: I32, focus: I64, depth: I64) returns USize {
+        if depth > 128 || out.editor.nodes.len() >= 10000 { r.error = "layout is too large"; return 0 }
+        if r.error.len() > 0 { return 0 }
+        id := EditorCheckpoint.claim(r, ids, out.editor.next_session_id)
+        if r.error.len() > 0 { return 0 }
+        kind := r.take()
+        index := out.editor.nodes.len()
+        out.editor.nodes.push(own EditorNode(session_id = id, parent = parent))
+        if kind == "view" {
+            view := EditorCheckpoint.read_view(r, out.editor)
+            mut history := Vec(EditorView).new()
+            count := r.number(10000)
+            for _ in 0..count {
+                if r.error.len() > 0 { break }
+                history.push(own EditorCheckpoint.read_view(r, out.editor))
+            }
+            ref mut node : EditorNode = out.editor.nodes[index]
+            node.view = view; node.history = history
+            if id == focus { out.editor.focused = index }
+        } else if kind == "columns" || kind == "rows" {
+            first := EditorCheckpoint.read_node(r, out, ids, index.to_i32(), focus, depth + 1)
+            second := EditorCheckpoint.read_node(r, out, ids, index.to_i32(), focus, depth + 1)
+            ref mut node : EditorNode = out.editor.nodes[index]
+            node.first = first.to_i32(); node.second = second.to_i32(); node.side_by_side = kind == "columns"
+        } else { r.error = "unknown layout node" }
+        return index
+    }
+    decode := func(bytes: Str) returns EditorCheckpoint {
+        mut r := SessionReader.open(bytes)
+        mut out := EditorCheckpoint()
+        if r.error.len() > 0 { out.error = r.error.clone(); return out }
+        if r.take() != "editor" { r.error = "not an editor workspace" }
+        out.frame = SessionFrame.read(r)
+        out.editor.next_session_id = r.number(9223372036854775806)
+        focus := r.number()
+        count := r.number(10000)
+        if count == 0 { r.error = "workspace has no buffers" }
+        out.editor.buffers.clear(); out.editor.nodes.clear()
+        mut ids := Vec(I64).new()
+        for _ in 0..count {
+            if r.error.len() > 0 { break }
+            id := EditorCheckpoint.claim(r, ids, out.editor.next_session_id)
+            if r.error.len() > 0 { break }
+            kind := r.take(); filename := r.take(); text := r.take(); baseline := r.take(); dirty := r.number(1) == 1; label := r.take(); directory := r.take()
+            if r.error.len() > 0 { break }
+            if kind != "text" && kind != "terminal-output" { r.error = "unknown resource kind" }
+            if filename.contains(Str.from_byte(0)) || directory.contains(Str.from_byte(0)) { r.error = "invalid filename/directory" }
+            mut buffer := EditorBuffer(session_id = id, filename = filename, text = text, disk_text = baseline, dirty = dirty,
+                label = label, restored_terminal = kind == "terminal-output", saved_directory = directory)
+            if buffer.restored_terminal { buffer.recovery_note = "not attached" }
+            out.editor.buffers.push(own buffer)
+        }
+        if r.error.len() == 0 {
+            EditorCheckpoint.read_node(r, out, ids, -1, focus, 0)
+            if r.error.len() == 0 {
+                if out.editor.nodes[out.editor.focused].session_id != focus || out.editor.nodes[out.editor.focused].first >= 0 {
+                    r.error = "invalid focused view"
+                }
+            }
+        }
+        if r.error.len() == 0 { if r.take() != "end" { r.error = "incomplete workspace" } }
+        r.done(); out.error = r.error.clone()
+        return out
+    }
+    clamp_view := func(mut view: EditorView, editor: EditorState) {
+        ref text : Str = editor.buffers[view.buffer].text
+        if view.cursor > text.len() { view.cursor = text.len() }
+        while view.cursor > 0 && view.cursor < text.len() {
+            if text.get(view.cursor).cast(I64).band(192) != 128 { break }
+            view.cursor = view.cursor - 1
+        }
+    }
+    recover_files := proc(mut out: EditorCheckpoint) returns I64 {
+        mut warnings : I64 = 0
+        for i in 0..out.editor.buffers.len() {
+            ref mut buffer : EditorBuffer = out.editor.buffers[i]
+            if buffer.filename.len() == 0 { continue }
+            mut error : I32 = 0
+            disk := workspace_read(buffer.filename, error)
+            if error != 0 {
+                buffer.dirty = true; buffer.recovery_note = "file missing/unreadable; recovered text"; warnings++
+            } else if !buffer.dirty {
+                buffer.text = disk.clone(); buffer.disk_text = disk
+            } else if disk != buffer.disk_text {
+                buffer.recovery_note = "disk changed; recovered edits"; warnings++
+            }
+        }
+        // Clamp after disk reload, including hidden buffer-history points.
+        for index : USize in out.editor.views() {
+            ref mut node : EditorNode = out.editor.nodes[index]
+            EditorCheckpoint.clamp_view(node.view, out.editor)
+            for i in 0..node.history.len() { EditorCheckpoint.clamp_view(node.history[i], out.editor) }
+        }
+        return warnings
+    }
+}
+
+editor_restore_session := proc(mut store: SessionStore, mut editor: EditorState, mut frame: SessionFrame) returns Bool {
+    if !store.enabled || !store.restore { return false }
+    mut broken := false
+    for suffix : Str in array(Str, "", ".previous") {
+        raw := store.read(suffix)
+        if raw.len() == 0 {
+            if File.exists(format(store.path, suffix)) { broken = true }
+            continue
+        }
+        mut loaded := EditorCheckpoint.decode(raw)
+        if loaded.error.len() > 0 { broken = true; continue }
+        warnings := loaded.recover_files()
+        editor = loaded.editor; frame = loaded.frame
+        store.main_good = suffix == ""
+        store.notice = format("Restored session ", store.name)
+        if suffix.len() > 0 { store.notice = format(store.notice, " from previous checkpoint") }
+        if warnings > 0 { store.notice = format(store.notice, "; ", warnings.to_str(), " recovered file(s), see mode lines") }
+        return true
+    }
+    if broken { store.preserve_broken() }
+    return false
+}

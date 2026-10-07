@@ -4,13 +4,32 @@
 
 ** Requirements
 
-Tiled currently targets installed Til version =0.0.1-b444d7223= (check with
+Tiled currently targets installed Til version =0.0.1-3bcf0e933= (check with
 =til -v=). The =til= executable must be on =PATH=, with its standard library
 and GUI support installed. Til's native build also requires a C compiler.
 
 The build driver is Til code: =make.til=, not a GNU Makefile. GNU Make is not
 required to build this project. Unlike the Til compiler's own bootstrap,
 Tiled assumes a working installed Til compiler and builds directly with it.
+
+The =3bcf0e933= upgrade passed both host builds, compiled/interpreted model
+checks, ASAN checkpoint tests, installed-library consumers and GUI workflows.
+It exposed a compiler cleanup bug for an ignored managed return value followed
+by an early return. The launchers now leave argument parsing to the actual
+application entry point instead of redundantly discarding =SessionArgs.parse='s
+result. =test/keymap_gui.til= covers both configured startup/shutdown paths.
+Minimal compiler reproducer (run with =til run --asan= and a string argument):
+
+#+begin_src til
+mode cli
+Result := struct { text : Str }
+make_result := func(text: Str) returns Result { return Result(text = text.clone()) }
+main := proc(args: ..Str) {
+    make_result(args[0])
+    if args.len() > 0 { return }
+    println("unreachable")
+}
+#+end_src
 
 Til's =make install= installs its support tree under =<prefix>/lib/til/=
 (normally =/usr/local/lib/til/=). Core and the GUI prelude are loaded from
@@ -53,7 +72,7 @@ works. Using =run= allows Til to reuse its cached compiled driver.
 
 =./make.til clean= removes =bin/=, =gen/= and =tmp/= from the repository
 root. Rebuild afterwards before running the applications. Reference checkouts
-live in Git-ignored =.inspirations/= (Emacs, Neovim, tmux and Ghostty), which
+live in Git-ignored =.inspirations/= (Emacs, Neovim, tmux, Ghostty and Conkeror), which
 =clean= preserves. Treat =tmp/= as disposable scratch, not reference storage.
 
 This builds =libterminal= independently and statically links =bin/tiled= and

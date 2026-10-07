@@ -4,6 +4,10 @@
 * Features
 ** Medium
 *** [[./open/5.org][#5]] Configure commands and keybindings in Til for Tiled and tilminal
+*** [[./open/7.org][#7]] Detach and reattach terminal sessions across GUI lifetimes
+*** [[./open/8.org][#8]] Unify workspace policy through reusable layout and window-manager libraries
+*** [[./open/9.org][#9]] Add tilminal tabs and optional Tiled buffer tab bars
+*** [[./open/10.org][#10]] Add an optional familiar menu bar backed by named commands
 * Examples
 ** Low
 *** [[./open/1.org][#1]] tiled: editor, window manager, terminal and more

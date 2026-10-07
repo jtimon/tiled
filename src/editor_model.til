@@ -4,10 +4,16 @@ import("../gen/terminal_api")
 // Buffers own text or reference host-owned terminals. Leaves own views;
 // branches own layout decisions, never native terminal resources.
 EditorBuffer := struct {
+    session_id : I64 = 0
     alive := true
     filename := ""
     text := ""
     dirty := false
+    disk_text := ""
+    label := ""
+    recovery_note := ""
+    restored_terminal := false
+    saved_directory := ""
     // Native sessions live in the host's owning pool, not in clonable layout data.
     terminal : I64 = -1
     terminal_name := ""
@@ -46,6 +52,7 @@ EditorRect := struct {
 }
 
 EditorNode := struct {
+    session_id : I64 = 0
     alive := true
     parent : I32 = -1
     first : I32 = -1
@@ -58,6 +65,7 @@ EditorNode := struct {
 
 editor_buffer_name := func(buffer: EditorBuffer) returns Str {
     if buffer.terminal >= 0 { return buffer.terminal_name.clone() }
+    if buffer.label.len() > 0 { return buffer.label.clone() }
     if buffer.filename.len() == 0 { return "*scratch*" }
     start := (buffer.filename.rfind("/") + 1).to_usize()
     return buffer.filename.substr(start, buffer.filename.len() - start).clone()
@@ -133,26 +141,29 @@ EditorState := struct {
     buffers : Vec(EditorBuffer)
     nodes : Vec(EditorNode)
     focused : USize = 0
+    next_session_id : I64 = 3
 
 namespace:
     new := func(filename: Str, text: Str) returns EditorState {
         mut buffers := Vec(EditorBuffer).new()
-        buffers.push(own EditorBuffer(filename = filename.clone(), text = text.clone()))
+        buffers.push(own EditorBuffer(session_id = 1, filename = filename.clone(), text = text.clone(), disk_text = text.clone()))
         mut nodes := Vec(EditorNode).new()
-        nodes.push(own EditorNode())
+        nodes.push(own EditorNode(session_id = 2))
         return EditorState(buffers = buffers, nodes = nodes)
     }
 
     add_node := func(mut self: EditorState, node: EditorNode) returns USize {
+        mut added := node.clone()
+        added.session_id = self.next_session_id; self.next_session_id = self.next_session_id + 1
         mut i : USize = 0
         while i < self.nodes.len() {
             if !self.nodes[i].alive {
-                self.nodes.set(i, own node.clone())!
+                self.nodes.set(i, own added)!
                 return i
             }
             i++
         }
-        self.nodes.push(own node.clone())
+        self.nodes.push(own added)
         return i
     }
 
@@ -269,7 +280,7 @@ namespace:
         view := self.nodes[self.focused].view.clone()
         history := self.nodes[self.focused].history.clone()
         mut nodes := Vec(EditorNode).new()
-        nodes.push(own EditorNode(view = view, history = history))
+        nodes.push(own EditorNode(session_id = self.nodes[self.focused].session_id, view = view, history = history))
         self.nodes = nodes
         self.focused = 0
     }
@@ -297,7 +308,8 @@ namespace:
     }
 
     add_buffer := func(mut self: EditorState, filename: Str, text: Str) returns USize {
-        buffer := EditorBuffer(filename = filename.clone(), text = text.clone())
+        buffer := EditorBuffer(session_id = self.next_session_id, filename = filename.clone(), text = text.clone(), disk_text = text.clone())
+        self.next_session_id = self.next_session_id + 1
         for id in 0..self.buffers.len() {
             if !self.buffers[id].alive {
                 self.buffers.set(id, own buffer.clone())!

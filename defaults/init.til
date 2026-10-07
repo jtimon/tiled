@@ -11,6 +11,10 @@ init := func(mut config: TiledConfig) {
     config.height = 700
     // Font size in pixels; increase or decrease this to suit your display.
     config.font_size = 28
+    // Sessions save/restore automatically; see doc/sessions.org.
+    // config.session.enabled = false
+    // config.session.name = "work"
+    // config.session.interval_ms = 2000
     // Commands/keymaps are ordinary Til configuration; see doc/keybindings.org.
     // config.commands.bind("terminal", "C-v", "paste")
     // config.commands.bind("terminal", "C-S-v", "forward-key", true)

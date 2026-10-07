@@ -13,6 +13,10 @@ and its shared terminal modules live here; embedding terminal buffers is
 tracked by [[./3.org][#3]]. See [[file:../../doc/progress.org][progress]] and [[file:../../doc/architecture.org][architecture]] for implemented
 behaviour. The broader integrated-environment plan below remains open.
 
+Default session restoration is implemented in [[file:../fixed/6.org][#6]]. Focused follow-ups: [[file:7.org][#7 detachable terminals]],
+[[file:8.org][#8 shared workspace/window-manager libraries]], [[file:9.org][#9 terminal and buffer tabs]],
+and [[file:10.org][#10 an optional familiar menu bar]].
+
 *** Original design
 
 Application development now lives in [[https://github.com/jtimon/tiled][jtimon/tiled]], including standalone

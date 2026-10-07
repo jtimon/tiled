@@ -7,7 +7,7 @@ event loop. See [[file:../../doc/terminal.org][terminal development]] and [[file
 
 ** Building and selecting linkage
 
-From the repository root, using installed Til =0.0.1-b444d7223=:
+From the repository root, using installed Til =0.0.1-3bcf0e933=:
 
 #+begin_src sh
 til interpret make.til library --opt=2
@@ -67,6 +67,11 @@ uses =$ORIGIN= to find its matching shared Til runtime/core siblings.
 
 - =TerminalSession.new(program)= creates a configured native session;
   =arg(value)= appends each argument before =start(columns, rows)=.
+- =set_directory(path)= chooses the child's startup directory before start.
+  =directory()= returns the last known directory (empty when unknown). On
+  Linux it queries the live child process through =/proc=; otherwise it retains
+  the configured directory. These methods support host-owned session metadata,
+  not process checkpoint/reattachment. Regenerate bindings for the added API.
 - On POSIX, =session.set_profile(term, database)= before startup selects
   child-local =TERM= and, when nonempty, =TERMINFO=. It does not modify the
   host environment. The default is =vt100=; Windows reports this optional

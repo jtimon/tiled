@@ -4,7 +4,7 @@
 
 ** Implemented and exercised
 
-- [[file:../make.til][make.til]] targets installed Til =0.0.1-b444d7223= to build Tiled and
+- [[file:../make.til][make.til]] targets installed Til =0.0.1-3bcf0e933= to build Tiled and
   tilminal. The editor is imported by Tiled, with no separate editor example
   or build target.
 - Application, build-script, example and test imports use =std/sys= following
@@ -12,7 +12,8 @@
   compiler's support tree; core continues to load automatically.
 - [[file:../src/tiled.til][src/tiled.til]] provides a build-time =VERSION= and =-v=/=--version=.
 - Startup checks =~/.tiled/init.til=. A missing file prints the defaults
-  notice and opens =*scratch*=. A working config lives at [[file:../defaults/init.til][defaults/init.til]].
+  notice; startup restores the workspace or opens =*scratch*= when there is no
+  saved session. A working config lives at [[file:../defaults/init.til][defaults/init.til]].
 - Startup checks exercised the copied example, configured window size and
   initial file, command-line file precedence, failing init code, and version
   output bypassing init. An init path containing spaces worked.
@@ -34,6 +35,12 @@
   =/home/jt/sync/data_common/tilcorp/tiled= and launched successfully there.
 
 ** Internal splits
+
+Default [[file:sessions.org][workspace persistence]] now restores files, recoverable unsaved text,
+split/focus/history state and frame geometry. Both hosts use shared versioned
+checkpoint I/O, writer locks and previous-generation recovery. Tiled has a Keep
+exit action; terminal resources restore honestly as output/new-shell state.
+Crash, corruption, concurrent-instance and discard tests pass on Linux.
 
 =C-x t= now opens a terminal buffer using the same component as standalone
 tilminal. Terminals participate in buffer switching and splits; hidden

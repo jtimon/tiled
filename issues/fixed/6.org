@@ -1,0 +1,103 @@
+# priority: medium
+# category: features
+** FIXED #6 Save and restore the workspace session by default
+
+*** Resolution
+
+Implemented the current single-frame editor/terminal milestone. Both hosts now
+checkpoint by default using shared versioned framing/checksum code and native
+atomic file I/O with OS writer locks. Tiled restores stable resource/view IDs,
+the split tree, focus/history/points, text baselines and unsaved contents;
+changed/missing files are recovered without writing over their source paths.
+Frame geometry is constrained to the available work area.
+
+Normal exit adds Keep; completed discard/close decisions seal both generations
+so previous-state fallback cannot resurrect them. Named sessions, fresh starts,
+disabled persistence, concurrent-instance forks, corrupt-state fallback and
+preservation of unreadable checkpoints are implemented. Terminal output/cwd
+metadata is restored with explicit new-shell/not-attached semantics.
+
+Verification: compiled/interpreted =test/session_model.til= (including every
+truncation and duplicate identities), =test/session_store.til= under ASAN with
+leak detection, =test/session_directory.til= and installed library consumers.
+Real GUI checks in =test/session_gui.til= cover Keep/restart, split/history state,
+offscreen geometry, SIGKILL recovery, discard sealing, fresh/disabled sessions
+and concurrent processes. =test/tilminal_session_gui.til= verifies output/cwd
+restoration and missing-directory recovery. Existing exit, embedded-terminal,
+clipboard, layout and buffer regressions pass. Native platform validation
+beyond Linux remains part of the existing platform follow-up work.
+
+See [[file:../../doc/sessions.org][session behavior, storage contract and test commands]]. Future tab/WM
+participants belong to [[file:../open/9.org][#9]] and [[file:../open/8.org][#8]]; keeping processes alive is [[file:../open/7.org][#7]].
+
+Reverified with installed Til =0.0.1-3bcf0e933=: both builds, ASAN store tests,
+compiled/interpreted models, installed consumers and all ten GUI drivers pass.
+The configured launchers no longer discard a redundant parsed-argument result;
+that exposed a double cleanup on early return in the newer compiler. The
+minimal compiler reproducer is recorded in [[file:../../doc/build.org][build compatibility notes]].
+
+*** Original scope
+
+Make reopening Tiled resume the user's workspace by default. Share the session
+model with tilminal and future desktop/window-manager hosting instead of
+building unrelated editor, terminal and desktop session formats.
+
+*** First milestone
+
+- Automatically checkpoint and restore open files, scratch buffers, recoverable
+  unsaved edits, split layout, focused view, per-view point/scroll state and
+  buffer history. Session saving is not automatically saving edits over the
+  user's original files. Respect explicit discard and buffer-close decisions.
+- Save on normal exit and periodically while running so a crash need not lose
+  the entire session. Use atomic replacement and retain a usable checkpoint
+  after an interrupted write. Missing/changed files and incomplete checkpoints
+  should produce useful recovery results rather than silent data loss.
+- Define session identity and concurrent-instance behavior so two application
+  processes cannot overwrite one another's session. Provide named sessions,
+  an explicit fresh start and a Til-configurable opt-out from default restore.
+- Define how command-line files interact with restored buffers/layouts and how
+  changed monitor/work-area geometry affects future frame restoration.
+
+*** Shared model and later participants
+
+Use stable workspace/resource/view identities, with participant-specific state:
+documents and recovery contents, terminal references, tab groups, frames and
+eventually external application windows. Do not persist native pointers,
+process-local slot numbers or stale window handles as restorable identities.
+
+For terminals, distinguish retained screen/scrollback, a recipe to start a new
+shell in a known cwd, and a handle to a still-running session. Restoring a
+layout must not claim to restore shell variables or running jobs by spawning
+a fresh shell. Live detach/reattach is tracked separately in [[file:../open/7.org][#7]].
+For external applications, reconnect where supported or record launch/placement
+intent; arbitrary application memory cannot be reconstructed by a WM.
+
+Choose and document storage location, versioned data representation, migration,
+checkpoint cadence and recovery policy during implementation. User policy can
+be Til code without requiring persisted runtime state to be executable config.
+The initial application-only milestone must not wait for a complete WM or
+Til's interpreter embedding API.
+
+*** Acceptance
+
+- Restart into the same files, scratch/unsaved contents, split/tab arrangement,
+  focus and independent view positions, without overwriting source files.
+- Exercise crash/interrupted-write recovery, explicit discard, changed/missing
+  files, two concurrent instances and a fresh-start/disabled-restore path.
+- Show terminal resource state honestly when the process is no longer alive.
+- Reuse the same session concepts as additional hosts and participants arrive.
+
+*** References
+
+- Emacs =desktop-save-mode= restores buffers and frame/window arrangements;
+  =save-place-mode= remembers file positions and =savehist-mode= keeps histories.
+  Unsaved-content recovery is a separate concern from desktop layout saving.
+  See the reference checkout's =lisp/desktop.el=, =saveplace.el= and =savehist.el=.
+- Ghostty =window-save-state= restores geometry, tabs and splits; cwd needs
+  shell integration. In the consulted checkout this is macOS-only and has no
+  effect on Linux (=src/config/Config.zig=).
+- tmux/Screen detach keeps processes alive; it is not a disk snapshot that
+  revives arbitrary processes after reboot.
+
+Related: [[file:../open/1.org][#1 integrated environment]], [[file:../open/5.org][#5 configurable commands]],
+[[file:../open/8.org][#8 shared workspace/WM libraries]] and [[file:../open/9.org][#9 tabs]].

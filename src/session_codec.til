@@ -1,0 +1,96 @@
+mode lib
+import("session_store")
+
+// Length-framed UTF-8/binary fields; session data is never evaluated as Til.
+SessionWriter := struct {
+    fields := Vec(Str).new()
+namespace:
+    put := func(mut w: SessionWriter, text: Str) { w.fields.push(own format(text.len().to_str(), ":", text, ",")) }
+    number := func(mut w: SessionWriter, n: I64) { w.put(n.to_str()) }
+    finish := func(w: SessionWriter) returns Str {
+        payload := join(w.fields, "")
+        mut outer := SessionWriter()
+        outer.put("tiled-session-1"); outer.number(workspace_hash(payload)); outer.put(payload)
+        return join(outer.fields, "")
+    }
+}
+SessionReader := struct {
+    data := ""
+    position : USize = 0
+    error := ""
+namespace:
+    take := func(mut r: SessionReader) returns Str {
+        if r.error.len() > 0 { return "" }
+        mut length : USize = 0
+        mut digits : I64 = 0
+        while r.position < r.data.len() {
+            c := r.data.get(r.position).cast(I64); r.position = r.position + 1
+            if c == 58 { break }
+            if c < 48 || c > 57 || digits > 8 { r.error = "invalid field length"; return "" }
+            length = length * 10 + (c - 48).to_usize(); digits++
+        }
+        if digits == 0 || length >= r.data.len() - r.position { r.error = "truncated field"; return "" }
+        end := r.position + length
+        if r.data.get(end) != ',' { r.error = "missing field delimiter"; return "" }
+        value := r.data.substr(r.position, length).clone()
+        r.position = end + 1
+        return value
+    }
+    number := func(mut r: SessionReader, maximum: I64 = 9223372036854775807) returns I64 {
+        if r.error.len() > 0 { return 0 }
+        text := r.take()
+        if text.len() == 0 { r.error = "missing number"; return 0 }
+        mut n : I64 = 0
+        for i in 0..text.len() {
+            digit := text.get(i).cast(I64) - 48
+            if digit < 0 || digit > 9 { r.error = "invalid number"; return 0 }
+            if n > (maximum - digit) / 10 || digit > maximum { r.error = "number out of range"; return 0 }
+            n = n * 10 + digit
+        }
+        return n
+    }
+    signed := func(mut r: SessionReader) returns I64 {
+        if r.error.len() > 0 { return 0 }
+        text := r.take()
+        mut value := text.clone()
+        negative := value.starts_with("-")
+        if negative { value = value.substr(1, value.len() - 1).clone() }
+        mut nested := SessionReader(data = format(value.len().to_str(), ":", value, ","))
+        n := nested.number(10000000)
+        if nested.error.len() > 0 { r.error = nested.error.clone() }
+        if negative { return 0 - n }
+        return n
+    }
+    done := func(mut r: SessionReader) returns Bool {
+        if r.error.len() > 0 { return false }
+        if r.position != r.data.len() { r.error = "unexpected trailing data" }
+        return r.error.len() == 0
+    }
+    open := func(data: Str) returns SessionReader {
+        mut outer := SessionReader(data = data.clone())
+        magic := outer.take(); checksum := outer.number(); payload := outer.take()
+        if magic != "tiled-session-1" { outer.error = "unsupported session version" }
+        if !outer.done() { return SessionReader(error = outer.error.clone()) }
+        if workspace_hash(payload) != checksum { return SessionReader(error = "session checksum mismatch") }
+        return SessionReader(data = payload)
+    }
+}
+
+SessionFrame := struct {
+    x : I64 = 0
+    y : I64 = 0
+    width : I64 = 800
+    height : I64 = 600
+    maximized := false
+namespace:
+    write := func(f: SessionFrame, mut w: SessionWriter) {
+        w.number(f.x); w.number(f.y); w.number(f.width); w.number(f.height)
+        if f.maximized { w.number(1) } else { w.number(0) }
+    }
+    read := func(mut r: SessionReader) returns SessionFrame {
+        if r.error.len() > 0 { return SessionFrame() }
+        x := r.signed(); y := r.signed(); width := r.number(32767); height := r.number(32767); maximized := r.number(1) == 1
+        if width < 1 || height < 1 { r.error = "invalid frame dimensions" }
+        return SessionFrame(x = x, y = y, width = width, height = height, maximized = maximized)
+    }
+}

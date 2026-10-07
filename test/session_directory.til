@@ -1,0 +1,28 @@
+mode cli
+import("std/sys")
+import("../gen/terminal_api")
+get_cwd_str := ext_proc() returns Str {}
+main := proc() {
+    if host_os() != "linux" { println("SKIP: Linux process cwd tracking"); return }
+    parent := format(get_cwd_str(), "/tmp/session-directory-", process_id().to_str())
+    dir := format(parent, "/child")
+    assert(mkdir_p(dir) == 0)
+    mut terminal := Terminal.new("/bin/sh")
+    terminal.session.set_directory(dir)
+    terminal.session.arg("-c"); terminal.session.arg("pwd; cd ..; printf READY; read answer")
+    terminal.start()
+    mut output := ""
+    for _ in 0..200 {
+        output = format(output, terminal.session.pump())
+        if output.contains("READY") { break }
+        sleep_ms(10)
+    }
+    assert(output.contains(dir) && output.contains("READY"))
+    assert(terminal.session.directory() == parent)
+    terminal.session.send("done\n")
+    for _ in 0..200 { terminal.pump(); if terminal.ended { break }; sleep_ms(10) }
+    assert(terminal.ended && terminal.session.status() == 0)
+    assert(terminal.session.directory() == parent)
+    terminal.close()
+    println("PASS: child startup directory and Linux last-known cwd tracking")
+}

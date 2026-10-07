@@ -11,7 +11,7 @@ namespace:
     new := func() returns EditorCommands {
         mut c := EditorCommands()
         terminal_keymaps(c.keys)
-        for name : Str in array(Str, "quit", "save-buffer", "find-file", "switch-buffer", "list-buffers", "kill-buffer", "new-terminal",
+        for name : Str in array(Str, "quit", "save-buffer", "session-save", "find-file", "switch-buffer", "list-buffers", "kill-buffer", "new-terminal",
             "split-below", "split-right", "other-view", "close-view", "only-view", "send-prefix", "set-mark", "cut",
             "left", "right", "up", "down", "home", "end", "newline", "backspace", "delete", "accept", "complete", "previous-choice", "next-choice") { c.keys.declare(name) }
         c.bind("global", "C-x C-c", "quit")

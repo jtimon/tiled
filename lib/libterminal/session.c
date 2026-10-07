@@ -33,6 +33,7 @@ typedef struct TerminalNative {
     size_t argc;
     char *term_env;
     char *terminfo_env;
+    char *directory;
     char *input;
     size_t input_len;
     int started, exited, eof, closed;
@@ -142,6 +143,32 @@ void terminal_session_profile(const void *handle, const Str *term, const Str *da
     free(s->term_env); free(s->terminfo_env);
     s->term_env = term_env; s->terminfo_env = info_env;
 #endif
+}
+
+void terminal_session_directory_set(const void *handle, const Str *directory) {
+    TerminalNative *s = (TerminalNative *)handle;
+    if (s->started || s->closed || !directory->count || memchr(directory->c_str, 0, directory->count)) {
+        terminal_error(s, "invalid terminal directory/state", EINVAL); return;
+    }
+    free(s->directory);
+    s->directory = terminal_alloc((size_t)directory->count + 1);
+    memcpy(s->directory, directory->c_str, directory->count);
+}
+Str *terminal_session_directory(const void *handle) {
+    TerminalNative *s = (TerminalNative *)handle;
+#if defined(__linux__)
+    if (s->started && !s->exited && s->child > 0) {
+        char proc[64], path[65536];
+        snprintf(proc, sizeof(proc), "/proc/%ld/cwd", (long)s->child);
+        ssize_t n = readlink(proc, path, sizeof(path) - 1);
+        if (n > 0) {
+            path[n] = 0;
+            free(s->directory); s->directory = strdup(path);
+            if (!s->directory) abort();
+        }
+    }
+#endif
+    return terminal_str(s->directory ? s->directory : "", s->directory ? strlen(s->directory) : 0);
 }
 
 #if defined(_WIN32)
@@ -290,11 +317,19 @@ void terminal_session_start(const void *handle, I64 columns, I64 rows) {
     PROCESS_INFORMATION pi;
     memset(&pi, 0, sizeof(pi));
     wchar_t *command = terminal_command(s);
+    wchar_t *directory = NULL;
+    if (s->directory) {
+        int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s->directory, -1, NULL, 0);
+        if (n) {
+            directory = terminal_alloc((size_t)n * sizeof(*directory));
+            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s->directory, -1, directory, n);
+        } else { terminal_error(s, "invalid UTF-8 directory", GetLastError()); }
+    }
     int initialized = InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &bytes);
     if (!initialized || !UpdateProcThreadAttribute(si.lpAttributeList, 0, 0x00020016,
-            s->console, sizeof(s->console), NULL, NULL) || !command ||
+            s->console, sizeof(s->console), NULL, NULL) || !command || (s->directory && !directory) ||
         !CreateProcessW(NULL, command, NULL, NULL, FALSE, EXTENDED_STARTUPINFO_PRESENT,
-                        NULL, NULL, &si.StartupInfo, &pi)) {
+                        NULL, directory, &si.StartupInfo, &pi)) {
         terminal_error(s, "CreateProcessW/ConPTY attributes", GetLastError());
     } else {
         s->process = pi.hProcess;
@@ -302,6 +337,7 @@ void terminal_session_start(const void *handle, I64 columns, I64 rows) {
         s->started = 1;
     }
     free(command);
+    free(directory);
     if (initialized) DeleteProcThreadAttributeList(si.lpAttributeList);
     free(si.lpAttributeList);
     CloseHandle(input_read);
@@ -360,6 +396,7 @@ void terminal_session_start(const void *handle, I64 columns, I64 rows) {
         // Prepared before fork: no setenv allocation in the child of a
         // potentially multi-threaded OpenGL host.
         environ = child_env;
+        if (s->directory && chdir(s->directory) != 0) goto child_error;
         execvp(s->argv[0], s->argv);
 child_error:
         err = errno;
@@ -552,6 +589,7 @@ void terminal_session_free(const void *handle) {
     free(s->input);
     free(s->term_env);
     free(s->terminfo_env);
+    free(s->directory);
 #if defined(_WIN32)
     DeleteCriticalSection(&s->lock);
 #endif

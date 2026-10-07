@@ -77,7 +77,7 @@ a command and a prefix in the same map: unbind the old subtree first.
 
 *** Built-in command names
 
-- Both hosts: =copy=, =paste=, =cancel-selection=, =scroll-page-up=,
+- Both hosts: =session-save=, =copy=, =paste=, =cancel-selection=, =scroll-page-up=,
   =scroll-page-down=, =forward-key=, =ignore=, =cancel= and =quit=.
 - Tiled: =save-buffer=, =find-file=, =switch-buffer=, =list-buffers=,
   =kill-buffer=, =new-terminal=, =split-below=, =split-right=, =other-view=,
@@ -203,6 +203,8 @@ the directories removed by =./make.til clean=. Design references:
 - [[https://github.com/ghostty-org/ghostty/blob/main/src/input/Binding.zig][Ghostty Binding.zig]]: actions separated from triggers, consumption and
   performable-only bindings. Tiled's selection maps provide the conditional
   copy behavior without adding a general predicate language in this first step.
+- [[https://github.com/retroj/conkeror][Conkeror]]: an extensible, keyboard-oriented browser, also checked out under
+  =.inspirations/conkeror/= for reference.
 
 - [[https://github.com/i3/i3/blob/next/etc/config][i3's default configuration]]: launching, focus/movement, workspaces and resize mode.
 - [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Key-Bindings.html][Emacs keybindings]]: named commands and prefix keymaps.

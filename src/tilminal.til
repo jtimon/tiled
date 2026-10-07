@@ -4,7 +4,6 @@ import("tilminal_app")
 import("config_loader")
 
 main := proc(args: ..Str) {
-    if args.len() > 1 { panic("usage: tilminal [command]") }
     home := get_env("HOME")
     if home.len() > 0 {
         path := format(home, "/.tilminal.til")

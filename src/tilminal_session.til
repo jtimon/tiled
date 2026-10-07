@@ -1,0 +1,45 @@
+mode lib
+import("session_codec")
+import("terminal_snapshot")
+
+tilminal_checkpoint := proc(terminal: Terminal, frame: SessionFrame) returns Str {
+    mut w := SessionWriter()
+    w.put("terminal-output"); frame.write(w)
+    w.put(terminal.session.directory()); w.put(terminal_saved_output(terminal.screen)); w.put("end")
+    return w.finish()
+}
+
+terminal_restore_text := func(mut screen: TerminalScreen, text: Str) {
+    mut index : USize = 0
+    while index < text.len() {
+        c := terminal_decode(text, index, true)
+        if c == 10 { screen.feed("\r\n") }
+        else if c >= 32 && c != 127 { screen.put(c) }
+    }
+}
+
+tilminal_restore_session := proc(mut store: SessionStore, mut terminal: Terminal, mut frame: SessionFrame) returns Bool {
+    if !store.enabled || !store.restore { return false }
+    mut broken := false
+    for suffix : Str in array(Str, "", ".previous") {
+        raw := store.read(suffix)
+        if raw.len() == 0 { if File.exists(format(store.path, suffix)) { broken = true }; continue }
+        mut r := SessionReader.open(raw)
+        kind := r.take(); saved_frame := SessionFrame.read(r); directory := r.take(); text := r.take(); end := r.take()
+        if kind != "terminal-output" || end != "end" || directory.contains(Str.from_byte(0)) { r.error = "invalid terminal checkpoint" }
+        if !r.done() { broken = true; continue }
+        frame = saved_frame
+        store.main_good = suffix == ""
+        store.notice = format("Restored output for ", store.name, "; starting a NEW shell, not reattaching")
+        if suffix.len() > 0 { store.notice = format(store.notice, " (previous checkpoint)") }
+        if directory.len() > 0 {
+            if File.is_dir(directory) { terminal.session.set_directory(directory) }
+            else { store.notice = format(store.notice, "; saved cwd unavailable, using launch directory") }
+        }
+        terminal_restore_text(terminal.screen, text)
+        terminal_restore_text(terminal.screen, format("\n[", store.notice, "]\n"))
+        return true
+    }
+    if broken { store.preserve_broken() }
+    return false
+}

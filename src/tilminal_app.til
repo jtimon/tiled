@@ -7,6 +7,8 @@ import("../gen/terminal_profile")
 import("window_input")
 import("terminal_clipboard")
 import("keymap")
+import("session_window")
+import("tilminal_session")
 
 TilminalAction := proc(mut Terminal, mut TerminalViewport)
 TilminalUserCommand := struct { name : Str; callback : TilminalAction }
@@ -18,6 +20,7 @@ namespace:
         mut c := TilminalCommands()
         terminal_keymaps(c.keys)
         c.keys.declare("quit")
+        c.keys.declare("session-save")
         c.keys.bind("prefix", "Escape", "cancel")
         return c
     }
@@ -44,7 +47,7 @@ namespace:
         return false
     }
 }
-TilminalConfig := struct { commands := TilminalCommands.new() }
+TilminalConfig := struct { commands := TilminalCommands.new(); session := SessionConfig() }
 
 // Use the same system monospace selection as Tiled. No font path depends on
 // a Til source checkout, the executable's directory, or the shell's cwd.
@@ -58,6 +61,11 @@ tilminal_font_path := proc() returns Str {
 }
 
 start_tilminal := proc(config: TilminalConfig, args: ..Str) {
+    options := SessionArgs.parse(..args)
+    mut settings := config.session.clone()
+    // One-shot invocations must not overwrite the interactive default session.
+    if options.has_operand && options.name.len() == 0 { settings.enabled = false }
+    mut session := SessionStore.new("tilminal", settings, options)
     mut shell := get_env("SHELL")
     windows := host_os() == "windows"
     if windows {
@@ -65,11 +73,11 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
         if shell.len() == 0 { shell = "cmd.exe" }
     } else if shell.len() == 0 { shell = "/bin/sh" }
     mut terminal := Terminal.new(shell)
+    terminal.session.set_directory(get_cwd_str())
     if TERMINAL_TERMINFO.len() > 0 { terminal.session.set_profile("tilminal", TERMINAL_TERMINFO) }
-    if args.len() > 1 { panic("usage: tilminal [command]") }
-    if args.len() == 1 {
+    if options.has_operand {
         if windows { terminal.session.arg("/C") } else { terminal.session.arg("-c") }
-        terminal.session.arg(args[0])
+        terminal.session.arg(options.operand)
     } else if windows.not() { terminal.session.arg("-i") }
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE.cast(U32))
@@ -82,13 +90,23 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
     mut view := TerminalView.new(font_path)
     mut viewport := TerminalViewport.new()
     mut key_state := KeyState()
+    mut frame := SessionFrame(width = 960, height = 640)
+    if tilminal_restore_session(session, terminal, frame) { session_restore_window(frame) }
+    if session.notice.len() > 0 { println(session.notice) }
     terminal.start()
     mut last_title := "tilminal"
+    mut checkpoint_at := GetTime()
+    mut checkpoint_now := false
     while true {
         width := GetScreenWidth().cast(I64)
         height := GetScreenHeight().cast(I64)
         terminal.resize(width / view.cell_width, height / view.cell_height)
         terminal.pump()
+        if session.enabled && (checkpoint_now || GetTime() >= checkpoint_at) {
+            checkpoint_now = false
+            checkpoint_at = GetTime() + settings.interval_ms.to_f64() / 1000.0
+            if !session.save(tilminal_checkpoint(terminal, session_window_frame())) { println(session.notice) }
+        }
         viewport.sync(terminal.screen)
         terminal_mouse(viewport, terminal.screen, view.cell_width, view.cell_height, 0, 0, width, height)
         wheel := GetMouseWheelMove()
@@ -105,13 +123,19 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
                 name := dispatch.command
                 if config.commands.invoke(name, terminal, viewport) {
                 } else if name == "quit" { closing = true; break }
+                else if name == "session-save" { checkpoint_now = true }
                 else if name == "forward-key" { terminal_forward(viewport, terminal, key.cast(I64), mods, action) }
                 else if !terminal_command(viewport, terminal, name, height / view.cell_height) { panic("unknown terminal command: ", name) }
             }
             key = window_next_event(mods, action)
         }
         window_drain_input()
-        if closing { break }
+        if closing {
+            if session.enabled {
+                if !session.seal(tilminal_checkpoint(terminal, session_window_frame())) { println(session.notice) }
+            }
+            break
+        }
         mut title := "tilminal"
         if terminal.ended { title = format(title, " [exit ", terminal.session.status().to_str(), "]") }
         if viewport.offset > 0 { title = format(title, " [scrollback ", viewport.offset.to_str(), "]") }

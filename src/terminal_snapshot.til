@@ -1,0 +1,34 @@
+mode lib
+import("../gen/terminal_api")
+
+terminal_page_text := func(screen: TerminalScreen) returns Str {
+    mut lines := Vec(Str).new()
+    mut blanks : I64 = 0
+    history := screen.display_history_rows()
+    for row in 0..(history + screen.rows) {
+        mut cells := Vec(Str).new()
+        mut y := row - history; mut offset : I64 = 0
+        if row < history { y = 0; offset = history - row }
+        for x in 0..screen.columns {
+            ref cell : TerminalCell = screen.display_cell(x, y, offset)
+            if cell.span > 0 { cells.push(own cell.text.clone()) }
+        }
+        line := join(cells, "")
+        mut count := line.len()
+        while count > 0 { if line.get(count - 1) != ' ' { break }; count-- }
+        if count == 0 { blanks = blanks + 1 }
+        else {
+            for _ in 0..blanks { lines.push(own "") }
+            blanks = 0
+            lines.push(own line.substr(0, count).clone())
+        }
+    }
+    return join(lines, "\n")
+}
+
+terminal_saved_output := func(screen: TerminalScreen) returns Str {
+    if !screen.alternate_active { return terminal_page_text(screen) }
+    mut primary := screen.clone()
+    primary.feed(terminal_escape("[?47l"))
+    return format(terminal_page_text(primary), "\n[Alternate screen at checkpoint]\n", terminal_page_text(screen))
+}

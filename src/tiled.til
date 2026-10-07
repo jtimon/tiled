@@ -23,8 +23,6 @@ main := proc(args: ..Str) {
             return
         }
     }
-    if args.len() > 1 { panic("usage: tiled [-v|--version|FILE]") }
-
     home := get_env("HOME")
     if home.len() > 0 {
         path := format(home, "/.tiled/init.til")

@@ -6,7 +6,7 @@ Inspired in [[https://savannah.gnu.org/projects/emacs/][emacs]], [[https://githu
 
 ** Getting started
 
-Targets installed Til =0.0.1-b444d7223= with natural core/std imports (#413).
+Targets installed Til =0.0.1-3bcf0e933= with natural core/std imports (#413).
 See [[file:doc/build.org][build requirements and details]].
 From the repository root:
 
@@ -20,7 +20,9 @@ The executable Til build script uses installed =til run=; no GNU Make or
 compiler bootstrap is needed here. =./make.til clean= removes build outputs
 and =tmp/=, preserving reference repositories under =.inspirations/=.
 
-With no user config, Tiled opens =*scratch*= using defaults. The working
+Tiled restores its saved workspace by default; with no saved session it opens
+=*scratch*= using defaults. Use =--fresh= to start anew or =--no-session= to
+disable persistence. See [[file:doc/sessions.org][saved sessions]]. The working
 config [[file:defaults/init.til][defaults/init.til]] can be copied to =~/.tiled/init.til= when ready.
 
 ** Documentation
@@ -32,5 +34,6 @@ config [[file:defaults/init.til][defaults/init.til]] can be copied to =~/.tiled/
 - [[file:doc/terminal.org][Standalone tilminal, shared terminal modules and tests]]
 - [[file:lib/libterminal/README.org][libterminal build/install API]] and [[file:doc/terminal-library-benchmark.org][linking measurements]]
 - [[file:doc/configuration.org][Startup and user configuration]]
+- [[file:doc/sessions.org][Default session saving, restoration and recovery]]
 - [[file:doc/architecture.org][Buffers, windows, frames and desktop hosting]]
 - [[file:doc/keybindings.org][Commands, configurable keymaps and future extensions]]

@@ -1,0 +1,21 @@
+mode lib
+import("session_codec")
+import("window_input")
+import("../gen/terminal_api")
+
+session_window_frame := proc() returns SessionFrame {
+    pos := GetWindowPosition()
+    return SessionFrame(x = pos.x.to_i64(), y = pos.y.to_i64(), width = GetScreenWidth().cast(I64),
+        height = GetScreenHeight().cast(I64), maximized = IsWindowMaximized())
+}
+session_restore_window := proc(frame: SessionFrame) {
+    mut x : I32 = 0; mut y : I32 = 0; mut width : I32 = 0; mut height : I32 = 0
+    mut left : I32 = 0; mut top : I32 = 0; mut right : I32 = 0; mut bottom : I32 = 0
+    window_placement_data(GetCurrentMonitor(), x, y, width, height, left, top, right, bottom)
+    w := terminal_bound(frame.width, 1, (width - left - right).cast(I64))
+    h := terminal_bound(frame.height, 1, (height - top - bottom).cast(I64))
+    px := terminal_bound(frame.x, (x + left).cast(I64), (x + width - right).cast(I64) - w)
+    py := terminal_bound(frame.y, (y + top).cast(I64), (y + height - bottom).cast(I64) - h)
+    SetWindowSize(w.to_i32(), h.to_i32()); SetWindowPosition(px.to_i32(), py.to_i32())
+    if frame.maximized { MaximizeWindow() }
+}

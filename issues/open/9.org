@@ -1,0 +1,49 @@
+# priority: medium
+# category: features
+** OPEN #9 Add tilminal tabs and optional Tiled buffer tab bars
+
+Provide multiple terminal tabs in standalone tilminal and an optional tab-bar
+presentation for Tiled buffers, alongside existing buffer switching and splits.
+
+*** Standalone tilminal
+
+- Create, select, cycle, reorder and close tabs through named commands and
+  mouse interaction. Bindings and tab-bar visibility belong in Til config.
+- Each initial terminal tab owns a distinct session and retains per-tab viewport,
+  scrollback, selection and title/status state under the usual invalidation rules. Continue
+  pumping hidden sessions so inactive tabs cannot block their children.
+- Show the active tab and useful running/exited state. Specify titles, overflow
+  behavior, last-tab/window closing and handling of a running child.
+- Closing/detaching a tab must follow the terminal lifecycle policy; share
+  ownership with [[file:7.org][future detach/reattach]] rather than introducing another PTY layer.
+
+*** Tiled buffers
+
+- Add an optional per-view buffer tab bar, analogous to Emacs =tab-line-mode=.
+  Selecting a tab displays that buffer in the pane while retaining per-view
+  cursor/scroll state. Text and terminal buffers participate in the same UI.
+- Tabs reference existing buffer identities, including buffers shared between
+  split panes. They must not create duplicate buffers or terminal sessions.
+- Specify which buffers appear in each view's tab group, ordering/history,
+  active/modified/running indicators, and overflow behavior.
+- Distinguish hiding/removing a tab from killing its buffer. Destructive close
+  operations must preserve dirty-buffer/live-session confirmation and update
+  every view referencing that resource.
+- Keep C-x b/C-x C-b and keyboard-only navigation working when the bar is hidden.
+
+Emacs =tab-bar-mode= instead switches whole window configurations. Such
+workspace/layout tabs may be a later presentation of [[file:8.org][the shared workspace model]],
+but are not a substitute for the requested buffer tabs.
+
+*** Integration and acceptance
+
+- Use shared tab-group/identity concepts where appropriate across both hosts;
+  keep resource ownership and platform rendering separate.
+- Include tab groups, order, active tab and per-view state in [[file:../fixed/6.org][session restoration]].
+- Verify mouse and configurable-key navigation, reordering, hidden terminal
+  output, independent view state, shared-buffer edits, dirty/live close flows,
+  overflow/small windows, and restoration of the same tab arrangement.
+
+References: Emacs =lisp/tab-line.el= and =lisp/tab-bar.el=, Ghostty tabs,
+and tmux windows. Related: [[file:3.org][#3 terminal integration]], [[file:5.org][#5 keymaps]],
+[[file:../fixed/6.org][#6 sessions]], [[file:7.org][#7 persistent terminals]] and [[file:8.org][#8 workspace libraries]].

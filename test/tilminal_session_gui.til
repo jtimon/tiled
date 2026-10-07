@@ -1,0 +1,73 @@
+mode gui
+import("terminal_gui_helpers")
+import("../src/session_codec")
+
+start_app := proc(home: Str) returns Cmd {
+    app := Cmd.new("./bin/tilminal", "--session", "work")
+    app.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
+    app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    return app
+}
+wait_output := proc(app: Cmd, pid: I64, path: Str, directory: Str, marker: Str) {
+    for _ in 0..300 {
+        mut error : I32 = 0
+        bytes := workspace_read(path, error)
+        if error == 0 {
+            mut r := SessionReader.open(bytes)
+            kind := r.take(); SessionFrame.read(r); cwd := r.take(); text := r.take()
+            if kind == "terminal-output" && cwd == directory && text.replace("\n", "").contains(marker) { return }
+        }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, false, format("terminal checkpoint missing ", marker, " in directory ", directory))
+}
+wait_file := proc(app: Cmd, pid: I64, path: Str, expected: Str) {
+    for _ in 0..200 {
+        mut error : I32 = 0; text := workspace_read(path, error)
+        if error == 0 && text == expected { return }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, false, "fresh shell started in the wrong directory")
+}
+main := proc() {
+    root := get_cwd_str()
+    home := format(root, "/tmp/tilminal-session-", process_id().to_str())
+    directory := format(home, "/working"); assert(mkdir_p(directory) == 0)
+    name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    path := format(home, "/.tilminal/sessions/work.session")
+    app := start_app(home); pid := app.start()
+    window := wait_window(app, pid, "tilminal"); sleep_ms(250)
+    XSetInputFocus(display, window, 2, 0); XFlush(display)
+    type_text(display, format("cd ", directory, "; printf 'SAVED_OUTPUT\\n'"))
+    wait_output(app, pid, path, directory, "SAVED_OUTPUT")
+    close_app(app, pid, display, window)
+    assert(File.readfile(path) == File.readfile(format(path, ".previous")))
+
+    again := start_app(home); again_pid := again.start()
+    again_window := wait_window(again, again_pid, "tilminal"); sleep_ms(250)
+    XSetInputFocus(display, again_window, 2, 0); XFlush(display)
+    result := format(home, "/pwd")
+    type_text(display, format("pwd > ", result))
+    wait_file(again, again_pid, result, format(directory, "\n"))
+    wait_output(again, again_pid, path, directory, "NEW shell, not reattaching")
+    close_app(again, again_pid, display, again_window)
+
+    File.remove_tree(directory)
+    missing := start_app(home); missing_pid := missing.start()
+    missing_window := wait_window(missing, missing_pid, "tilminal"); sleep_ms(250)
+    XSetInputFocus(display, missing_window, 2, 0); XFlush(display)
+    type_text(display, format("pwd > ", result))
+    wait_file(missing, missing_pid, result, format(root, "\n"))
+    wait_output(missing, missing_pid, path, root, "saved cwd unavailable")
+    close_app(missing, missing_pid, display, missing_window)
+    empty := Cmd.new("./bin/tilminal", "")
+    empty.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "")
+    empty.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    empty_pid := empty.start()
+    empty_window := wait_window(empty, empty_pid, "tilminal [exit 0]")
+    close_app(empty, empty_pid, display, empty_window)
+    assert(!File.exists(format(home, "/.tilminal/sessions/default.session")))
+    XCloseDisplay(display)
+    println("PASS: tilminal output restoration, fresh-shell cwd and missing-directory recovery")
+}

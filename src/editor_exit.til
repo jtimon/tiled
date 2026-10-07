@@ -11,6 +11,9 @@ EditorExitPrompt := struct {
     pending := Vec(USize).new()
     position : USize = 0
     ready := false
+    keep_allowed := false
+    kept := false
+    discarded := Vec(USize).new()
 
 namespace:
     show := func(mut self: EditorExitPrompt, editor: EditorState) {
@@ -27,6 +30,7 @@ namespace:
         } else {
             choices.push(own MinibufferChoice(id = 1, name = "save", detail = "Save this buffer, then continue"))
             choices.push(own MinibufferChoice(id = 2, name = "discard", detail = "Exit without saving this buffer"))
+            if self.keep_allowed { choices.push(own MinibufferChoice(id = 3, name = "keep", detail = "Keep unsaved text in the saved session")) }
         }
         self.mini.begin(format("Exit ", (self.position + 1).to_str(), "/", self.pending.len().to_str(),
             " - ", editor.buffer_name(id), ": "), choices)
@@ -37,6 +41,7 @@ namespace:
         self.pending.clear()
         self.position = 0
         self.ready = false
+        self.kept = false; self.discarded.clear()
         for id : USize in editor.live_buffers() {
             if editor.buffers[id].dirty || editor.buffers[id].terminal_running { self.pending.push(own id.clone()) }
         }
@@ -46,6 +51,7 @@ namespace:
     cancel := func(mut self: EditorExitPrompt) {
         self.mini.active = false
         self.ready = false
+        self.kept = false; self.discarded.clear()
         self.pending.clear()
         self.position = 0
     }

@@ -5,6 +5,8 @@ link_c("session.c")
 terminal_session_new := ext_proc() returns ref Dynamic {}
 terminal_session_arg := ext_proc(handle: Dynamic, arg: Str) {}
 terminal_session_profile := ext_proc(handle: Dynamic, term: Str, database: Str) {}
+terminal_session_directory_set := ext_proc(handle: Dynamic, directory: Str) {}
+terminal_session_directory := ext_proc(handle: Dynamic) returns Str {}
 terminal_session_start := ext_proc(handle: Dynamic, shallow columns: I64, shallow rows: I64) {}
 terminal_session_send := ext_proc(handle: Dynamic, bytes: Str) returns shallow Bool {}
 terminal_session_pump := ext_proc(handle: Dynamic) returns Str {}
@@ -29,6 +31,8 @@ namespace:
         if error.len() > 0 { panic("tilminal: ", error) }
     }
     arg := proc(s: TerminalSession, arg: Str) { terminal_session_arg(s.handle, arg); s.check() }
+    set_directory := proc(s: TerminalSession, directory: Str) { terminal_session_directory_set(s.handle, directory); s.check() }
+    directory := proc(s: TerminalSession) returns Str { return terminal_session_directory(s.handle) }
     // POSIX child-local TERM/TERMINFO; configure before start. Defaults to vt100.
     set_profile := proc(s: TerminalSession, term: Str, database: Str) {
         terminal_session_profile(s.handle, term, database); s.check()

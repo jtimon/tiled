@@ -9,7 +9,7 @@ There is one terminal implementation and two hosts. See
 
 ** Running
 
-Build both applications with installed Til =0.0.1-b444d7223=:
+Build both applications with installed Til =0.0.1-3bcf0e933=:
 
 #+begin_src sh
 til interpret make.til
@@ -22,6 +22,13 @@ on Windows. The optional argument is one shell command. The shell inherits
 the caller's working directory; =cd= and shell variables persist. After a
 command exits, its final screen stays visible and the title reports its exit
 status. Escape is terminal input. Closing the window closes the session.
+
+Both hosts now [[file:sessions.org][save workspace/output checkpoints by default]]. Standalone
+restoration starts a fresh shell in the last known directory; embedded
+terminals restore as labelled output buffers. Neither reattaches running jobs.
+Use =--session NAME=, =--fresh= or =--no-session= to control persistence.
+One-shot commands leave the default interactive checkpoint alone unless given
+an explicit session name.
 
 Fonts are resolved through =fc-match monospace= from fontconfig, as in Tiled;
 install fontconfig and a monospace font. The standalone frontend currently

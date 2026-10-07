@@ -5,6 +5,8 @@ import("../gen/terminal_api")
 import("../gen/terminal_profile")
 import("../lib/libterminal/view")
 import("terminal_clipboard")
+import("editor_session")
+import("terminal_snapshot")
 
 EditorTerminal := struct {
     owner : USize = 0
@@ -31,6 +33,12 @@ namespace:
         if windows { shell = get_env("COMSPEC"); if shell.len() == 0 { shell = "cmd.exe" } }
         else if shell.len() == 0 { shell = "/bin/sh" }
         mut terminal := Terminal.new(shell)
+        ref previous : EditorBuffer = editor.buffers[editor.nodes[editor.focused].view.buffer]
+        mut directory := get_cwd_str()
+        if previous.restored_terminal && previous.saved_directory.len() > 0 {
+            if File.is_dir(previous.saved_directory) { directory = previous.saved_directory.clone() }
+        }
+        terminal.session.set_directory(directory)
         if TERMINAL_TERMINFO.len() > 0 { terminal.session.set_profile("tilminal", TERMINAL_TERMINFO) }
         if !windows { terminal.session.arg("-i") }
         error := terminal.try_start()
@@ -44,10 +52,19 @@ namespace:
             index++
         }
         id := editor.add_buffer("", "")
-        self.serial++
+        mut name := ""
+        while true {
+            self.serial++
+            name = format("*terminal-", self.serial.to_str(), "*")
+            mut used := false
+            for old : USize in editor.live_buffers() {
+                if editor.buffers[old].terminal_name == name || editor.buffers[old].label.starts_with(name) { used = true; break }
+            }
+            if !used { break }
+        }
         ref mut buffer : EditorBuffer = editor.buffers[id]
         buffer.terminal = index.to_i64()
-        buffer.terminal_name = format("*terminal-", self.serial.to_str(), "*")
+        buffer.terminal_name = name
         buffer.terminal_running = true
         slot := EditorTerminal(owner = id, terminal = terminal, view = TerminalView.new(font_path))
         if index == self.slots.len() { self.slots.push(own slot) }
@@ -128,5 +145,19 @@ namespace:
             ref mut slot : EditorTerminal = self.slots[index]
             if slot.active { slot.close() }
         }
+    }
+    snapshot := proc(self: EditorTerminals, editor: EditorState) returns Vec(SessionTerminalOutput) {
+        mut out := Vec(SessionTerminalOutput).new()
+        for index in 0..self.slots.len() {
+            ref slot : EditorTerminal = self.slots[index]
+            if !slot.active { continue }
+            ref buffer : EditorBuffer = editor.buffers[slot.owner]
+            if !buffer.alive || buffer.terminal != index.to_i64() { continue }
+            directory := slot.terminal.session.directory()
+            text := format("[Saved terminal output; original process is NOT attached]\n[Last known cwd: ",
+                directory, "]\n", terminal_saved_output(slot.terminal.screen))
+            out.push(own SessionTerminalOutput(id = buffer.session_id, text = text, directory = directory))
+        }
+        return out
     }
 }

@@ -1,0 +1,143 @@
+mode lib
+import("std/sys")
+link_c("session_store.c")
+workspace_lock_new := ext_proc() returns ref Dynamic {}
+workspace_lock_open := ext_proc(handle: Dynamic, path: Str) returns shallow I32 {}
+workspace_lock_free := ext_func(handle: Dynamic) {}
+workspace_read := ext_proc(path: Str, mut error: I32) returns Str {}
+workspace_hash := ext_func(text: Str) returns shallow I64 {}
+workspace_write := ext_proc(handle: Dynamic, path: Str, bytes: Str, shallow rotate: Bool) returns shallow I32 {}
+get_cwd_str := ext_proc() returns Str {}
+
+SessionConfig := struct {
+    enabled := true
+    restore := true
+    name := "default"
+    interval_ms : I64 = 2000
+}
+SessionArgs := struct {
+    name := ""
+    fresh := false
+    disabled := false
+    operand := ""
+    has_operand := false
+namespace:
+    parse := func(args: ..Str) returns SessionArgs {
+        mut out := SessionArgs()
+        mut i : USize = 0
+        mut options := true
+        mut operand := false
+        while i < args.len() {
+            arg := args[i].clone()
+            if options && arg == "--" { options = false }
+            else if options && arg == "--fresh" { out.fresh = true }
+            else if options && arg == "--no-session" { out.disabled = true }
+            else if options && arg == "--session" {
+                i++
+                if i == args.len() { panic("--session requires a name") }
+                out.name = args[i].clone()
+                if out.name.len() == 0 { panic("session name cannot be empty") }
+            } else {
+                if options && arg.starts_with("--") { panic("unknown option: ", arg) }
+                if operand { panic("expected at most one file or shell command") }
+                out.operand = arg; out.has_operand = true; operand = true
+            }
+            i++
+        }
+        return out
+    }
+}
+
+SessionStore := struct {
+    ref handle : U8
+    enabled := false
+    restore := true
+    name := ""
+    directory := ""
+    path := ""
+    notice := ""
+    last := ""
+    main_good := false
+namespace:
+    new := proc(host: Str, config: SessionConfig, args: SessionArgs) returns SessionStore {
+        ref handle : Dynamic = workspace_lock_new()
+        mut s := SessionStore(handle = handle, enabled = config.enabled && !args.disabled,
+            restore = config.restore && !args.fresh, name = config.name.clone())
+        if args.name.len() > 0 { s.name = args.name.clone() }
+        if !s.enabled { return s }
+        if config.interval_ms < 100 { panic("session interval must be at least 100 ms") }
+        if s.name.len() == 0 || s.name.len() > 128 { panic("session name must have 1..128 characters") }
+        for i in 0..s.name.len() {
+            c := s.name.get(i).cast(I64)
+            if !((c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 45 || c == 95) {
+                panic("session name must contain letters, digits, '-' or '_'")
+            }
+        }
+        home := get_env("HOME")
+        if home.len() == 0 { s.enabled = false; s.notice = "Session saving disabled: HOME is unset"; return s }
+        s.directory = format(home, "/.", host, "/sessions")
+        if mkdir_p(s.directory) != 0 { s.enabled = false; s.notice = format("Cannot create ", s.directory, "; session saving disabled"); return s }
+        s.acquire(s.name)
+        return s
+    }
+    acquire := proc(mut s: SessionStore, requested: Str) {
+        base := requested.clone()
+        mut attempt : I64 = 0
+        while true {
+            s.name = base.clone()
+            if attempt > 0 {
+                mut length := base.len(); if length > 40 { length = 40 }
+                s.name = format(base.substr(0, length), "-", process_id().to_str(), "-", attempt.to_str())
+            }
+            s.path = format(s.directory, "/", s.name, ".session")
+            state := workspace_lock_open(s.handle, format(s.path, ".lock"))
+            if state == 1 { break }
+            if state < 0 { s.enabled = false; s.notice = format("Cannot lock ", s.path, " (error ", (0 - state.cast(I64)).to_str(), "); session saving disabled"); return }
+            attempt++
+        }
+        if attempt > 0 { s.notice = format("Session in use; new session: ", s.name); s.restore = false }
+        else { s.notice = format("Session ", s.name, " (automatic checkpoints)") }
+        s.last = ""; s.main_good = false
+    }
+    preserve_broken := proc(mut s: SessionStore) {
+        broken := s.name.clone()
+        mut length := broken.len(); if length > 40 { length = 40 }
+        s.acquire(format(broken.substr(0, length), "-recovery-", process_id().to_str()))
+        s.notice = format("Could not restore ", broken, "; original checkpoints preserved. New session: ", s.name)
+        if !s.enabled { s.notice = format("Could not restore ", broken, "; original checkpoints preserved; session saving unavailable") }
+    }
+    read := proc(mut s: SessionStore, suffix: Str) returns Str {
+        mut error : I32 = 0
+        data := workspace_read(format(s.path, suffix), error)
+        if error > 0 { s.notice = format("Cannot read ", s.path, suffix, ": error ", error.to_str()) }
+        return data
+    }
+    save := proc(mut s: SessionStore, data: Str) returns Bool {
+        if !s.enabled { return false }
+        if data.len() == 0 { s.notice = "Workspace exceeds the supported checkpoint structure limits; checkpoint not written"; return false }
+        if data == s.last { return true }
+        if data.len() > 67108864 { s.notice = "Session exceeds 64 MiB; checkpoint not written"; return false }
+        error := workspace_write(s.handle, s.path, data, s.main_good)
+        if error != 0 { s.notice = format("Session checkpoint failed for ", s.path, ": error ", error.to_str()); return false }
+        s.last = data.clone(); s.main_good = true
+        return true
+    }
+    seal := proc(mut s: SessionStore, data: Str) returns Bool {
+        // After a clean exit both generations reflect final discard/close
+        // decisions. Fallback must not resurrect a deliberately discarded edit.
+        if !s.save(data) { return false }
+        error := workspace_write(s.handle, s.path, data, true)
+        if error != 0 { s.notice = format("Final session checkpoint failed: error ", error.to_str()); return false }
+        return true
+    }
+    clone := func(_s: SessionStore) returns SessionStore { panic("SessionStore cannot be cloned") }
+    delete := func(own s: SessionStore, call_free: Bool = true) {
+        workspace_lock_free(s.handle)
+        own s.name.delete(false)
+        own s.directory.delete(false)
+        own s.path.delete(false)
+        own s.notice.delete(false)
+        own s.last.delete(false)
+        if call_free { free(own s) }
+    }
+}

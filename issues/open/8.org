@@ -1,0 +1,59 @@
+# priority: medium
+# category: features
+** OPEN #8 Unify workspace policy through reusable layout and window-manager libraries
+
+Tiled should optionally manage a desktop as well as its own editor/terminal
+views. Share workspace, layout, focus, command and session policy across these
+hosts instead of implementing a second environment with unrelated behavior.
+Investigate reusable libraries such as =libworkspace= and =til-wm-lib= / =libwm=;
+these are working names, not approved package paths or repository splits.
+
+*** Boundaries to establish
+
+- A headless workspace/layout model: stable identities, layout trees, focus,
+  workspace switching and tab groups. Extract useful policy from the current
+  editor model as concrete second consumers need it.
+- Resource owners for editable documents, terminal sessions and external
+  application clients. A view references a resource; cloning/splitting a view
+  must not clone a process or make an external window an editable buffer.
+- Shared named commands and contextual keymaps, with host-specific operations
+  behind explicit interfaces. Preserve the distinction between local editor
+  keys, keys forwarded to a terminal, and desktop-global shortcuts.
+- Persistence participants and stable references for [[file:../fixed/6.org][session restoration]],
+  including references to [[file:7.org][detachable terminal sessions]]. Share a workspace
+  model, not a claim that every resource has identical restoration semantics.
+- Thin platform hosts: the current raylib application host; an X11 WM backend;
+  and, separately, a possible Wayland compositor backend. Wayland window
+  management is compositor work, not simply porting X11 window-control calls.
+
+Keep session-service process ownership distinct from reusable policy libraries.
+All-in-one UX does not require a single process, a mandatory daemon, or one
+monolithic library. Follow [[file:4.org][#4]]: establish working boundaries in this repository
+before deciding which libraries deserve independent packaging/repositories.
+
+*** Suggested delivery
+
+1. Specify shared identities and lifecycle operations against the existing
+   editor/terminal hosts and session-restoration requirements.
+2. Prove reusable layout/focus policy with a second host without regressing
+   ordinary application mode.
+3. Prototype an X11 WM under Xephyr: manage external client windows, focus,
+   splits/workspaces and resize; share policy with internal views where valid.
+4. Add desktop restoration/reattachment through the same session model.
+   Design Wayland support against an actual compositor backend afterwards.
+
+*** Acceptance
+
+- The same tested layout/focus operations work for internal views and external
+  clients through adapters, without leaking native handles into saved state.
+- Closing a view, closing a client, killing a buffer and terminating/detaching
+  a terminal remain distinct operations with their existing lifecycle rules.
+- Session restoration can accommodate editor-only, terminal-only and desktop
+  workspaces, including changed monitors and unavailable resources.
+- Tiled continues to work as an ordinary application under another WM.
+
+References: [[file:../../doc/architecture.org][current buffer/view/frame and desktop-host design]],
+Emacs's buffer/window/frame distinction, and tmux/Ghostty terminal ownership.
+Related: [[file:1.org][#1 integrated environment]], [[file:4.org][#4 library organization]],
+[[file:5.org][#5 commands/keymaps]], [[file:../fixed/6.org][#6 persistence]], [[file:7.org][#7 detach/reattach]] and
+[[file:9.org][#9 terminal and buffer tabs]].

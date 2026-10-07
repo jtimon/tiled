@@ -8,6 +8,7 @@ import("editor_buffers")
 import("editor_exit")
 import("editor_terminal")
 import("editor_commands")
+import("session_window")
 
 link_c("editor_save.c")
 editor_write_file := ext_proc(path: I8, text: I8, shallow length: UPtr) returns shallow I32 {}
@@ -25,6 +26,7 @@ TiledConfig := struct {
     font_path := ""
     font_size : I32 = 28
     commands := EditorCommands.new()
+    session := SessionConfig()
 }
 
 editor_font_path := proc(config: TiledConfig) returns Str {
@@ -76,6 +78,8 @@ editor_save_buffer := proc(mut editor: EditorState, id: USize, mut message: Str)
     if resolved.len() > 0 { path = resolved.clone() }
     buffer.filename = path
     buffer.dirty = false
+    buffer.disk_text = buffer.text.clone()
+    buffer.label = ""; buffer.recovery_note = ""; buffer.restored_terminal = false
     message = "Saved!"
     return true
 }
@@ -235,6 +239,7 @@ editor_draw_view := proc(mut editor: EditorState, index: USize, font: Font, size
     if active { DrawRectangle(rect.x, sy, rect.width, 2, Color(r = 255, g = 200, b = 0, a = 255)) }
     EndScissorMode()
     mut name := editor_buffer_name(buffer)
+    if buffer.recovery_note.len() > 0 { name = format(name, " [", buffer.recovery_note, "]") }
     if buffer.dirty { name = format(name, " *") }
     position := format("Ln ", (cursor_row + 1).to_str(), " Col ", (column + 1).to_str())
     position_w := editor_text_width(font, position, size)
@@ -350,23 +355,28 @@ editor_draw_minibuffer := proc(mini: Minibuffer, font: Font, size: I32, line_h: 
 }
 
 start_editor := proc(config: TiledConfig, args: ..Str) {
+    options := SessionArgs.parse(..args)
+    mut session := SessionStore.new("tiled", config.session, options)
     font_size := config.font_size
     if font_size <= 0 { panic("config.font_size must be positive") }
     font_path := editor_font_path(config)
     if !File.is_file(font_path) { panic("font file not found: ", font_path) }
-    mut filename := config.initial_file.clone()
-    if args.len() > 0 { filename = args[0].clone() }
-    mut text := config.scratch_text.clone()
+    mut editor := EditorState.new("", config.scratch_text)
+    mut frame := SessionFrame()
+    restored := editor_restore_session(session, editor, frame)
+    mut filename := options.operand.clone()
+    if !options.has_operand && !restored { filename = config.initial_file.clone() }
     if filename.len() > 0 {
         filename = editor_file_path(filename)
-        text = File.readfile(filename)
+        if !restored { editor = EditorState.new(filename, File.readfile(filename)) }
+        else { editor.show_buffer(filename, File.readfile(filename)) }
     }
-    mut editor := EditorState.new(filename, text)
-    mut status_msg := ""
-    mut status_timer : I64 = 0
+    mut status_msg := session.notice.clone()
+    mut status_timer : I64 = 10000
     mut key_state := KeyState()
     mut prompt := EditorBufferPrompt()
     mut exit_prompt := EditorExitPrompt()
+    exit_prompt.keep_allowed = session.enabled
     mut terminals := EditorTerminals()
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE.cast(U32))
@@ -384,7 +394,8 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
     min_view_h := line_h * 2 + 16
     min_view_w := font_size * 8 + 40
     SetWindowMinSize(400, min_view_h + footer_h)
-    if config.maximized {
+    if restored { session_restore_window(frame) }
+    else if config.maximized {
         MaximizeWindow()
     } else if config.tile_left {
         mut x : I32 = 0
@@ -401,6 +412,8 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         SetWindowPosition(placement.x, placement.y)
     }
     SetTargetFPS(60)
+    mut checkpoint_at := GetTime()
+    mut checkpoint_now := false
 
     while true {
         if status_timer > 0 {
@@ -423,6 +436,12 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         }
 
         terminals.update(editor, line_h + 8)
+        if session.enabled && (checkpoint_now || GetTime() >= checkpoint_at) {
+            checkpoint_at = GetTime() + config.session.interval_ms.to_f64() / 1000.0
+            checkpoint_now = false
+            data := EditorCheckpoint.encode(editor, session_window_frame(), terminals.snapshot(editor), Vec(USize).new())
+            if !session.save(data) { status_msg = session.notice.clone(); status_timer = 10000; println(status_msg) }
+        }
         had_prefix := key_state.pending.len() > 0
         key_state.context(editor_key_owner(editor, prompt.mini.active || exit_prompt.mini.active))
         if had_prefix && key_state.pending.len() == 0 { status_msg = ""; status_timer = 0 }
@@ -495,6 +514,10 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                                 exit_prompt.cancel()
                                 status_msg = "Exit cancelled"
                             } else if decision == 2 {
+                                exit_prompt.discarded.push(own exit_prompt.pending[exit_prompt.position].clone())
+                                exit_prompt.advance(editor)
+                            } else if decision == 3 {
+                                exit_prompt.kept = true
                                 exit_prompt.advance(editor)
                             } else {
                                 id := exit_prompt.pending[exit_prompt.position].clone()
@@ -513,6 +536,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                         else { prompt.mini.key(mapped, mods.band(1) != 0) }
                     }
                 } else if command == "save-buffer" { save = true }
+                else if command == "session-save" { checkpoint_now = true }
                 else if command == "find-file" { open = true }
                 else if command == "switch-buffer" || command == "list-buffers" || command == "kill-buffer" {
                     mut kind := BufferPromptKind.Switch
@@ -566,7 +590,19 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         }
         // The ordered bridge owns keyboard dispatch. Drain raylib's copies.
         window_drain_input()
-        if exit_prompt.ready { break }
+        if exit_prompt.ready {
+            if session.enabled {
+                data := EditorCheckpoint.encode(editor, session_window_frame(), terminals.snapshot(editor), exit_prompt.discarded)
+                if !session.seal(data) {
+                    println(session.notice)
+                    if exit_prompt.kept {
+                        exit_prompt.cancel(); status_msg = format(session.notice, "; still open. Save/discard files or retry Keep."); status_timer = 10000
+                        continue
+                    }
+                }
+            }
+            break
+        }
 
         BeginDrawing()
         ClearBackground(Color(r = 70, g = 70, b = 90, a = 255))

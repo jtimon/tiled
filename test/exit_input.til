@@ -103,7 +103,8 @@ check_exit := proc(display: Dynamic, how: Str, decision: Str) {
     File.writefile(path, "base")
     scratch := decision == "scratch" || decision == "scratch-save"
     if decision == "scratch-save" { File.remove(path) }
-    app := Cmd.new("./bin/tiled")
+    // Each case starts from its fixture, not the previous case's saved point.
+    app := Cmd.new("./bin/tiled", "--fresh")
     if !scratch { app.arg(path) }
     app.env("HOME", format(get_cwd_str(), "/tmp/exit-home-", process_id().to_str()))
     app.stdout_to("tmp/exit-input-app.log").stderr_to_stdout()

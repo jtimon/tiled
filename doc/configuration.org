@@ -10,10 +10,11 @@
 No ~/.tiled/init.til file found; using defaults.
 #+end_example
 
-It then opens an empty =*scratch*= buffer in the left half of the current
-monitor, using its full height. Scratch has no filename; =Ctrl+S= opens the
-save dialog. =Ctrl+O= opens an existing file.
-A filename passed on the command line opens that file instead of scratch.
+It restores the saved workspace when available. On first use or with =--fresh=,
+it opens an empty =*scratch*= buffer in the left half of the current monitor,
+using its full height. Scratch has no filename; =Ctrl+S= opens the save dialog.
+=Ctrl+O= opens an existing file. A command-line filename opens in the focused
+view, retaining recovered edits if the buffer is already loaded. See [[file:sessions.org][sessions]].
 
 Holding an arrow key, Backspace, Delete or Enter repeats the action using
 the desktop's keyboard repeat delay and rate. Held letters repeat through
@@ -36,6 +37,7 @@ Modified text buffers offer:
 - =save=: save this buffer and continue to the next modified buffer.
 - =discard=: continue without saving this buffer.
 - =cancel=: abandon the exit attempt and return to editing.
+- =keep=: retain unsaved contents in the session checkpoint (when enabled).
 
 Type the choice and press Enter, or select it with the arrows. Empty input
 defaults to =cancel=. =C-g= or Escape also cancels. Repeated close-button
@@ -183,6 +185,11 @@ as status messages and leave the existing editor buffer usable.
 
 ** Init file
 
+[[file:sessions.org][Workspace persistence]] is enabled by default. Both config types expose
+=session.enabled=, =session.restore=, =session.name= and =session.interval_ms=.
+=--session NAME=, =--fresh= and =--no-session= select or bypass saved state.
+Dirty-buffer exit prompts offer =keep= when a session checkpoint is available.
+
 [[file:../defaults/init.til][defaults/init.til]] is the working configuration to copy when ready.
 From the repository root:
 
@@ -193,15 +200,17 @@ cp defaults/init.til ~/.tiled/init.til
 
 It defines =init(mut config: TiledConfig)=, which runs before the editor
 opens. The supported fields are =width=, =height=, =maximized=, =tile_left=, =scratch_text=,
-=initial_file=, =font_path=, =font_size= and =commands=. The latter registers
+=initial_file=, =font_path=, =font_size=, =session= and =commands=. The latter registers
 Til callbacks and overrides the default [[file:keybindings.org][named commands and contextual keymaps]]. A command-line filename takes
-precedence over =initial_file=. If neither specifies a file, Tiled opens scratch.
+precedence over =initial_file= on a fresh startup. A restored workspace keeps
+its existing focus unless a command-line file is supplied; with neither,
+Tiled opens scratch.
 Errors in an existing init file are reported and stop startup rather than
 silently loading defaults. =-v= and =--version= bypass configuration and GUI
 startup.
 
 Standalone tilminal loads =~/.tilminal.til=, defining
-=init(mut config: TilminalConfig)=. Its first configurable field is =commands=;
+=init(mut config: TilminalConfig)=, with =commands= and =session= fields;
 copy [[file:../defaults/tilminal.til][defaults/tilminal.til]] as a starting point. Embedded terminal panes
 use Tiled's command configuration instead of separately loading this file.
 

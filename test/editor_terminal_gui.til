@@ -205,7 +205,7 @@ main := proc(args: ..Str) {
     assert(File.readfile(document) == "anotes")
     println("PASS: embedded terminal pixels, split resize, hidden pumping, mapped routing, kill/exit and process cleanup")
 
-    broken := Cmd.new(binary, document)
+    broken := Cmd.new(binary, "--fresh", document)
     broken.env("SHELL", "/no-such-tiled-shell").env("HOME", format(root, "/", dir, "/home"))
     broken.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
     broken_pid := broken.start()
