@@ -8,6 +8,9 @@
 *** [[./open/8.org][#8]] Unify workspace policy through reusable layout and window-manager libraries
 *** [[./open/9.org][#9]] Add tilminal tabs and optional Tiled buffer tab bars
 *** [[./open/10.org][#10]] Add an optional familiar menu bar backed by named commands
+*** [[./open/12.org][#12]] Add a tiled-cli interactive terminal host using mode cli
+** Low
+*** [[./open/11.org][#11]] Offer an optional Vim/Evil-style editing mode
 * Examples
 ** Low
 *** [[./open/1.org][#1]] tiled: editor, window manager, terminal and more

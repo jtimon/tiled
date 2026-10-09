@@ -9,6 +9,8 @@ import("terminal_clipboard")
 import("keymap")
 import("session_window")
 import("tilminal_session")
+import("command_discovery")
+import("minibuffer_view")
 
 TilminalAction := proc(mut Terminal, mut TerminalViewport)
 TilminalUserCommand := struct { name : Str; callback : TilminalAction }
@@ -19,6 +21,7 @@ namespace:
     new := func() returns TilminalCommands {
         mut c := TilminalCommands()
         terminal_keymaps(c.keys)
+        discovery_keymaps(c.keys)
         c.keys.declare("quit")
         c.keys.declare("session-save")
         c.keys.bind("prefix", "Escape", "cancel")
@@ -26,6 +29,11 @@ namespace:
     }
     bind := func(mut c: TilminalCommands, map: Str, keys: Str, command: Str, repeat: Bool = false) { c.keys.bind(map, keys, command, repeat) }
     unbind := func(mut c: TilminalCommands, map: Str, keys: Str) { c.keys.unbind(map, keys) }
+    user_names := func(c: TilminalCommands) returns Vec(Str) {
+        mut names := Vec(Str).new()
+        for entry : TilminalUserCommand in c.callbacks { names.push(own entry.name.clone()) }
+        return names
+    }
     command := func(mut c: TilminalCommands, name: Str, callback: TilminalAction) {
         if name == "forward-key" { panic("forward-key is reserved for bypassing host dispatch") }
         c.keys.declare(name)
@@ -90,6 +98,9 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
     mut view := TerminalView.new(font_path)
     mut viewport := TerminalViewport.new()
     mut key_state := KeyState()
+    mut discovery := CommandDiscovery()
+    mut notice := ""
+    mut notice_until : F64 = 0.0
     mut frame := SessionFrame(width = 960, height = 640)
     if tilminal_restore_session(session, terminal, frame) { session_restore_window(frame) }
     if session.notice.len() > 0 { println(session.notice) }
@@ -108,24 +119,46 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
             if !session.save(tilminal_checkpoint(terminal, session_window_frame())) { println(session.notice) }
         }
         viewport.sync(terminal.screen)
-        terminal_mouse(viewport, terminal.screen, view.cell_width, view.cell_height, 0, 0, width, height)
+        discovery.refresh(config.commands.keys, "terminal", "terminal", viewport.selection.active(), !terminal.screen.alternate_active)
+        if !discovery.active() { terminal_mouse(viewport, terminal.screen, view.cell_width, view.cell_height, 0, 0, width, height) }
         wheel := GetMouseWheelMove()
-        if wheel != 0 { viewport.scroll(terminal.screen, (wheel * 3).to_i64()) }
+        if wheel != 0 && !discovery.active() { viewport.scroll(terminal.screen, (wheel * 3).to_i64()) }
         mut mods : I32 = 0
         mut action : I32 = 0
         mut key := window_next_event(mods, action)
         mut closing := false
         while key > 0 {
             if action == 4 { closing = true; break }
-            dispatch := key_state.event(config.commands.keys, "terminal", viewport.selection.active(), !terminal.screen.alternate_active, key, mods, action)
+            mut dispatch := KeyDispatch()
+            if discovery.reading {
+                key_state.consume(key, mods, action)
+                dispatch = discovery.event(config.commands.keys, KeyDispatch(), key, mods, action)
+            } else {
+                mut context := "terminal"
+                if discovery.active() { context = "minibuffer" }
+                key_state.context(context)
+                dispatch = key_state.event(config.commands.keys, context, viewport.selection.active(), !terminal.screen.alternate_active, key, mods, action)
+                if discovery.active() {
+                    if dispatch.command == "forward-key" { key_state.consume(key, mods, action) }
+                    dispatch = discovery.event(config.commands.keys, dispatch, key, mods, action)
+                }
+            }
+            if discovery.message.len() > 0 {
+                notice = discovery.message.clone(); notice_until = GetTime() + 10.0; discovery.message = ""
+            }
             if dispatch.kind == 0 { terminal_forward(viewport, terminal, key.cast(I64), mods, action) }
             else if dispatch.kind == 1 {
                 name := dispatch.command
                 if config.commands.invoke(name, terminal, viewport) {
+                } else if name == "execute-command" || name == "describe-key" {
+                    discovery.begin(config.commands.keys, "terminal", "terminal", viewport.selection.active(), !terminal.screen.alternate_active,
+                        false, config.commands.user_names(), name == "describe-key")
                 } else if name == "quit" { closing = true; break }
                 else if name == "session-save" { checkpoint_now = true }
                 else if name == "forward-key" { terminal_forward(viewport, terminal, key.cast(I64), mods, action) }
-                else if !terminal_command(viewport, terminal, name, height / view.cell_height) { panic("unknown terminal command: ", name) }
+                else if !terminal_command(viewport, terminal, name, height / view.cell_height) {
+                    notice = format("Unavailable in terminal: ", name); notice_until = GetTime() + 10.0
+                }
             }
             key = window_next_event(mods, action)
         }
@@ -140,13 +173,22 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
         if terminal.ended { title = format(title, " [exit ", terminal.session.status().to_str(), "]") }
         if viewport.offset > 0 { title = format(title, " [scrollback ", viewport.offset.to_str(), "]") }
         if key_state.pending.len() > 0 { title = format(title, " [prefix]") }
+        if discovery.active() { title = format(title, " [command]") }
         if title != last_title {
             SetWindowTitle(title.c_str)
             last_title = title
         }
         BeginDrawing()
         ClearBackground(Color(r = 16, g = 18, b = 24, a = 255))
-        view.draw_scrolled(terminal.screen, 0, 0, width, height, IsWindowFocused(), terminal.ended, viewport.offset, viewport.selection)
+        view.draw_scrolled(terminal.screen, 0, 0, width, height, IsWindowFocused() && !discovery.active(), terminal.ended, viewport.offset, viewport.selection)
+        if discovery.active() {
+            draw_minibuffer(discovery.mini, view.font, 20, 24, width.to_i32(), height.to_i32(), 32)
+        } else if notice.len() > 0 && GetTime() < notice_until {
+            DrawRectangle(0, (height - 32).to_i32(), width.to_i32(), 32, Color(r = 24, g = 28, b = 42, a = 255))
+            BeginScissorMode(8, (height - 32).to_i32(), (width - 16).to_i32(), 32)
+            minibuffer_text(view.font, notice, 8, (height - 28).to_i32(), 20, Color(r = 240, g = 230, b = 190, a = 255))
+            EndScissorMode()
+        }
         EndDrawing()
     }
     terminal.close()

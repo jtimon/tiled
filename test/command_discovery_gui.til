@@ -1,0 +1,127 @@
+mode gui
+import("terminal_gui_helpers")
+
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
+chord := proc(display: Dynamic, key: UPtr, modifier: UPtr = 65507) {
+    send(display, modifier, 1); tap(display, key); send(display, modifier, 0); sleep_ms(70)
+}
+mx := proc(display: Dynamic, command: Str) {
+    chord(display, 120, 65513); type_text(display, command); sleep_ms(100)
+}
+wait_file := proc(app: Cmd, pid: I64, path: Str, expected: Str) {
+    for _ in 0..200 {
+        BeginDrawing(); EndDrawing() // Serve clipboard requests from the host.
+        if File.exists(path) { if File.readfile(path) == expected { return } }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, false, format("unexpected command output in ", path))
+}
+check_footer := proc(app: Cmd, pid: I64, display: Dynamic, window: UPtr, reference: UPtr, font: Font,
+    size: I32, footer: I32, text: Str, prompt: Bool, editor: Bool) {
+    mut ink := Color(r = 240, g = 230, b = 190, a = 255)
+    mut paper := Color(r = 24, g = 28, b = 42, a = 255)
+    if editor && !prompt { ink = Color(r = 160, g = 160, b = 180, a = 255); paper = Color(r = 38, g = 38, b = 52, a = 255) }
+    BeginDrawing(); ClearBackground(paper)
+    DrawTextEx(font, text.c_str, Vector2(x = 0, y = 0), size.to_f32(), 0, ink)
+    EndDrawing()
+    width := MeasureTextEx(font, text.c_str, size.to_f32(), 0).x.to_i64().to_i32().cast(U32)
+    mut matched := false
+    for _ in 0..200 {
+        mut root : UPtr = 0; mut x : I32 = 0; mut y : I32 = 0
+        mut w : U32 = 0; mut h : U32 = 0; mut border : U32 = 0; mut depth : U32 = 0
+        XGetGeometry(display, window, root, x, y, w, h, border, depth)
+        ref wanted : Dynamic = XGetImage(display, reference, 0, 0, width, size.cast(U32), 0xFFFFFF, 2)
+        ref actual : Dynamic = XGetImage(display, window, 8, h.cast(I32) - footer + 4, width, size.cast(U32), 0xFFFFFF, 2)
+        matched = true
+        for row in 0..size.cast(I64) {
+            for column in 0..width.cast(U64).cast(I64) {
+                if XGetPixel(wanted, column.to_i32(), row.to_i32()) != XGetPixel(actual, column.to_i32(), row.to_i32()) { matched = false; break }
+            }
+            if !matched { break }
+        }
+        XDestroyImage(wanted); XDestroyImage(actual)
+        if matched || app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, matched, format("missing rendered discovery text: ", text))
+}
+
+main := proc() {
+    root := get_cwd_str()
+    home := format(root, "/tmp/discovery-", process_id().to_str()); assert(mkdir_p(format(home, "/.tiled")) == 0)
+    file := format(home, "/notes.txt"); File.writefile(file, "")
+    File.writefile(format(home, "/.tiled/init.til"), format(
+        "mode lib\nmarker := func(mut editor: EditorState) { editor.insert(\"DISCOVERY_OK\") }\n",
+        "init := func(mut config: TiledConfig) { config.tile_left = false; config.session.enabled = false; ",
+        "config.commands.command(\"marker\", marker); config.commands.bind(\"text\", \"F8\", \"save-buffer\") }\n"))
+    File.writefile(format(home, "/.tilminal.til"), format(
+        "mode lib\nmarker := proc(mut terminal: Terminal, mut viewport: TerminalViewport) { viewport.selection.clear(); terminal.event(90, 2, 1) }\n",
+        "init := func(mut config: TilminalConfig) { config.session.enabled = false; config.commands.command(\"marker\", marker); ",
+        "config.commands.bind(\"global\", \"F4\", \"execute-command\") }\n"))
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace"); query.capture_out(); query.run_checked()
+    font_path := query.out()
+    InitWindow(960, 80, "terminal GUI reference".c_str); SetWindowPosition(0, 1100); SetExitKey(0)
+    reference := find_window("terminal GUI reference")
+    name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    for host : Str in array(Str, "tiled", "tilminal") {
+        is_editor := host == "tiled"
+        mut size : I32 = 20; mut footer : I32 = 32
+        if is_editor { size = 28; footer = 42 }
+        font := LoadFontEx(font_path.c_str, size, Option(ref I32).None, 0)
+        if is_editor { SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR) }
+        app := Cmd.new(format("./bin/", host)); if is_editor { app.arg(file) }
+        app.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
+        app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+        pid := app.start()
+        mut title := "tilminal"; if is_editor { title = "Tiled - notes.txt" }
+        window := wait_window(app, pid, title); sleep_ms(250)
+        XSetInputFocus(display, window, 2, 0); XFlush(display)
+        chord(display, 120, 65513)
+        check_footer(app, pid, display, window, reference, font, size, footer, "M-x ", true, is_editor)
+        type_text(display, "not-a-command")
+        check_footer(app, pid, display, window, reference, font, size, footer, "M-x not-a-command", true, is_editor)
+        tap(display, 65307)
+        if is_editor {
+            mx(display, "marker")
+            require(app, pid, File.readfile(file) == "", "custom command unexpectedly saved")
+            chord(display, 104); tap(display, 107); tap(display, 65477) // C-h k F8
+            check_footer(app, pid, display, window, reference, font, size, footer, "F8 -> save-buffer [text]", false, true)
+            require(app, pid, File.readfile(file) == "", "describe-key executed save-buffer")
+            mx(display, "save-buffer"); wait_file(app, pid, file, "DISCOVERY_OK")
+            mx(display, "describe-key"); tap(display, 65307)
+            check_footer(app, pid, display, window, reference, font, size, footer, "Escape -> quit [text]", false, true)
+            require(app, pid, !app.poll(), "describe-key executed quit")
+            chord(display, 120); tap(display, 98); type_keys(display, "not")
+            mx(display, "describe-key"); tap(display, 65293)
+            check_footer(app, pid, display, window, reference, font, size, footer, "Switch buffer: not", true, true)
+            tap(display, 65307)
+            mx(display, "new-terminal"); wait_window(app, pid, "Tiled - *terminal-1*")
+        } else {
+            tap(display, 65473) // F4: rebound execute-command
+            check_footer(app, pid, display, window, reference, font, size, footer, "M-x ", true, false)
+            tap(display, 65307)
+        }
+        ready := format(home, "/", host, "-ready")
+        pasted := format(home, "/", host, "-paste")
+        after := format(home, "/", host, "-after")
+        type_text(display, format("stty raw -echo; printf ready > ", ready,
+            "; dd bs=1 count=5 of=", pasted, " 2>/dev/null; dd bs=1 count=1 of=", after, " 2>/dev/null; stty sane"))
+        wait_file(app, pid, ready, "ready")
+        mx(display, "describe-key"); chord(display, 99)
+        check_footer(app, pid, display, window, reference, font, size, footer,
+            "C-c -> unbound (normally forwarded to child)", false, is_editor)
+        SetClipboardText("WORLD".c_str)
+        mx(display, "paste"); wait_file(app, pid, pasted, "WORLD")
+        if is_editor { tap(display, 113); wait_file(app, pid, after, "q") }
+        else { mx(display, "marker"); wait_file(app, pid, after, Str.from_byte(26)) }
+        sleep_ms(150)
+        if is_editor {
+            request_close(display, window); sleep_ms(150); type_text(display, "terminate")
+            for _ in 0..100 { if app.poll() { break }; sleep_ms(50) }
+            require(app, pid, app.poll(), "Tiled did not close"); assert(app.wait() == 0)
+        } else { close_app(app, pid, display, window) }
+        UnloadFont(font)
+        println("PASS: ", host, " rendered M-x/describe-key, callbacks, builtin execution and input isolation")
+    }
+    XCloseDisplay(display); CloseWindow()
+}

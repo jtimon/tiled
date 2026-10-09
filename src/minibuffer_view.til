@@ -1,0 +1,72 @@
+mode lib
+import("minibuffer")
+
+minibuffer_width := func(font: Font, text: Str, size: I32) returns I32 {
+    terminated := text.clone()
+    return MeasureTextEx(font, terminated.c_str, size.to_f32(), 0).x.to_i64().to_i32()
+}
+minibuffer_text := proc(font: Font, text: Str, x: I32, y: I32, size: I32, color: Color) {
+    DrawTextEx(font, text.c_str, Vector2(x = x.to_f32(), y = y.to_f32()), size.to_f32(), 0, color)
+}
+minibuffer_tail := func(font: Font, text: Str, size: I32, width: I32) returns Str {
+    if minibuffer_width(font, text, size) <= width { return text.clone() }
+    mut first : USize = 0
+    while first < text.len() {
+        shortened := format("...", text.substr(first, text.len() - first))
+        if minibuffer_width(font, shortened, size) <= width { return shortened }
+        first++
+    }
+    return "..."
+}
+draw_minibuffer := proc(mini: Minibuffer, font: Font, size: I32, line_h: I32, width: I32, height: I32, footer_h: I32) {
+    matches := mini.matches()
+    mut rows := (height - footer_h) / line_h - 1
+    if rows > 8 { rows = 8 }
+    if rows < 0 { rows = 0 }
+    if rows > matches.len().to_i32() { rows = matches.len().to_i32() }
+    panel_y := height - footer_h - (rows + 1) * line_h
+    DrawRectangle(0, panel_y, width, height - panel_y, Color(r = 24, g = 28, b = 42, a = 255))
+    DrawRectangle(0, panel_y, width, 2, Color(r = 110, g = 130, b = 180, a = 255))
+    mut help := "Enter OK  Tab complete  Up/Down  C-g/Esc"
+    if mini.choices.len() == 0 { help = "Type yes to discard, no or C-g to cancel" }
+    else if matches.len() == 0 { help = "No matching choice - edit the name or C-g to cancel" }
+    else { help = format((mini.selected + 1).to_str(), "/", matches.len().to_str(), "  ", help) }
+    if mini.help.len() > 0 { help = mini.help.clone() }
+    if mini.hint.len() > 0 { help = mini.hint.clone() }
+    BeginScissorMode(8, panel_y, width - 16, line_h)
+    minibuffer_text(font, help, 8, panel_y + 4, size, Color(r = 155, g = 170, b = 200, a = 255))
+    EndScissorMode()
+    if rows > 0 {
+        first := (mini.selected / rows.to_usize()) * rows.to_usize()
+        mut row : I32 = 0
+        while row < rows {
+            index := first + row.to_usize()
+            if index >= matches.len() { break }
+            choice := mini.choices[matches[index]].clone()
+            y := panel_y + (row + 1) * line_h
+            if index == mini.selected { DrawRectangle(0, y, width, line_h, Color(r = 55, g = 65, b = 95, a = 255)) }
+            marker_w := minibuffer_width(font, choice.marker, size)
+            name_w := width / 2 - marker_w - 24
+            BeginScissorMode(8, y, width / 2 - 16, line_h)
+            minibuffer_text(font, format(choice.marker, minibuffer_tail(font, choice.name, size, name_w)), 8, y + 2, size,
+                Color(r = 225, g = 225, b = 235, a = 255))
+            EndScissorMode()
+            BeginScissorMode(width / 2, y, width / 2 - 8, line_h)
+            minibuffer_text(font, minibuffer_tail(font, choice.detail, size, width / 2 - 16), width / 2, y + 2, size,
+                Color(r = 155, g = 170, b = 200, a = 255))
+            EndScissorMode()
+            row = row + 1
+        }
+    }
+    before := format(mini.label, mini.input.substr(0, mini.cursor))
+    point := minibuffer_width(font, before, size)
+    mut scroll : I32 = 0
+    if point > width - 24 { scroll = point - width + 24 }
+    y := height - footer_h
+    mut text_x : I32 = 8
+    text_x = text_x - scroll
+    BeginScissorMode(8, y, width - 16, footer_h)
+    minibuffer_text(font, format(mini.label, mini.input), text_x, y + 4, size, Color(r = 240, g = 230, b = 190, a = 255))
+    DrawRectangle(text_x + point, y + 4, 2, line_h, Color(r = 255, g = 200, b = 0, a = 255))
+    EndScissorMode()
+}

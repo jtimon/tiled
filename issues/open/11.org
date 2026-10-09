@@ -1,0 +1,34 @@
+# priority: low
+# category: features
+** OPEN #11 Offer an optional Vim/Evil-style editing mode
+
+Keep Emacs-style interaction as the default, while offering an opt-in modal
+editing profile familiar to Vim/Neovim users, similar in purpose to Emacs Evil.
+Use those systems as references rather than reproducing every historical quirk.
+Document deliberate differences and the supported subset instead of claiming
+full compatibility prematurely.
+
+This is low priority. The initial user is replacing parts of an Emacs and
+xfce4-terminal workflow; making that default workflow solid comes first.
+
+*** Direction
+
+- Implement modal state and keymaps over the same buffers, views, selections,
+  named commands and editing primitives as the Emacs-style profile. Do not
+  maintain another editor core or replace user Til configuration with Vimscript.
+- Begin with normal, insert and visual states, basic motions and selection,
+  then operators/counts and text objects. Define which state belongs to a
+  buffer versus a view, and make the current state visible.
+- Coordinate undo grouping, dot-repeat, registers, paste, search and command
+  repetition with shared editing facilities as they become available. A set
+  of h/j/k/l shortcuts alone is not an adequate modal editing mode.
+- Allow choosing and customizing the profile in Til. Preserve discoverability
+  through M-x, describe-key and future menus, including mode-specific bindings.
+- Keep terminal-child input separate from modal text editing. Escape should
+  not unexpectedly leave a terminal's foreground application or intercept its
+  keys; any terminal-navigation mode needs an explicit entry/exit contract.
+- Test counts/operators, UTF-8 boundaries, selections, shared-buffer views,
+  insert-to-normal transitions, undo/repeat semantics and custom bindings.
+
+References: Emacs Evil and Vim/Neovim modal editing. Related: [[file:5.org][#5 commands/keymaps]],
+[[file:1.org][#1 editor development]] and [[file:10.org][#10 optional menus]].

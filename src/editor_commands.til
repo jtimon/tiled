@@ -11,6 +11,8 @@ namespace:
     new := func() returns EditorCommands {
         mut c := EditorCommands()
         terminal_keymaps(c.keys)
+        discovery_keymaps(c.keys)
+        c.keys.bind("text", "C-h k", "describe-key")
         for name : Str in array(Str, "quit", "save-buffer", "session-save", "find-file", "switch-buffer", "list-buffers", "kill-buffer", "new-terminal",
             "split-below", "split-right", "other-view", "close-view", "only-view", "send-prefix", "set-mark", "cut",
             "left", "right", "up", "down", "home", "end", "newline", "backspace", "delete", "accept", "complete", "previous-choice", "next-choice") { c.keys.declare(name) }
@@ -55,21 +57,16 @@ namespace:
             if key == "End" { command = "end" }
             c.bind("text", key, command, true)
             c.bind("text", format("S-", key), command, true)
-            if key != "Up" && key != "Down" { c.bind("minibuffer", key, command, true) }
         }
-        c.bind("minibuffer", "C-g", "cancel")
-        c.bind("minibuffer", "Escape", "cancel")
-        c.bind("minibuffer", "Enter", "accept")
-        c.bind("minibuffer", "Tab", "complete", true)
-        c.bind("minibuffer", "S-Tab", "complete", true)
-        c.bind("minibuffer", "Up", "previous-choice", true)
-        c.bind("minibuffer", "Down", "next-choice", true)
-        c.bind("minibuffer", "Backspace", "backspace", true)
-        c.bind("minibuffer", "Delete", "delete", true)
         return c
     }
     bind := func(mut c: EditorCommands, map: Str, keys: Str, command: Str, repeat: Bool = false) { c.keys.bind(map, keys, command, repeat) }
     unbind := func(mut c: EditorCommands, map: Str, keys: Str) { c.keys.unbind(map, keys) }
+    user_names := func(c: EditorCommands) returns Vec(Str) {
+        mut names := Vec(Str).new()
+        for entry : EditorUserCommand in c.callbacks { names.push(own entry.name.clone()) }
+        return names
+    }
     command := func(mut c: EditorCommands, name: Str, callback: EditorAction) {
         if name == "forward-key" { panic("forward-key is reserved for bypassing host dispatch") }
         c.keys.declare(name)

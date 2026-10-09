@@ -9,6 +9,8 @@ import("editor_exit")
 import("editor_terminal")
 import("editor_commands")
 import("session_window")
+import("command_discovery")
+import("minibuffer_view")
 
 link_c("editor_save.c")
 editor_write_file := ext_proc(path: I8, text: I8, shallow length: UPtr) returns shallow I32 {}
@@ -286,74 +288,6 @@ editor_draw_terminal := proc(mut terminals: EditorTerminals, editor: EditorState
     EndScissorMode()
 }
 
-editor_tail_text := func(font: Font, text: Str, size: I32, width: I32) returns Str {
-    if editor_text_width(font, text, size) <= width { return text.clone() }
-    mut first : USize = 0
-    while first < text.len() {
-        shortened := format("...", text.substr(first, text.len() - first))
-        if editor_text_width(font, shortened, size) <= width { return shortened }
-        first++
-    }
-    return "..."
-}
-
-editor_draw_minibuffer := proc(mini: Minibuffer, font: Font, size: I32, line_h: I32,
-                              width: I32, height: I32, footer_h: I32) {
-    matches := mini.matches()
-    mut rows := (height - footer_h) / line_h - 1
-    if rows > 8 { rows = 8 }
-    if rows < 0 { rows = 0 }
-    if rows > matches.len().to_i32() { rows = matches.len().to_i32() }
-    panel_y := height - footer_h - (rows + 1) * line_h
-    DrawRectangle(0, panel_y, width, height - panel_y, Color(r = 24, g = 28, b = 42, a = 255))
-    DrawRectangle(0, panel_y, width, 2, Color(r = 110, g = 130, b = 180, a = 255))
-    mut help := "Enter OK  Tab complete  Up/Down  C-g/Esc"
-    if mini.choices.len() == 0 { help = "Type yes to discard, no or C-g to cancel" }
-    else if matches.len() == 0 { help = "No matching buffer - edit the name or C-g to cancel" }
-    else { help = format((mini.selected + 1).to_str(), "/", matches.len().to_str(), "  ", help) }
-    if mini.help.len() > 0 { help = mini.help.clone() }
-    if mini.hint.len() > 0 { help = mini.hint.clone() }
-    BeginScissorMode(8, panel_y, width - 16, line_h)
-    editor_draw_text(font, help, 8, panel_y + 4, size, Color(r = 155, g = 170, b = 200, a = 255))
-    EndScissorMode()
-    if rows > 0 {
-        first := (mini.selected / rows.to_usize()) * rows.to_usize()
-        mut row : I32 = 0
-        while row < rows {
-            index := first + row.to_usize()
-            if index >= matches.len() { break }
-            choice := mini.choices[matches[index]].clone()
-            y := panel_y + (row + 1) * line_h
-            if index == mini.selected {
-                DrawRectangle(0, y, width, line_h, Color(r = 55, g = 65, b = 95, a = 255))
-            }
-            marker_w := editor_text_width(font, choice.marker, size)
-            name_w := width / 2 - marker_w - 24
-            BeginScissorMode(8, y, width / 2 - 16, line_h)
-            editor_draw_text(font, format(choice.marker, editor_tail_text(font, choice.name, size, name_w)), 8, y + 2, size,
-                Color(r = 225, g = 225, b = 235, a = 255))
-            EndScissorMode()
-            BeginScissorMode(width / 2, y, width / 2 - 8, line_h)
-            editor_draw_text(font, editor_tail_text(font, choice.detail, size, width / 2 - 16),
-                width / 2, y + 2, size, Color(r = 155, g = 170, b = 200, a = 255))
-            EndScissorMode()
-            row = row + 1
-        }
-    }
-    before := format(mini.label, mini.input.substr(0, mini.cursor))
-    point := editor_text_width(font, before, size)
-    mut scroll : I32 = 0
-    if point > width - 24 { scroll = point - width + 24 }
-    y := height - footer_h
-    mut text_x : I32 = 8
-    text_x = text_x - scroll
-    BeginScissorMode(8, y, width - 16, footer_h)
-    editor_draw_text(font, format(mini.label, mini.input), text_x, y + 4, size,
-        Color(r = 240, g = 230, b = 190, a = 255))
-    DrawRectangle(text_x + point, y + 4, 2, line_h, Color(r = 255, g = 200, b = 0, a = 255))
-    EndScissorMode()
-}
-
 start_editor := proc(config: TiledConfig, args: ..Str) {
     options := SessionArgs.parse(..args)
     mut session := SessionStore.new("tiled", config.session, options)
@@ -374,6 +308,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
     mut status_msg := session.notice.clone()
     mut status_timer : I64 = 10000
     mut key_state := KeyState()
+    mut discovery := CommandDiscovery()
     mut prompt := EditorBufferPrompt()
     mut exit_prompt := EditorExitPrompt()
     exit_prompt.keep_allowed = session.enabled
@@ -424,7 +359,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         height := GetScreenHeight()
         area := EditorRect(width = width, height = height - footer_h)
         editor.arrange(0, area)
-        if !prompt.mini.active && !exit_prompt.mini.active && IsMouseButtonPressed(0) {
+        if !prompt.mini.active && !exit_prompt.mini.active && !discovery.active() && IsMouseButtonPressed(0) {
             mouse := GetMousePosition()
             for index : USize in editor.views() {
                 ref rect : EditorRect = editor.nodes[index].rect
@@ -443,14 +378,16 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             if !session.save(data) { status_msg = session.notice.clone(); status_timer = 10000; println(status_msg) }
         }
         had_prefix := key_state.pending.len() > 0
-        key_state.context(editor_key_owner(editor, prompt.mini.active || exit_prompt.mini.active))
+        mut key_owner := editor_key_owner(editor, prompt.mini.active || exit_prompt.mini.active)
+        if discovery.active() { key_owner = format(key_owner, ":discovery") }
+        key_state.context(key_owner)
         if had_prefix && key_state.pending.len() == 0 { status_msg = ""; status_timer = 0 }
-        if !prompt.mini.active && !exit_prompt.mini.active && key_state.pending.len() == 0 {
+        if !prompt.mini.active && !exit_prompt.mini.active && !discovery.active() && key_state.pending.len() == 0 {
             terminals.mouse(editor, line_h + 8)
             editor_mouse_text(editor, font, font_size, line_h)
         }
         wheel := GetMouseWheelMove()
-        if wheel != 0 && !prompt.mini.active && !exit_prompt.mini.active && key_state.pending.len() == 0 {
+        if wheel != 0 && !prompt.mini.active && !exit_prompt.mini.active && !discovery.active() && key_state.pending.len() == 0 {
             mouse := GetMousePosition()
             terminals.wheel(editor, (wheel * 3).to_i64(), mouse.x, mouse.y, line_h + 8)
         }
@@ -473,8 +410,28 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                 primary = !terminals.slots[terminal.to_usize()].terminal.screen.alternate_active
             }
             if prompting { context = "minibuffer"; selected = false }
-            key_state.context(editor_key_owner(editor, prompting))
-            dispatch := key_state.event(config.commands.keys, context, selected, primary, key, mods, action)
+            owner := editor_key_owner(editor, prompting)
+            discovery.refresh(config.commands.keys, owner, context, selected, primary)
+            mut dispatch := KeyDispatch()
+            if discovery.reading && action != 4 {
+                key_state.consume(key, mods, action)
+                dispatch = discovery.event(config.commands.keys, KeyDispatch(), key, mods, action)
+            } else {
+                mut map_context := context.clone(); mut map_owner := owner.clone()
+                if discovery.active() { map_context = "minibuffer"; map_owner = format(owner, ":discovery") }
+                key_state.context(map_owner)
+                dispatch = key_state.event(config.commands.keys, map_context, selected, primary, key, mods, action)
+                if discovery.active() && action != 4 {
+                    if dispatch.command == "forward-key" { key_state.consume(key, mods, action) }
+                    dispatch = discovery.event(config.commands.keys, dispatch, key, mods, action)
+                }
+            }
+            if discovery.message.len() > 0 {
+                status_msg = discovery.message.clone(); status_timer = 10000
+                if exit_prompt.mini.active { exit_prompt.mini.hint = status_msg.clone() }
+                else if prompt.mini.active { prompt.mini.hint = status_msg.clone() }
+                discovery.message = ""
+            }
             if action == 4 {
                 quit = true
             } else if dispatch.kind == 2 {
@@ -492,11 +449,16 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                 }
             } else if dispatch.kind == 1 {
                 command := dispatch.command
+                mut command_mods := mods
+                if dispatch.named { command_mods = 0 }
                 status_msg = ""; status_timer = 2000
                 if config.commands.invoke(command, editor) {
                     // Registered Til callbacks take precedence over built-ins.
+                } else if command == "execute-command" || command == "describe-key" {
+                    discovery.begin(config.commands.keys, owner, context, selected, primary, true, config.commands.user_names(), command == "describe-key")
                 } else if command == "cancel" {
                     editor.nodes[editor.focused].view.clear_mark()
+                    editor.nodes[editor.focused].view.terminal_viewport.selection.clear()
                     key_state.cancel()
                     prompt.cancel()
                     exit_prompt.cancel()
@@ -532,8 +494,8 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                     } else {
                         mapped := command_key(command)
                         if mapped == 0 { status_msg = format("Unavailable in minibuffer: ", command) }
-                        else if exit_prompt.mini.active { exit_prompt.mini.key(mapped, mods.band(1) != 0) }
-                        else { prompt.mini.key(mapped, mods.band(1) != 0) }
+                        else if exit_prompt.mini.active { exit_prompt.mini.key(mapped, command_mods.band(1) != 0) }
+                        else { prompt.mini.key(mapped, command_mods.band(1) != 0) }
                     }
                 } else if command == "save-buffer" { save = true }
                 else if command == "session-save" { checkpoint_now = true }
@@ -565,12 +527,13 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                 else if command == "delete" { editor.delete_forward() }
                 else {
                     mapped := command_key(command)
-                    if mapped >= 262 && mapped <= 269 { editor.select_move(mapped, mods.band(1) != 0) }
+                    if mapped >= 262 && mapped <= 269 { editor.select_move(mapped, command_mods.band(1) != 0) }
                     else if command != "forward-key" { status_msg = format("Unavailable in text: ", command) }
                 }
                 editor.arrange(0, area)
             }
             if quit {
+                discovery.cancel()
                 key_state.cancel()
                 prompt.cancel()
                 exit_prompt.begin(editor)
@@ -610,7 +573,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             id := editor.nodes[index].view.buffer
             if editor.buffers[id].terminal >= 0 {
                 editor_draw_terminal(terminals, editor, index, font, font_size, line_h,
-                    !prompt.mini.active && !exit_prompt.mini.active)
+                    !prompt.mini.active && !exit_prompt.mini.active && !discovery.active())
             } else { editor_draw_view(editor, index, font, font_size, line_h) }
         }
         active_buffer := editor.nodes[editor.focused].view.buffer
@@ -623,8 +586,9 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         editor_draw_text(font, message, 8, height - footer_h + 4, font_size,
             Color(r = 160, g = 160, b = 180, a = 255))
         EndScissorMode()
-        if prompt.mini.active { editor_draw_minibuffer(prompt.mini, font, font_size, line_h, width, height, footer_h) }
-        if exit_prompt.mini.active { editor_draw_minibuffer(exit_prompt.mini, font, font_size, line_h, width, height, footer_h) }
+        if prompt.mini.active { draw_minibuffer(prompt.mini, font, font_size, line_h, width, height, footer_h) }
+        if exit_prompt.mini.active { draw_minibuffer(exit_prompt.mini, font, font_size, line_h, width, height, footer_h) }
+        if discovery.active() { draw_minibuffer(discovery.mini, font, font_size, line_h, width, height, footer_h) }
         EndDrawing()
     }
     terminals.close()

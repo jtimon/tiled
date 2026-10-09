@@ -9,7 +9,7 @@ There is one terminal implementation and two hosts. See
 
 ** Running
 
-Build both applications with installed Til =0.0.1-3bcf0e933=:
+Build both applications with installed Til =0.0.1-f24e6004c=:
 
 #+begin_src sh
 til interpret make.til
@@ -71,6 +71,12 @@ there is not yet a host configuration setting for it.
 The bindings below are defaults, configurable through [[file:keybindings.org][commands and keymaps]].
 Standalone configuration is =~/.tilminal.til=; embedded panes use
 =~/.tiled/init.til=.
+
+=M-x= now opens a host command palette in either terminal host. Use
+=M-x describe-key= to inspect input routing without sending the keys to the child.
+These prompts use the host's minibuffer bindings; closing them returns input
+to the original pane. Ctrl-H remains terminal input; the text-only =C-h k=
+binding does not intercept it in terminals.
 
 Drag with the left mouse button to select terminal cells, including printed
 output and scrollback. Selection is linear and independent per pane. Wheel

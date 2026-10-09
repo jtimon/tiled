@@ -6,7 +6,7 @@ Inspired in [[https://savannah.gnu.org/projects/emacs/][emacs]], [[https://githu
 
 ** Getting started
 
-Targets installed Til =0.0.1-3bcf0e933= with natural core/std imports (#413).
+Targets installed Til =0.0.1-f24e6004c= with natural core/std imports (#413).
 See [[file:doc/build.org][build requirements and details]].
 From the repository root:
 

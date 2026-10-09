@@ -122,6 +122,10 @@ and keeps its buffer.
 
 ** Text selection and clipboard
 
+=M-x= searches and executes named commands, including user-defined Til commands.
+=M-x describe-key= inspects a key sequence without executing it; text panes also
+provide =C-h k=. See [[file:keybindings.org][command discovery and effective bindings]].
+
 Editable buffers support mouse-drag selection, Shift+arrows/Home/End, and
 =C-Space= to set an Emacs-style mark followed by cursor movement. =C-g= clears
 the mark/selection. Selection belongs to each view; edits to a shared buffer

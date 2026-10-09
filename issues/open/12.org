@@ -1,0 +1,47 @@
+# priority: medium
+# category: features
+** OPEN #12 Add a tiled-cli interactive terminal host using mode cli
+
+Provide a separate =tiled-cli= binary that runs inside a terminal, comparable
+to using Emacs without its graphical display. It should be useful locally and
+over SSH, sharing Tiled's editor rather than maintaining another implementation.
+This is an interactive terminal UI, not merely a noninteractive batch interface.
+
+*** Scope and boundaries
+
+- Build the entry point with =mode cli=. That supplies the CLI runtime, not
+  automatically a full-screen terminal UI: implement or choose a TTY backend
+  for rendering, raw input, resize events and terminal setup/teardown.
+- Reuse buffers, editing primitives, selections, split layouts, named commands,
+  contextual keymaps, M-x/describe-key, minibuffer mechanics and session data.
+  Separate GUI-specific drawing, dialogs and clipboard operations from shared
+  command execution and configuration types where needed.
+- Start with text editing, files, splits, buffer switching and prompts. Use
+  minibuffer file selection instead of native GUI dialogs. Integrate embedded
+  terminal panes through the existing terminal core when the host supports them.
+- Normalize TTY keys, UTF-8, escape/Alt sequences and bracketed paste into the
+  shared input contract. Define terminal capability requirements and mouse
+  support rather than assuming GLFW events or pixel geometry are available.
+- Restore terminal settings/cursor/alternate-screen state on normal exit and
+  handled interruptions. Keep input and child-session pumping responsive.
+- Define clipboard/yank behavior without requiring a graphical desktop;
+  distinguish internal editing storage from optional system/terminal clipboard
+  integration, especially over SSH.
+- Keep Til configuration and default Emacs-style commands consistent across
+  hosts, with explicit host-specific settings and capability checks. A future
+  Vim/Evil profile should also work in the CLI host.
+- Reuse saved editor workspaces across GUI and CLI where meaningful. Treat
+  pixel geometry and terminal-cell dimensions as host-specific, and retain
+  concurrent-session isolation instead of overwriting another host's state.
+
+*** Acceptance
+
+- Launch with no DISPLAY/Wayland connection and no GUI-library dependency at
+  runtime; edit/save files, split/switch views, use M-x and inspect bindings.
+- Test through a real PTY: resize, UTF-8 editing, escape/modifier routing,
+  bracketed paste, cancellation, dirty-buffer exit and terminal restoration.
+- Exercise GUI-to-CLI and CLI-to-GUI workspace restoration and concurrent use.
+- Keep model/command tests shared; add backend-specific rendering/input checks.
+
+Related: [[file:5.org][#5 commands/keymaps]], [[file:../fixed/6.org][#6 saved sessions]],
+[[file:8.org][#8 host/library boundaries]], [[file:9.org][#9 tabs]] and [[file:11.org][#11 optional modal editing]].

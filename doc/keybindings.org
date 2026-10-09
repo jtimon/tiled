@@ -75,24 +75,60 @@ not replayed into the child. Repeats are opt-in for single-stroke bindings;
 prefix controls and multi-stroke commands do not repeat. A key cannot be both
 a command and a prefix in the same map: unbind the old subtree first.
 
+*** Command discovery
+
+=M-x= (Alt-X) opens a command palette in both hosts. Type part of a name or
+binding, use Up/Down to choose, Tab to complete, and Enter to execute. Empty
+or unmatched input keeps the prompt open; C-g or Escape cancels it. Built-in
+and user-defined commands appear, including unbound commands. The adjacent
+column shows effective bindings for the originating pane, including selection
+and primary/alternate-screen precedence. Unavailable commands are labelled
+and cannot be selected for execution; user callbacks supply their own behavior.
+
+Palette acceptance feeds the chosen name into the same host command executor
+as a keybinding. The accepting key's modifiers are not passed as editing
+modifiers. =forward-key= requires an actual bound key event and cannot be
+invoked by name. Prompts consume their own input without sending it to the
+terminal or inserting it into the document. Opening M-x from an existing
+minibuffer preserves that prompt and uses its context.
+
+Run =M-x describe-key=, then press a key sequence. Tiled text panes also bind
+=C-h k= to this command; terminal panes retain ordinary Ctrl-H input. Inspection
+uses the normal resolver, reports the winning command and map or the unbound/
+undefined disposition, and never executes the inspected action. Prefixes are
+read until a complete binding or undefined continuation is reached. =C-g=
+is the inspection cancellation key; Escape can itself be inspected. The result
+appears in Tiled's status area (or the original prompt's hint), or in a temporary
+tilminal footer. Selection/screen-mode changes are reflected when resolving keys.
+
+Both discovery commands are ordinary named commands and can be rebound, e.g.:
+
+#+begin_src til
+config.commands.bind("global", "F4", "execute-command")
+config.commands.bind("global", "F1 k", "describe-key")
+// Restore Alt-X forwarding in terminal panes if preferred:
+// config.commands.unbind("global", "M-x")
+#+end_src
+
 *** Built-in command names
 
-- Both hosts: =session-save=, =copy=, =paste=, =cancel-selection=, =scroll-page-up=,
+- Both hosts: =execute-command=, =describe-key=, =session-save=, =copy=, =paste=, =cancel-selection=, =scroll-page-up=,
   =scroll-page-down=, =forward-key=, =ignore=, =cancel= and =quit=.
 - Tiled: =save-buffer=, =find-file=, =switch-buffer=, =list-buffers=,
   =kill-buffer=, =new-terminal=, =split-below=, =split-right=, =other-view=,
   =close-view=, =only-view=, =send-prefix= (literal Ctrl-X), =set-mark=, =cut=,
   =left=, =right=, =up=, =down=, =home=, =end=, =newline=, =backspace=,
-  =delete=, =accept=, =complete=, =previous-choice= and =next-choice=.
+  =delete=. Both hosts also have minibuffer navigation/acceptance commands
+  (=accept=, =complete=, =previous-choice=, =next-choice= and cursor editing).
 
 Commands still have appropriate contexts: buffer editing requires a text
 buffer; prompt acceptance/completion requires a prompt; terminal scrolling
 requires a terminal. Known but unavailable built-ins report a status message
 in Tiled. Unknown command/map/key names and ambiguous prefixes are config
 errors. The registered names and bindings are inspectable as
-=config.commands.keys.names= and =config.commands.keys.bindings=; an interactive
-command palette and general built-in command invocation from callbacks remain
-follow-up work. Tiled callbacks currently receive editor state, not the native
+=config.commands.keys.names= and =config.commands.keys.bindings=. General
+built-in command invocation from callbacks remains follow-up work. Tiled
+callbacks currently receive editor state, not the native
 terminal pool or prompt machinery. Mouse gestures remain host-defined.
 
 This is still the compiled startup loader: it needs installed Til and the
@@ -108,12 +144,20 @@ til run --usize=64 -o tmp/check_keymap -c tmp/check_keymap.c test/keymap.til
 til interpret --usize=64 test/keymap.til
 til build --usize=64 -o tmp/check_keymap_gui -c tmp/check_keymap_gui.c test/keymap_gui.til
 xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_keymap_gui
+til run --asan --usize=64 -o tmp/check_command_discovery -c tmp/check_command_discovery.c test/command_discovery.til
+til interpret --usize=64 test/command_discovery.til
+til build --usize=64 -o tmp/check_command_discovery_gui -c tmp/check_command_discovery_gui.c test/command_discovery_gui.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_command_discovery_gui
 #+end_src
 
 The model checks map precedence, prefixes, repeat policy, unbinding, character
 suppression and callback mutation. The GUI check loads both actual user-config
 paths, edits/saves a live buffer via a user command, rebinds prompt cancellation
 and paste, checks bytes delivered to a PTY child, and rejects an unknown command.
+Discovery tests additionally check effective bindings through shadowed prefixes,
+selection precedence, command availability, rendered prompts/results, executing
+unbound callbacks by name, nested prompt preservation and inspection without
+file writes, application exit or terminal input leakage.
 
 ** Future API sketch
 
@@ -146,14 +190,9 @@ is an optional shortcut to the same command, not what makes it callable.
 
 ** Command prompt and completion
 
-=M-x= (usually Alt+X) should open the command prompt. It lists available
-commands, descriptions and assigned shortcuts, including commands with no
-keybinding. Typing a name filters suggestions; arrows select, Enter runs,
-and =C-g= cancels. Commands can then prompt for required arguments.
-
-For example, =C-x C-c= and selecting =quit= through =M-x= should invoke the
-same command. This requires a command registry shared by built-in and user
-commands; it is not implemented by the current init loader.
+=M-x= and contextual binding display are now implemented as described above.
+=C-x C-c= and selecting =quit= through M-x use the same executor. Rich command
+documentation and general argument-prompt declarations remain future extensions.
 
 =C-x= is a keymap prefix, distinct from the command prompt. Optional
 which-key-style hints could show its available continuations. Name-based

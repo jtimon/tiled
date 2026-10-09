@@ -1,0 +1,119 @@
+mode lib
+import("keymap")
+import("minibuffer")
+
+CommandDiscovery := struct {
+    mini := Minibuffer()
+    reading := false
+    inspection := KeyState()
+    sequence := ""
+    message := ""
+    owner := ""
+    context := "text"
+    selected := false
+    primary := true
+    editor_host := true
+    custom := Vec(Str).new()
+namespace:
+    active := func(d: CommandDiscovery) returns Bool { return d.mini.active || d.reading }
+    cancel := func(mut d: CommandDiscovery) {
+        d.mini.active = false; d.reading = false; d.inspection.cancel()
+    }
+    available := func(d: CommandDiscovery, name: Str) returns Bool {
+        if name == "forward-key" { return false } // No originating key in M-x.
+        for custom : Str in d.custom { if custom == name { return true } }
+        if name == "execute-command" || name == "describe-key" || name == "cancel" || name == "ignore" || name == "quit" { return true }
+        if d.context == "minibuffer" { return name == "accept" || command_key(name) != 0 }
+        if name == "session-save" || name == "copy" || name == "paste" { return true }
+        if d.editor_host {
+            for common : Str in array(Str, "find-file", "switch-buffer", "list-buffers", "kill-buffer", "new-terminal",
+                "split-below", "split-right", "other-view", "close-view", "only-view") { if common == name { return true } }
+        }
+        if d.context == "terminal" {
+            if name == "cancel-selection" { return true }
+            if name == "send-prefix" { return d.editor_host }
+            return d.primary && (name == "scroll-page-up" || name == "scroll-page-down")
+        }
+        for text : Str in array(Str, "save-buffer", "set-mark", "cut", "left", "right", "up", "down", "home", "end", "newline", "backspace", "delete") {
+            if text == name { return true }
+        }
+        return false
+    }
+    details := func(d: CommandDiscovery, maps: Keymaps, name: Str) returns Str {
+        bindings := maps.bindings_for(name, d.context, d.selected, d.primary)
+        if !d.available(name) { return format("unavailable here; ", bindings) }
+        return bindings
+    }
+    begin := func(mut d: CommandDiscovery, maps: Keymaps, owner: Str, context: Str, selected: Bool, primary: Bool, editor_host: Bool, custom: Vec(Str), describe: Bool) {
+        d.cancel(); d.message = ""; d.owner = owner.clone(); d.context = context.clone()
+        d.selected = selected; d.primary = primary; d.editor_host = editor_host; d.custom = custom.clone()
+        d.sequence = ""; d.inspection = KeyState()
+        mut choices := Vec(MinibufferChoice).new()
+        if describe {
+            d.reading = true
+            d.mini.begin("Describe key: ", choices)
+            d.mini.help = "Press a key sequence; C-g cancels. Keys are not executed."
+        } else {
+            for i in 0..maps.names.len() {
+                name := maps.names[i].clone()
+                choices.push(own MinibufferChoice(id = i, name = name.clone(), detail = d.details(maps, name)))
+            }
+            d.mini.begin("M-x ", choices)
+            d.mini.help = "Enter execute  Tab complete  Up/Down  C-g/Esc cancel"
+        }
+    }
+    refresh := func(mut d: CommandDiscovery, maps: Keymaps, owner: Str, context: Str, selected: Bool, primary: Bool) {
+        if !d.active() { return }
+        if owner != d.owner { d.cancel(); d.message = "Command prompt cancelled: target changed"; return }
+        if context == d.context && selected == d.selected && primary == d.primary { return }
+        d.context = context.clone(); d.selected = selected; d.primary = primary
+        for i in 0..d.mini.choices.len() {
+            ref mut choice : MinibufferChoice = d.mini.choices[i]
+            choice.detail = d.details(maps, choice.name)
+        }
+        d.mini.refresh()
+    }
+    event := func(mut d: CommandDiscovery, maps: Keymaps, dispatch: KeyDispatch, key: I32, mods: I32, action: I32) returns KeyDispatch {
+        d.message = ""
+        if d.reading {
+            if action != 1 { return KeyDispatch(kind = 3) }
+            if key >= 340 && key <= 347 { return KeyDispatch(kind = 3) }
+            if key == 71 && mods.band(15) == 2 { d.cancel(); d.message = "Describe key cancelled"; return KeyDispatch(kind = 3) }
+            stroke := KeyStroke(key = key, mods = mods.band(15)).label()
+            if d.sequence.len() > 0 { d.sequence = format(d.sequence, " ") }
+            d.sequence = format(d.sequence, stroke)
+            answer := d.inspection.event(maps, d.context, d.selected, d.primary, key, mods, action)
+            if answer.kind == 2 {
+                d.mini.input = d.sequence.clone(); d.mini.cursor = d.mini.input.len()
+                return KeyDispatch(kind = 3)
+            }
+            if answer.kind == 1 { d.message = format(d.sequence, " -> ", answer.command, " [", answer.map, "]") }
+            else if answer.kind == 4 { d.message = format(d.sequence, " -> undefined sequence (consumed)") }
+            else if d.context == "terminal" { d.message = format(d.sequence, " -> unbound (normally forwarded to child)") }
+            else { d.message = format(d.sequence, " -> unbound (normal text/prompt input)") }
+            d.cancel()
+            return KeyDispatch(kind = 3)
+        }
+        if dispatch.kind == 0 && action == 3 && mods.band(6) == 0 && key >= 32 && key < 127 {
+            d.mini.insert(Str.from_byte(key.cast(I64).to_u8()))
+        } else if dispatch.kind == 1 {
+            if dispatch.command == "cancel" { d.cancel(); d.message = "Command prompt cancelled" }
+            else if dispatch.command == "accept" {
+                choice := d.mini.choice()
+                if choice < 0 || d.mini.input.len() == 0 { d.mini.hint = "Choose a matching command; Tab completes its name" }
+                else {
+                    name := d.mini.choices[choice.to_usize()].name.clone()
+                    if !d.available(name) { d.mini.hint = format("Unavailable in this context: ", name) }
+                    else { d.cancel(); return KeyDispatch(kind = 1, command = name, named = true) }
+                }
+            } else {
+                mapped := command_key(dispatch.command)
+                if mapped != 0 { d.mini.key(mapped, mods.band(1) != 0) }
+                else if d.available(dispatch.command) {
+                    d.cancel(); return KeyDispatch(kind = 1, command = dispatch.command.clone(), named = true)
+                } else { d.mini.hint = format("Unavailable in command prompt: ", dispatch.command) }
+            }
+        } else if dispatch.kind == 4 { d.mini.hint = "Undefined key sequence" }
+        return KeyDispatch(kind = 3)
+    }
+}

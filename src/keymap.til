@@ -41,6 +41,28 @@ namespace:
         return KeyStroke(key = code, mods = mods)
     }
     tag := func(k: KeyStroke) returns Str { return format(k.key.to_str(), ":", k.mods.to_str(), "/") }
+    label := func(k: KeyStroke) returns Str {
+        mut prefix := ""
+        if k.mods.band(2) != 0 { prefix = format(prefix, "C-") }
+        if k.mods.band(4) != 0 { prefix = format(prefix, "M-") }
+        if k.mods.band(1) != 0 { prefix = format(prefix, "S-") }
+        if k.mods.band(8) != 0 { prefix = format(prefix, "s-") }
+        mut name := match k.key {
+        case 32: "Space" case 256: "Escape" case 257: "Enter" case 258: "Tab"
+        case 259: "Backspace" case 260: "Insert" case 261: "Delete" case 262: "Right"
+        case 263: "Left" case 264: "Down" case 265: "Up" case 266: "PageUp"
+        case 267: "PageDown" case 268: "Home" case 269: "End" case: ""
+        }
+        if name.len() == 0 {
+            if k.key >= 290 && k.key <= 314 { name = format("F", (k.key - 289).to_str()) }
+            else if k.key >= 33 && k.key <= 126 {
+                mut code := k.key.cast(I64)
+                if code >= 65 && code <= 90 { code = code + 32 }
+                name = Str.from_byte(code.to_u8())
+            } else { name = format("Key", k.key.to_str()) }
+        }
+        return format(prefix, name)
+    }
 }
 
 key_sequence := func(text: Str) returns Str {
@@ -119,12 +141,53 @@ namespace:
         }
         return result
     }
+    resolve := func(k: Keymaps, context: Str, selected: Bool, primary: Bool, sequence: Str, prefix_key: Str = "") returns I64 {
+        mut found : I64 = -1
+        if prefix_key.len() > 0 { found = k.lookup("prefix", prefix_key) }
+        if found != -1 { return found }
+        if context == "minibuffer" { return k.lookup("minibuffer", sequence) }
+        if selected { found = k.lookup(format(context, "-selection"), sequence) }
+        if found == -1 && context == "terminal" && primary { found = k.lookup("terminal-primary", sequence) }
+        if found == -1 { found = k.lookup(context, sequence) }
+        if found == -1 { found = k.lookup("global", sequence) }
+        return found
+    }
+    // Replay every stroke: a higher-priority command may shadow a lower
+    // map's prefix before the final stroke could ever be reached.
+    sequence_binding := func(k: Keymaps, context: Str, selected: Bool, primary: Bool, label: Str) returns I64 {
+        mut pending := ""
+        mut found : I64 = -2
+        for token : Str in label.split(" ") {
+            if token.len() == 0 { continue }
+            if found != -2 { return -1 }
+            tag := KeyStroke.parse(token).tag()
+            mut control := ""
+            if pending.len() > 0 { control = tag.clone() }
+            pending = format(pending, tag)
+            found = k.resolve(context, selected, primary, pending, control)
+        }
+        return found
+    }
+    bindings_for := func(k: Keymaps, command: Str, context: Str, selected: Bool, primary: Bool) returns Str {
+        mut labels := Vec(Str).new()
+        for i in 0..k.bindings.len() {
+            ref binding : KeyBinding = k.bindings[i]
+            if binding.command != command { continue }
+            if k.sequence_binding(context, selected, primary, binding.label) == i.to_i64() {
+                labels.push(own format(binding.label, " [", binding.map, "]"))
+            }
+        }
+        if labels.len() == 0 { return "unbound here" }
+        return join(labels, "; ")
+    }
 }
 
 KeyDispatch := struct {
     // 0 forward, 1 command, 2 pending prefix, 3 consumed, 4 undefined sequence.
     kind : I64 = 0
     command := ""
+    map := ""
+    named := false // Selected by name, with no physical command key/modifiers.
 }
 KeyState := struct {
     pending := ""
@@ -137,6 +200,12 @@ namespace:
     cancel := func(mut s: KeyState) { s.pending = "" }
     context := func(mut s: KeyState, owner: Str) {
         if s.owner != owner { s.cancel(); s.owner = owner.clone() }
+    }
+    consume := func(mut s: KeyState, key: I32, mods: I32, action: I32) {
+        if action != 1 && action != 2 { return }
+        if key >= 340 && key <= 347 { return }
+        s.cancel(); s.last_key = key; s.last_mods = mods.band(15); s.block_repeat = true
+        s.suppress_text = (key >= 32 && key < 256) || (key >= 320 && key <= 336)
     }
     event := func(mut s: KeyState, maps: Keymaps, context: Str, selected: Bool, primary: Bool,
                  key: I32, mods: I32, action: I32) returns KeyDispatch {
@@ -159,18 +228,10 @@ namespace:
         tag := KeyStroke(key = key, mods = mods.band(15)).tag()
         had_prefix := s.pending.len() > 0
         if had_prefix && action == 2 { s.suppress_text = has_text; return KeyDispatch(kind = 3) }
-        mut found : I64 = -1
-        if had_prefix { found = maps.lookup("prefix", tag) }
         sequence := format(s.pending, tag)
-        if found == -1 {
-            if context == "minibuffer" { found = maps.lookup("minibuffer", sequence) }
-            else {
-                if selected { found = maps.lookup(format(context, "-selection"), sequence) }
-                if found == -1 && context == "terminal" && primary { found = maps.lookup("terminal-primary", sequence) }
-                if found == -1 { found = maps.lookup(context, sequence) }
-                if found == -1 { found = maps.lookup("global", sequence) }
-            }
-        }
+        mut control := ""
+        if had_prefix { control = tag.clone() }
+        found := maps.resolve(context, selected, primary, sequence, control)
         if found == -2 {
             s.suppress_text = has_text
             if action == 2 { return KeyDispatch(kind = 3) }
@@ -185,7 +246,7 @@ namespace:
             if action == 2 && !binding.repeat { return KeyDispatch(kind = 3) }
             // Forwarding bypasses maps and must also permit its text event.
             if binding.command == "forward-key" { s.suppress_text = false }
-            return KeyDispatch(kind = 1, command = binding.command.clone())
+            return KeyDispatch(kind = 1, command = binding.command.clone(), map = binding.map.clone())
         }
         if had_prefix { s.suppress_text = has_text; s.block_repeat = true; return KeyDispatch(kind = 4) }
         return KeyDispatch()
@@ -211,4 +272,24 @@ command_key := func(name: Str) returns I32 {
     case "down", "next-choice": 264 case "home": 268 case "end": 269
     case "backspace": 259 case "delete": 261 case "complete": 258 case: 0
     }
+}
+
+discovery_keymaps := func(mut maps: Keymaps) {
+    for name : Str in array(Str, "execute-command", "describe-key", "accept", "complete", "previous-choice", "next-choice",
+        "left", "right", "home", "end", "backspace", "delete", "cancel") { maps.declare(name) }
+    maps.bind("global", "M-x", "execute-command")
+    maps.bind("minibuffer", "M-x", "execute-command")
+    maps.bind("minibuffer", "C-g", "cancel")
+    maps.bind("minibuffer", "Escape", "cancel")
+    maps.bind("minibuffer", "Enter", "accept")
+    maps.bind("minibuffer", "Tab", "complete", true)
+    maps.bind("minibuffer", "S-Tab", "complete", true)
+    maps.bind("minibuffer", "Up", "previous-choice", true)
+    maps.bind("minibuffer", "Down", "next-choice", true)
+    maps.bind("minibuffer", "Left", "left", true)
+    maps.bind("minibuffer", "Right", "right", true)
+    maps.bind("minibuffer", "Home", "home", true)
+    maps.bind("minibuffer", "End", "end", true)
+    maps.bind("minibuffer", "Backspace", "backspace", true)
+    maps.bind("minibuffer", "Delete", "delete", true)
 }

@@ -16,6 +16,8 @@ behaviour. The broader integrated-environment plan below remains open.
 Default session restoration is implemented in [[file:../fixed/6.org][#6]]. Focused follow-ups: [[file:7.org][#7 detachable terminals]],
 [[file:8.org][#8 shared workspace/window-manager libraries]], [[file:9.org][#9 terminal and buffer tabs]],
 and [[file:10.org][#10 an optional familiar menu bar]].
+Lower-priority modal editing is tracked in [[file:11.org][#11]]; the proposed terminal UI
+host is [[file:12.org][#12 tiled-cli]].
 
 *** Original design
 

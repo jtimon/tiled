@@ -4,7 +4,7 @@
 
 ** Requirements
 
-Tiled currently targets installed Til version =0.0.1-3bcf0e933= (check with
+Tiled currently targets installed Til version =0.0.1-f24e6004c= (check with
 =til -v=). The =til= executable must be on =PATH=, with its standard library
 and GUI support installed. Til's native build also requires a C compiler.
 
@@ -12,9 +12,12 @@ The build driver is Til code: =make.til=, not a GNU Makefile. GNU Make is not
 required to build this project. Unlike the Til compiler's own bootstrap,
 Tiled assumes a working installed Til compiler and builds directly with it.
 
-The =3bcf0e933= upgrade passed both host builds, compiled/interpreted model
-checks, ASAN checkpoint tests, installed-library consumers and GUI workflows.
-It exposed a compiler cleanup bug for an ignored managed return value followed
+The =f24e6004c= upgrade passed both host builds, compiled/interpreted model
+checks, ASAN checkpoint tests, installed-library consumers and all ten GUI
+drivers, including the existing compiled user-config loader. No application
+source changes were needed for this upgrade.
+
+The earlier =3bcf0e933= upgrade exposed a compiler cleanup bug for an ignored managed return value followed
 by an early return. The launchers now leave argument parsing to the actual
 application entry point instead of redundantly discarding =SessionArgs.parse='s
 result. =test/keymap_gui.til= covers both configured startup/shutdown paths.
@@ -68,7 +71,10 @@ From the repository root:
 
 =make.til= is executable, with =#!/usr/bin/env -S til run=. The equivalent
 explicit invocation is =til run make.til=; =til interpret make.til= also
-works. Using =run= allows Til to reuse its cached compiled driver.
+works. In installed Til =f24e6004c=, =run= still translates and compiles the
+driver on each invocation. The build script also invokes =til build= for the
+library and both applications unconditionally. It does not yet skip host builds
+when only tests change; incremental dependency checking remains future work.
 
 =./make.til clean= removes =bin/=, =gen/= and =tmp/= from the repository
 root. Rebuild afterwards before running the applications. Reference checkouts

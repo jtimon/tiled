@@ -26,7 +26,13 @@ Using the same language does not by itself provide a live embedding API.
   GUI child. User callbacks execute against its live editor/terminal state.
 - The installed host binary need not be rebuilt by the user, but startup
   still compiles the generated child and requires installed Til and source.
-  No embedded interpreter, live reload or command palette is implemented.
+  No embedded interpreter or live reload is implemented.
+- M-x now searches/runs built-in and registered user commands through the same
+  executor as keybindings. Effective shortcuts account for selection and prefix
+  shadowing. Describe-key reports the actual winning map/command without executing
+  input. Both hosts share the discovery model and minibuffer renderer; Tiled can
+  inspect an existing prompt without replacing its contents. Headless ASAN and
+  GUI discovery checks pass, alongside existing input/prompt/clipboard tests.
 - [[file:../../doc/keybindings.org][The implemented API]] and working default configs are documented;
   [[file:../../doc/keybindings.til][the earlier broader API sketch]] remains a proposal.
 - Verification: compiled/interpreted =test/keymap.til=; =test/keymap_gui.til=
@@ -38,8 +44,16 @@ Using the same language does not by itself provide a live embedding API.
 
 *** Remaining Til dependency
 
-The embedding acceptance checks below remain open. In addition, installed
-Til =b444d7223= does not infer procedure effects through a stored proc pointer:
+At installed Til =f24e6004c=, =std/tilvm= provides =TilVm.new=, =load_file=,
+structured load/evaluation errors and destruction. Host-function registration,
+guest value exchange and retained callable handles are still pending in #370.
+Keep the existing compiled config loader for now, as agreed; no TilVm
+integration is required for ongoing Tiled work. Compatibility checks with this
+compiler pass for both hosts and the current loader, including all ten GUI
+drivers, compiled/interpreted models, ASAN checkpoints and installed consumers.
+
+The embedding acceptance checks below remain open. Previously, installed
+Til =b444d7223= did not infer procedure effects through a stored proc pointer:
 the host invocation boundary currently uses =noop_proc()= to remain explicitly
 effectful. Calling a stored callback through a local variable also preserves
 the mutable-argument analysis, unlike directly calling the field. Til agents

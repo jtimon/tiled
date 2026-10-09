@@ -4,7 +4,7 @@
 
 ** Implemented and exercised
 
-- [[file:../make.til][make.til]] targets installed Til =0.0.1-3bcf0e933= to build Tiled and
+- [[file:../make.til][make.til]] targets installed Til =0.0.1-f24e6004c= to build Tiled and
   tilminal. The editor is imported by Tiled, with no separate editor example
   or build target.
 - Application, build-script, example and test imports use =std/sys= following
@@ -268,8 +268,9 @@ attempt a screenshot at =tmp/window-placement-failure.png=.
 - An init path containing a double quote failed import resolution with the
   current compiler, despite escaping the generated string literal.
 - [[file:keybindings.org][Named commands and contextual keymaps]] now support compiled Til callbacks
-  and user overrides in both hosts. Live interpreted reload and M-x completion
-  are planned; no command prompt or prefix suggestion menu is implemented.
+  and user overrides in both hosts. M-x completion/execution and describe-key
+  now share the normal resolver/command executor. Live interpreted reload and
+  a prefix suggestion menu remain planned.
 - Multiple OS frames (=C-x 5=) and
   [[file:architecture.org][desktop hosts]] remain future work.
 - Selection refinements, native platform
