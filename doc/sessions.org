@@ -8,7 +8,7 @@ and at normal exit. No editor configuration or plugin is needed to enable it.
 
 ** What is restored
 
-- Tiled: open files, scratch text, unsaved edits, split tree, focused pane,
+- Tiled: open files, draft text, unsaved edits, split tree, focused pane,
   independent text points/scroll positions, buffer-switching histories and
   frame geometry. Native buffer slots and window handles are not persisted;
   the file contains stable resource/view identities and a validated tree.
@@ -59,7 +59,7 @@ session is used instead of overwriting them.
 #+begin_src sh
 ./bin/tiled --session work
 ./bin/tiled --session work README.org
-./bin/tiled --session scratch-test --fresh
+./bin/tiled --session draft-test --fresh
 ./bin/tiled --no-session README.org
 ./bin/tilminal --session work
 #+end_src

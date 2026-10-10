@@ -2,6 +2,9 @@ mode lib
 
 // Copy to ~/.tilminal.til. Defaults are installed before this function runs.
 init := func(mut config: TilminalConfig) {
+    config.font_size = 28
+    // Empty font_path selects the same system monospace default as Tiled.
+    // config.font_path = "/path/to/monospace.ttf"
     // Output/cwd restore into a NEW shell; this does not reattach old jobs.
     // config.session.enabled = false
     // config.session.name = "work"

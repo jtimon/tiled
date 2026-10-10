@@ -21,8 +21,8 @@ init := func(mut config: TiledConfig) {
     // config.commands.unbind("text-selection", "C-x") // Always use C-x as prefix.
     // Empty means the system monospace font, resolved through fontconfig.
     // config.font_path = "/path/to/your/monospace.ttf"
-    config.scratch_text = "Welcome to Tiled!\n\nC-x t: new terminal\nC-x b: switch buffer\nC-x C-b: list buffers\nC-x k: kill buffer\nC-x 2: split top/bottom\nC-x 3: split side by side\nC-x o: focus next view\nC-x 0: close view\nC-x 1: keep only this view\nC-x C-f / Ctrl+O: open a file\nC-x C-s / Ctrl+S: save text buffer\nC-x C-c: exit Tiled\n"
+    config.draft_text = "Welcome to Tiled!\n\nC-x t: new terminal\nC-x b: switch buffer\nC-x C-b: list buffers\nC-x k: kill buffer\nC-x 2: split top/bottom\nC-x 3: split side by side\nC-x o: focus next view\nC-x 0: close view\nC-x 1: keep only this view\nC-x C-f / Ctrl+O: open a file\nC-x C-s / Ctrl+S: save text buffer\nC-x C-c: exit Tiled\n"
 
-    // Optionally open a file instead of *scratch*:
+    // Optionally open a file instead of *draft*:
     // config.initial_file = "/path/to/notes.org"
 }

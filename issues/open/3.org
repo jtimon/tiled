@@ -37,6 +37,11 @@ region editing. GUI checks verify clipboard contents, highlights, independent
 splits and PTY bytes. New output/resize clears terminal selections in this
 first version; persistent selections, richer selection modes and configurable
 shortcuts can be revisited after use.
+Terminal fonts now match the editor's configured size/path when embedded;
+standalone tilminal has matching 28 px defaults and configurable font settings.
+Renderer filtering/spacing and glyph-edge clipping are aligned. Custom-font
+pixel/PTY checks pass, and saved output is replayed only after sizing the grid
+for the actual window/font, avoiding startup cropping.
 Remaining work includes test-cost reduction, selection refinements, broader terminal compatibility
 and application-supplied graphics. Related issues: [[./1.org][#1 Tiled environment]] and
 [[./2.org][#2 logo glyph]]. The full earlier design/implementation discussion follows;

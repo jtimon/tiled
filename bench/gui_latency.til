@@ -41,7 +41,7 @@ main := proc(args: ..Str) {
                 app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
                 pid := app.start()
                 mut title := "tilminal"
-                if program == "tiled" { title = "Tiled - *scratch*" }
+                if program == "tiled" { title = "Tiled - *draft*" }
                 window := wait_window(app, pid, title)
                 sleep_ms(250)
                 XSetInputFocus(display, window, 2, 0); XFlush(display)

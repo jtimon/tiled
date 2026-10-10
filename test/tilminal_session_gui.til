@@ -2,6 +2,8 @@ mode gui
 import("terminal_gui_helpers")
 import("../src/session_codec")
 
+XResizeWindow := ext_proc(display: Dynamic, shallow window: UPtr, shallow width: U32, shallow height: U32) returns shallow I32 {}
+
 start_app := proc(home: Str) returns Cmd {
     app := Cmd.new("./bin/tilminal", "--session", "work")
     app.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
@@ -38,6 +40,7 @@ main := proc() {
     path := format(home, "/.tilminal/sessions/work.session")
     app := start_app(home); pid := app.start()
     window := wait_window(app, pid, "tilminal"); sleep_ms(250)
+    XResizeWindow(display, window, 740, 520); XFlush(display); sleep_ms(200)
     XSetInputFocus(display, window, 2, 0); XFlush(display)
     type_text(display, format("cd ", directory, "; printf 'SAVED_OUTPUT\\n'"))
     wait_output(app, pid, path, directory, "SAVED_OUTPUT")

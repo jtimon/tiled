@@ -46,7 +46,7 @@ request_close := proc(display: Dynamic, window: UPtr) {
     XFlush(display)
 }
 
-has_rendered_row := proc(display: Dynamic, window: UPtr, reference: UPtr, width: I32, left: I32 = 0) returns Bool {
+has_rendered_row := proc(display: Dynamic, window: UPtr, reference: UPtr, width: I32, left: I32 = 0, cell_height: I32 = 34) returns Bool {
     mut root : UPtr = 0
     mut x : I32 = 0
     mut y : I32 = 0
@@ -58,15 +58,15 @@ has_rendered_row := proc(display: Dynamic, window: UPtr, reference: UPtr, width:
         panic("cannot read terminal window geometry")
     }
     if depth != 24 { panic("GUI pixel test requires a 24-bit X display") }
-    if actual_width < (left + width).cast(U32) || actual_height < 24 { return false }
+    if actual_width < (left + width).cast(U32) || actual_height < cell_height.cast(U32) { return false }
     mask : UPtr = 0xFFFFFF
-    ref expected : Dynamic = XGetImage(display, reference, 0, 0, width.cast(U32), 24, mask, 2)
+    ref expected : Dynamic = XGetImage(display, reference, 0, 0, width.cast(U32), cell_height.cast(U32), mask, 2)
     if is_null(expected) { panic("cannot capture reference window") }
     ref actual : Dynamic = XGetImage(display, window, left, 0, width.cast(U32), actual_height, mask, 2)
     if is_null(actual) { XDestroyImage(expected); panic("cannot capture terminal window") }
     first := XGetPixel(expected, 0, 0).band(mask)
     mut visible := false
-    for row in 0..24 {
+    for row in 0..cell_height.cast(I64) {
         for column in 0..width.cast(I64) {
             if XGetPixel(expected, column.to_i32(), row.to_i32()).band(mask) != first { visible = true; break }
         }
@@ -78,12 +78,12 @@ has_rendered_row := proc(display: Dynamic, window: UPtr, reference: UPtr, width:
         panic("reference row is blank; cannot verify visible output")
     }
     mut found := false
-    for line in 0..(actual_height.cast(U64).cast(I64) / 24) {
+    for line in 0..(actual_height.cast(U64).cast(I64) / cell_height.cast(I64)) {
         mut equal := true
-        for row in 0..24 {
+        for row in 0..cell_height.cast(I64) {
             for column in 0..width.cast(I64) {
                 wanted := XGetPixel(expected, column.to_i32(), row.to_i32()).band(mask)
-                got := XGetPixel(actual, column.to_i32(), (line * 24 + row).to_i32()).band(mask)
+                got := XGetPixel(actual, column.to_i32(), (line * cell_height.cast(I64) + row).to_i32()).band(mask)
                 if wanted != got { equal = false; break }
             }
             if !equal { break }

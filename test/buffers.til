@@ -3,6 +3,10 @@ mode cli
 import("../src/editor_buffers")
 
 main := proc() {
+    mut drafts := EditorState.new("", "")
+    named := drafts.add_buffer("/files/*draft*", "named file")
+    assert(drafts.buffer_name(0) == "*draft*")
+    assert(drafts.buffer_name(named) == "/files/*draft*")
     mut editor := EditorState.new("/one/notes", "abcdef")
     editor.move_cursor(262)
     editor.move_cursor(262)
@@ -120,7 +124,7 @@ main := proc() {
         assert(editor.buffers[id].text.len() == 0 && !editor.buffers[id].dirty)
         assert(editor.nodes[index].view.cursor == 0)
     }
-    // Last-scratch replacement and repeated kills keep storage bounded.
+    // Last-draft replacement and repeated kills keep storage bounded.
     for _ in 0..20 {
         id := editor.nodes[editor.focused].view.buffer
         assert(editor.kill_buffer(id))

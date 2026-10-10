@@ -1,0 +1,20 @@
+mode lib
+
+// Bind the native result once. A switch directly over the effectful call in
+// the installed mode-gui helpers can reopen the chooser while matching cases.
+editor_dialog_path := func(selected: Option(ref I8)) returns Str {
+    switch selected {
+    case .Some(result):
+        view := Str(c_str = result, count = c_str_len(result), cap = CAP_VIEW)
+        return view.clone()
+    case .None: return ""
+    }
+}
+editor_save_dialog := proc(title: Str, suggested: Str) returns Str {
+    selected := tinyfd_saveFileDialog(title.c_str, suggested.c_str, 0, Option(ref Dynamic).None, Option(ref I8).None)
+    return editor_dialog_path(selected)
+}
+editor_open_dialog := proc(title: Str, suggested: Str) returns Str {
+    selected := tinyfd_openFileDialog(title.c_str, suggested.c_str, 0, Option(ref Dynamic).None, Option(ref I8).None, 0)
+    return editor_dialog_path(selected)
+}

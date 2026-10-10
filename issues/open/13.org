@@ -1,0 +1,75 @@
+# priority: medium
+# category: cleanups
+** OPEN #13 Track deliberate differences from Emacs
+
+Keep a living inventory of conscious compatibility choices, their rationale,
+and how users can change them. Emacs-style interaction remains the default
+direction; neither accidental bugs nor missing features count as deliberate
+deviations. New departures should be discussed and recorded here.
+
+*** Naming: draft, not scratch
+
+Use =*draft*= for the default unnamed text buffer, and "draft" in the UI/docs.
+The user prefers this simpler, more memorable word, especially for non-native
+English speakers. A draft has no document filename until saved; suggest
+=draft.txt= in Save As, but allow any name/extension. Keep existing
+=scratch_text= configuration working as a legacy alias while introducing
+=draft_text=. Fixing a broken or confusing Save As flow is a bug fix, not a
+compatibility policy.
+
+Implemented: default buffer labels and current docs use =*draft*=; the sample
+config uses =draft_text= and legacy configurations remain supported. The native
+Save As chooser suggests =draft.txt= and is invoked once. =test/draft_save_gui.til=
+verifies normal Name-field saving (including spaces), cancellation, repeated
+saves and both config spellings; this is separate from the inventory's ongoing
+compatibility review.
+
+*** Current keyboard/UI choices
+
+- Emacs copy/cut/yank bindings coexist with CUA-style shortcuts: C-c copies,
+  C-v pastes, and C-x cuts a nonempty text selection but otherwise starts the
+  normal C-x prefix. Thus plain C-v is not Emacs's page-forward command in
+  text buffers. The selection-specific C-x binding can be removed in Til.
+- C-s saves and C-o opens a file, rather than Emacs's incremental search and
+  open-line. M-s/M-o are also convenience aliases. C-x C-s and C-x C-f remain
+  available. These are configurable defaults, not fixed command identities.
+- Escape outside a text prompt requests application exit, with the usual
+  unsaved-buffer checks; it is not an Emacs Meta prefix. Prompt Escape cancels.
+  Revisit this default if it gets in the way of the Emacs workflow.
+- File selection currently uses native GUI dialogs rather than the Emacs
+  filename minibuffer. A CLI host will require a terminal-appropriate frontend;
+  the underlying file commands should remain shared.
+- Fresh GUI windows default to the left half of the work area, and fonts use
+  an explicit pixel size (28 px by default). These are configurable presentation
+  defaults, not a requirement to match Emacs's frame placement or point sizing.
+- Clipboard commands currently use the system clipboard, not an Emacs kill
+  ring. Treat a richer kill/yank history as a possible extension, not something
+  deliberately prohibited by the architecture.
+
+*** Terminal, startup and extension policy
+
+- Terminal children receive ordinary input, including Escape and C-g, except
+  for explicit host keymaps/prompts/selections. C-x is the host prefix and
+  C-x C-x forwards literal Ctrl-X. With a selection, C-c copies and clears it;
+  otherwise it reaches the child. C-S-c/M-w copy and C-S-v/C-y paste. This is
+  a chosen terminal-host policy; Emacs terminal packages have differing policies.
+- Workspace checkpoint/restore is enabled by default, with a Keep exit action
+  for recoverable unsaved text. Emacs's desktop/history/recovery facilities are
+  separate options/packages. Tiled's policy is configurable and does not imply
+  that running terminal jobs survive frontend exit.
+- Configuration and extensions use Til, the same language as the host, rather
+  than Emacs Lisp. Current compiled startup loading is an interim implementation;
+  live embedding/reload remains planned, not a deliberate rejection of it.
+- An optional desktop/window-manager host is part of Tiled's direction, beyond
+  ordinary Emacs editor frames. Resource lifecycles must remain explicit.
+
+Do not list absent undo/search/package features as intentional incompatibility.
+Configurable keys do not imply that every corresponding Emacs command already
+exists as a built-in; distinguish remapping from implementing the command.
+For each future choice, record whether it is a settled default, configurable
+profile choice, temporary limitation, or still under discussion. Menus, tabs
+and a CLI are familiar optional interfaces, not automatically deviations.
+
+Related: [[file:5.org][#5 configurable commands]], [[file:../fixed/6.org][#6 default sessions]],
+[[file:7.org][#7 live terminals]], [[file:8.org][#8 workspace hosts]], [[file:11.org][#11 optional Evil-style mode]]
+and [[file:12.org][#12 CLI host]]. See [[file:../../doc/configuration.org][configuration]] and [[file:../../doc/keybindings.org][keymaps]].

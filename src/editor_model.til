@@ -66,7 +66,7 @@ EditorNode := struct {
 editor_buffer_name := func(buffer: EditorBuffer) returns Str {
     if buffer.terminal >= 0 { return buffer.terminal_name.clone() }
     if buffer.label.len() > 0 { return buffer.label.clone() }
-    if buffer.filename.len() == 0 { return "*scratch*" }
+    if buffer.filename.len() == 0 { return "*draft*" }
     start := (buffer.filename.rfind("/") + 1).to_usize()
     return buffer.filename.substr(start, buffer.filename.len() - start).clone()
 }
@@ -294,7 +294,7 @@ namespace:
     }
 
     // Same-basename files use their full paths in the chooser. Scratch keeps
-    // its reserved display name even alongside a file named "*scratch*".
+    // its reserved display name even alongside a file named "*draft*".
     buffer_name := func(self: EditorState, id: USize) returns Str {
         ref buffer : EditorBuffer = self.buffers[id]
         name := editor_buffer_name(buffer)
@@ -362,7 +362,7 @@ namespace:
     }
 
     // Killing a buffer never closes a view or writes its file. Every affected
-    // view selects another live buffer; an empty scratch replaces the last one.
+    // view selects another live buffer; an empty draft replaces the last one.
     kill_buffer := func(mut self: EditorState, id: USize, discard: Bool = false) returns Bool {
         assert(self.buffers[id].alive)
         if (self.buffers[id].dirty || self.buffers[id].terminal_running) && !discard { return false }

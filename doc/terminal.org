@@ -31,9 +31,15 @@ One-shot commands leave the default interactive checkpoint alone unless given
 an explicit session name.
 
 Fonts are resolved through =fc-match monospace= from fontconfig, as in Tiled;
-install fontconfig and a monospace font. The standalone frontend currently
-uses 20-pixel glyphs. Neither its imports nor its font path need a Til source
-checkout, and launching from =bin/= works without changing the shell's cwd.
+install fontconfig and a monospace font. Both hosts default to 28-pixel glyphs.
+Embedded terminals inherit Tiled's configured =font_path= and =font_size=;
+standalone tilminal exposes those same settings in =~/.tilminal.til=.
+Rendering uses the editor's filtering and line-height convention, without extra
+inter-character padding. Glyph bearings are clipped at the pane boundary rather
+than each individual cell. Font metrics also determine PTY rows/columns, input
+hit-testing and tilminal's command prompt geometry.
+Neither the imports nor the default font path need a Til source checkout, and
+launching from =bin/= works without changing the shell's cwd.
 
 ** Scrollback
 
@@ -176,6 +182,8 @@ Run from this repository's root after building the applications:
 
 #+begin_src sh
 til interpret --usize=64 test/terminal_model.til
+til build --usize=64 -o tmp/check_terminal_font_gui -c tmp/check_terminal_font_gui.c test/terminal_font_gui.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_terminal_font_gui
 til interpret --usize=64 test/terminal_alternate.til
 til run --usize=64 -o tmp/check_terminal_scrollback -c tmp/check_terminal_scrollback.c test/terminal_scrollback.til
 til interpret --usize=64 test/terminal_scrollback.til
@@ -230,6 +238,12 @@ Linux/X11 clipboard GUI test verifies highlighting, actual clipboard text,
 independent terminal split selections, Ctrl-C/C-g forwarding and actual
 bracketed-paste bytes received by a raw PTY child. It also checks mouse/mark
 selection, Emacs/CUA clipboard shortcuts and saving in editable Tiled buffers.
+
+The font check configures a different monospace font at 36 pixels in both hosts
+and compares actual terminal pixels with the editor's ordinary DrawTextEx path.
+It also checks the resulting PTY dimensions. Startup applies window/font metrics
+before replaying saved terminal output, so a larger font does not crop text via
+an initial resize from the model's default 80-column grid.
 
 The scrollback suite covers bounded eviction, output anchoring, independent
 viewports, page-key routing, original-width resize, wide/combining characters,

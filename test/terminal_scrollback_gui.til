@@ -49,7 +49,7 @@ main := proc() {
         app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
         pid := app.start()
         mut title := "tilminal"
-        if host == "tiled" { title = "Tiled - *scratch*" }
+        if host == "tiled" { title = "Tiled - *draft*" }
         window := wait_window(app, pid, title)
         XMoveResizeWindow(display, window, 0, 0, 960, 640)
         XSetInputFocus(display, window, 2, 0); XFlush(display); sleep_ms(250)
@@ -73,7 +73,7 @@ main := proc() {
         }
         check_pixels(app, pid, display, window, reference, pixels)
         if host == "tiled" {
-            prefix(display, 98); type_text(display, "*scratch*"); sleep_ms(200)
+            prefix(display, 98); type_text(display, "*draft*"); sleep_ms(200)
         }
         File.writefile(trigger, "go")
         wait_file(app, pid, done)

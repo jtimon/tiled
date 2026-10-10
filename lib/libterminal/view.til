@@ -41,20 +41,25 @@ terminal_color := func(index: I64, bright: Bool, faint: Bool) returns Color {
 TerminalView := struct {
     font : Font
     path := ""
+    font_size : I32 = 28
     own glyphs := Vec(TerminalGlyph).new()
-    cell_width : I64 = 12
-    cell_height : I64 = 24
+    cell_width : I64 = 17
+    cell_height : I64 = 34
     bells : I64 = 0
     bell_until : F64 = 0.0
 
 namespace:
-    new := proc(path: Str) returns TerminalView {
+    new := proc(path: Str, size: I32 = 28) returns TerminalView {
+        if size <= 0 { panic("terminal font size must be positive") }
         if FileExists(path.c_str).not() { panic("terminal font not found: ", path) }
-        font := LoadFontEx(path.c_str, 20, Option(ref I32).None, 0)
-        if IsFontValid(font).not() || font.baseSize != 20 { panic("cannot load terminal font: ", path) }
+        font := LoadFontEx(path.c_str, size, Option(ref I32).None, 0)
+        if IsFontValid(font).not() || font.baseSize != size { panic("cannot load terminal font: ", path) }
         if GetGlyphInfo(font, 63).value != 63 { panic("terminal font must contain a replacement '?' glyph") }
-        width := MeasureTextEx(font, "M".c_str, 20, 0).x.to_i64() + 1
-        return TerminalView(font = font, path = path.clone(), cell_width = width)
+        SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR)
+        mut width := MeasureTextEx(font, "M".c_str, size.to_f32(), 0).x.to_i64()
+        if width < 1 { width = 1 }
+        height := MeasureTextEx(font, "Mg".c_str, size.to_f32(), 0).y.to_i64() + 6
+        return TerminalView(font = font, path = path.clone(), font_size = size, cell_width = width, cell_height = height)
     }
     glyph_font := proc(mut v: TerminalView, c: I64) returns Font {
         if c >= 32 && c <= 126 { return v.font }
@@ -65,8 +70,9 @@ namespace:
         // empty glyph set (its atlas builder treats zero as default count).
         codes.push(own I64.to_i32(63))
         codes.push(own c.to_i32())
-        font := LoadFontEx(v.path.c_str, 20, Option(ref I32).Some(codes[0]), 2)
+        font := LoadFontEx(v.path.c_str, v.font_size, Option(ref I32).Some(codes[0]), 2)
         if IsFontValid(font).not() { panic("cannot load terminal glyph: ", c) }
+        SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR)
         v.glyphs.push(own TerminalGlyph(code = c, font = font.clone()))
         return font
     }
@@ -81,6 +87,23 @@ namespace:
         rows := terminal_bound(height / v.cell_height, 0, screen.rows)
         if screen.bells != v.bells { v.bells = screen.bells; v.bell_until = GetTime() + 0.15 }
         blink_off := GetTime().to_i64().mod(2) == 1
+        BeginScissorMode(left.to_i32(), top.to_i32(), width.to_i32(), height.to_i32())
+        // Paint every background first. Glyph bearings/antialiasing may extend
+        // beyond a cell's advance, just as in the editor's DrawTextEx path.
+        // Per-cell scissors or later backgrounds would cut those edges off.
+        for y in 0..rows {
+            for x in 0..columns {
+                ref cell : TerminalCell = screen.display_cell(x, y, offset)
+                if cell.span == 0 { continue }
+                px := left + x * v.cell_width
+                py := top + y * v.cell_height
+                mut paper := terminal_color(cell.style.bg, false, false)
+                if cell.style.inverse != screen.reverse_screen { paper = terminal_color(cell.style.fg, cell.style.bold, cell.style.faint) }
+                if selection.contains(screen, x, y, offset) { paper = Color(r = 55, g = 85, b = 125, a = 255) }
+                cell_w := terminal_bound(v.cell_width * cell.span, 0, left + width - px)
+                DrawRectangle(px.to_i32(), py.to_i32(), cell_w.to_i32(), v.cell_height.to_i32(), paper)
+            }
+        }
         for y in 0..rows {
             for x in 0..columns {
                 ref cell : TerminalCell = screen.display_cell(x, y, offset)
@@ -90,28 +113,24 @@ namespace:
                 fg := terminal_color(cell.style.fg, cell.style.bold, cell.style.faint)
                 bg := terminal_color(cell.style.bg, false, false)
                 mut ink := fg
-                mut paper := bg
-                if cell.style.inverse != screen.reverse_screen { ink = bg; paper = fg }
+                if cell.style.inverse != screen.reverse_screen { ink = bg }
                 if selection.contains(screen, x, y, offset) {
-                    paper = Color(r = 55, g = 85, b = 125, a = 255)
                     ink = Color(r = 255, g = 255, b = 255, a = 255)
                 }
                 cell_w := terminal_bound(v.cell_width * cell.span, 0, left + width - px)
-                DrawRectangle(px.to_i32(), py.to_i32(), cell_w.to_i32(), v.cell_height.to_i32(), paper)
                 if cell.style.hidden.or(cell.style.blink.and(blink_off)) { continue }
-                BeginScissorMode(px.to_i32(), py.to_i32(), cell_w.to_i32(), v.cell_height.to_i32())
                 mut pos : USize = 0
                 mut pen : F32 = 0
                 while pos < cell.text.len() {
                     code := terminal_decode(cell.text, pos, true)
                     font := v.glyph_font(code)
-                    DrawTextCodepoint(font, code.to_i32(), Vector2(x = px.to_f32() + pen, y = py.to_f32()), 20, ink)
+                    DrawTextCodepoint(font, code.to_i32(), Vector2(x = px.to_f32() + pen, y = py.to_f32()), v.font_size.to_f32(), ink)
                     if terminal_width(code) > 0 { pen = GetGlyphInfo(font, code.to_i32()).advanceX.to_f32() }
                 }
                 if cell.style.underline { DrawRectangle(px.to_i32(), (py + v.cell_height - 3).to_i32(), cell_w.to_i32(), 1, ink) }
-                EndScissorMode()
             }
         }
+        EndScissorMode()
         if offset == 0 && focused && screen.cursor_visible && !ended && !blink_off && screen.x < columns && screen.y < rows {
             x := left + screen.x * v.cell_width
             y := top + screen.y * v.cell_height

@@ -11,10 +11,15 @@ No ~/.tiled/init.til file found; using defaults.
 #+end_example
 
 It restores the saved workspace when available. On first use or with =--fresh=,
-it opens an empty =*scratch*= buffer in the left half of the current monitor,
-using its full height. Scratch has no filename; =Ctrl+S= opens the save dialog.
+it opens an empty =*draft*= buffer in the left half of the current monitor,
+using its full height. A draft has no filename; =Ctrl+S= opens Save draft as,
+with =draft.txt= suggested in the Name field. Choose a directory and edit that
+filename to create a new file; the file does not have to exist already.
 =Ctrl+O= opens an existing file. A command-line filename opens in the focused
 view, retaining recovered edits if the buffer is already loaded. See [[file:sessions.org][sessions]].
+
+The word /draft/ intentionally replaces Emacs's /scratch/. Other conscious
+compatibility choices are tracked in [[file:../issues/open/13.org][the Emacs-deviations inventory]].
 
 Holding an arrow key, Backspace, Delete or Enter repeats the action using
 the desktop's keyboard repeat delay and rate. Held letters repeat through
@@ -48,7 +53,10 @@ buffer, earlier discarded buffers still contain their unsaved edits and
 remain marked modified. Successful earlier saves remain saved. Panes, focus
 and cursor positions are preserved while checking hidden buffers.
 
-Saving an unnamed scratch buffer uses Til's =mode gui= Save file dialog.
+Saving an unnamed draft opens a native Save draft as dialog. It suggests
+=draft.txt=; type any filename/extension in the Name field and confirm. Tiled
+captures the native result once, avoiding repeated chooser invocations in the
+installed mode-gui convenience helper.
 Cancelling that dialog, or failing to save a file, stops the exit attempt
 and returns to editing with the buffer still modified. Save failures display
 an error in the status area, including open, write and close/flush failures.
@@ -105,7 +113,7 @@ existing history, then maintain independent positions; hidden positions
 also track shared edits made in another pane.
 
 The buffer list shows =>= for the current buffer, =*= for unsaved edits,
-and the filename (=[no file]= for scratch). Files sharing a basename are
+and the filename (=[no file]= for drafts). Files sharing a basename are
 identified by their full paths. Long names/paths are displayed with a
 leading ellipsis, preserving their ends; completion inserts the full name
 in the minibuffer. A query with no matches stays open with an explanation;
@@ -117,7 +125,7 @@ and Enter to discard its edits; =no=, =C-g= or Escape cancels. Empty input
 and a single =y= do not confirm. Killing never writes or deletes the file.
 If the buffer is displayed in several panes, each switches to another live
 buffer while keeping the layout. Killing the last buffer creates an empty
-=*scratch*= buffer. This is distinct from =C-x 0=, which closes just a view
+=*draft*= buffer. This is distinct from =C-x 0=, which closes just a view
 and keeps its buffer.
 
 ** Text selection and clipboard
@@ -150,7 +158,8 @@ codepoint boundaries; full grapheme-aware text editing remains future work.
 =*terminal-1*=, =*terminal-2*=, etc. It uses =$SHELL= (or =COMSPEC= on Windows)
 and inherits Tiled's working directory/environment. =C-x b= and =C-x C-b=
 include terminals, showing running or exited status. Terminal text uses the
-same font path as the editor, rendered at the terminal's current 20-pixel size.
+same configured font path and size as the editor, with matching filtering and
+line height. Terminal columns still use fixed-width cells; choose a monospace font.
 
 Within a terminal, =C-x= is Tiled's command prefix: splitting, focus, buffer
 switching, open, kill and quit commands work as in text panes. =C-x C-x=
@@ -203,18 +212,21 @@ cp defaults/init.til ~/.tiled/init.til
 #+end_src
 
 It defines =init(mut config: TiledConfig)=, which runs before the editor
-opens. The supported fields are =width=, =height=, =maximized=, =tile_left=, =scratch_text=,
+opens. The supported fields are =width=, =height=, =maximized=, =tile_left=, =draft_text=,
 =initial_file=, =font_path=, =font_size=, =session= and =commands=. The latter registers
 Til callbacks and overrides the default [[file:keybindings.org][named commands and contextual keymaps]]. A command-line filename takes
 precedence over =initial_file= on a fresh startup. A restored workspace keeps
 its existing focus unless a command-line file is supplied; with neither,
-Tiled opens scratch.
+Tiled opens a draft. The old =scratch_text= field remains a compatibility alias:
+it is used only when =draft_text= is empty. New configurations should use
+=draft_text=. Existing saved unnamed buffers acquire the new display name
+without changing their contents or session format.
 Errors in an existing init file are reported and stop startup rather than
 silently loading defaults. =-v= and =--version= bypass configuration and GUI
 startup.
 
 Standalone tilminal loads =~/.tilminal.til=, defining
-=init(mut config: TilminalConfig)=, with =commands= and =session= fields;
+=init(mut config: TilminalConfig)=, with =commands=, =session=, =font_path= and =font_size= fields;
 copy [[file:../defaults/tilminal.til][defaults/tilminal.til]] as a starting point. Embedded terminal panes
 use Tiled's command configuration instead of separately loading this file.
 
@@ -261,6 +273,12 @@ the requested size rather than scaling raylib's default bitmap font.
 Change =config.font_size= in =~/.tiled/init.til= and restart Tiled to apply
 it. Both the built-in fallback and [[file:../defaults/init.til][defaults/init.til]] use 28 px, so the
 larger font also applies before you create a user configuration.
+
+Embedded terminals inherit these values. Standalone tilminal also defaults to
+28 px and the same system monospace font; set =config.font_size= and optionally
+=config.font_path= in =~/.tilminal.til= to customize it. It does not read the
+editor's configuration file. Its terminal text and command palette use those
+same settings, and PTY dimensions are computed from the resulting cell metrics.
 
 For reference, [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Fonts.html][Emacs defaults to a 10-point monospace font]] on graphical
 displays. Tiled's current size setting is in pixels, not points.

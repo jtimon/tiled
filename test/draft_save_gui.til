@@ -1,0 +1,82 @@
+mode gui
+import("terminal_gui_helpers")
+
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
+chord := proc(display: Dynamic, key: UPtr, modifier: UPtr = 65507) {
+    sleep_ms(40)
+    send(display, modifier, 1); tap(display, key); send(display, modifier, 0); sleep_ms(70)
+}
+focus := proc(display: Dynamic, window: UPtr) {
+    sleep_ms(200); XSetInputFocus(display, window, 2, 0); XFlush(display); sleep_ms(100)
+}
+wait_file := proc(app: Cmd, pid: I64, path: Str, expected: Str) {
+    for _ in 0..200 {
+        if File.exists(path) { if File.readfile(path) == expected { return } }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, false, format("draft was not saved to ", path))
+}
+wait_dialog_closed := proc(app: Cmd, pid: I64) {
+    for _ in 0..100 {
+        if find_window("Save draft as") == 0 { return }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, false, "save dialog reopened or failed to close")
+}
+
+main := proc() {
+    root := get_cwd_str()
+    base := format(root, "/tmp/draft-save-", process_id().to_str())
+    assert(mkdir_p(base) == 0)
+    InitWindow(640, 80, "clipboard observer".c_str); SetWindowPosition(900, 1100); SetExitKey(0)
+    name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    for variant : Str in array(Str, "default", "legacy", "preferred") {
+        dir := format(base, "/", variant)
+        home := format(dir, "/home")
+        assert(mkdir_p(format(home, "/.tiled")) == 0)
+        mut suffix := ""
+        if variant == "legacy" {
+            File.writefile(format(home, "/.tiled/init.til"), "mode lib\ninit := func(mut c: TiledConfig) { c.scratch_text = \"LEGACY\" }\n")
+            suffix = "LEGACY"
+        } else if variant == "preferred" {
+            File.writefile(format(home, "/.tiled/init.til"), "mode lib\ninit := func(mut c: TiledConfig) { c.scratch_text = \"LEGACY\"; c.draft_text = \"DRAFT\" }\n")
+            suffix = "DRAFT"
+        }
+        app := Cmd.new(format(root, "/bin/tiled"), "--no-session")
+        app.cwd(dir).env("HOME", home).env("LC_ALL", "C")
+        app.stdout_to(format(root, "/tmp/terminal-gui-app.log")).stderr_to_stdout()
+        pid := app.start()
+        window := wait_window(app, pid, "Tiled - *draft*"); focus(display, window)
+        type_keys(display, "DRAFT_TEXT"); sleep_ms(100); chord(display, 115)
+        mut dialog := wait_window(app, pid, "Save draft as"); focus(display, dialog)
+        // Inspect the actual Name entry, not the Ctrl-L location workaround.
+        chord(display, 110, 65513); chord(display, 97); chord(display, 99)
+        ref selected : I8 = GetClipboardText()
+        require(app, pid, !is_null(selected), "Name field did not provide a filename")
+        require(app, pid, Str.from_c_str(selected) == "draft.txt", "Save As did not suggest draft.txt")
+        mut filename := "draft.txt"
+        if variant != "default" {
+            tap(display, 65307)
+            wait_dialog_closed(app, pid)
+            require(app, pid, !File.exists(format(dir, "/draft.txt")), "cancelling Save As wrote a file")
+            focus(display, window); chord(display, 115)
+            dialog = wait_window(app, pid, "Save draft as"); focus(display, dialog)
+            chord(display, 110, 65513); chord(display, 97)
+            filename = "my draft.txt"
+            type_keys(display, filename)
+        }
+        tap(display, 65293)
+        expected := format("DRAFT_TEXT", suffix)
+        path := format(dir, "/", filename)
+        wait_file(app, pid, path, expected)
+        wait_dialog_closed(app, pid)
+        wait_window(app, pid, format("Tiled - ", filename)); focus(display, window)
+        type_keys(display, "_MORE"); sleep_ms(100); chord(display, 115)
+        wait_file(app, pid, path, format("DRAFT_TEXT_MORE", suffix))
+        require(app, pid, find_window("Save draft as") == 0, "saving a named file reopened Save As")
+        close_app(app, pid, display, window)
+        println("PASS: ", variant, " draft naming, filename entry, cancel, save and subsequent direct save")
+    }
+    XCloseDisplay(display); CloseWindow()
+}

@@ -1,0 +1,83 @@
+mode gui
+import("terminal_gui_helpers")
+
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(60) }
+
+main := proc() {
+    root := get_cwd_str()
+    home := format(root, "/tmp/terminal-font-", process_id().to_str())
+    assert(mkdir_p(format(home, "/.tiled")) == 0)
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace:style=Bold")
+    query.capture_out(); query.run_checked()
+    path := query.out().clone()
+    escaped := path.replace("\\", "\\\\").replace("\"", "\\\"")
+    File.writefile(format(home, "/.tiled/init.til"), format("mode lib\ninit := func(mut c: TiledConfig) {\n",
+        "c.tile_left = false; c.width = 960; c.height = 640; c.session.enabled = false;\n",
+        "c.font_size = 36; c.font_path = \"", escaped, "\"\n}\n"))
+    File.writefile(format(home, "/.tilminal.til"), format("mode lib\ninit := func(mut c: TilminalConfig) {\n",
+        "c.session.enabled = false; c.font_size = 36; c.font_path = \"", escaped, "\"\n}\n"))
+    InitWindow(960, 80, "terminal GUI reference".c_str)
+    SetWindowPosition(0, 1100); SetExitKey(0)
+    font := LoadFontEx(path.c_str, 36, Option(ref I32).None, 0)
+    SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR)
+    marker := "FONT_MATCH"
+    cell_width := MeasureTextEx(font, "M".c_str, 36, 0).x.to_i64()
+    cell_height := MeasureTextEx(font, "Mg".c_str, 36, 0).y.to_i64() + 6
+    // Independent reference: Tiled's ordinary text API, not TerminalView.draw.
+    BeginDrawing(); ClearBackground(Color(r = 16, g = 18, b = 24, a = 255))
+    DrawTextEx(font, marker.c_str, Vector2(x = 0, y = 0), 36, 0, Color(r = 216, g = 216, b = 216, a = 255))
+    EndDrawing()
+    reference := find_window("terminal GUI reference")
+    name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    for host : Str in array(Str, "tiled", "tilminal") {
+        app := Cmd.new(format("./bin/", host))
+        app.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
+        app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+        pid := app.start()
+        mut title := "tilminal"; if host == "tiled" { title = "Tiled - *draft*" }
+        window := wait_window(app, pid, title); sleep_ms(250)
+        XSetInputFocus(display, window, 2, 0); XFlush(display)
+        if host == "tiled" {
+            send(display, 65507, 1); tap(display, 120); send(display, 65507, 0); tap(display, 116)
+            wait_window(app, pid, "Tiled - *terminal-1*"); sleep_ms(200)
+        }
+        dimensions := format(home, "/", host, "-dimensions")
+        type_text(display, format("printf '\\033[H\\033[2JFONT_MATCH\\n'; stty size > ", dimensions))
+        mut found := false
+        for _ in 0..200 {
+            found = has_rendered_row(display, window, reference, (cell_width * 10).to_i32(), 0, cell_height.to_i32())
+            if found && File.exists(dimensions) { break }
+            if app.poll() { break }; sleep_ms(50)
+        }
+        if !found {
+            ref expected : Dynamic = XGetImage(display, reference, 0, 0, (cell_width * 10).to_i32().cast(U32), cell_height.to_i32().cast(U32), 0xFFFFFF, 2)
+            ref actual : Dynamic = XGetImage(display, window, 0, 0, (cell_width * 10).to_i32().cast(U32), cell_height.to_i32().cast(U32), 0xFFFFFF, 2)
+            mut reported := false
+            for y in 0..cell_height {
+                for x in 0..(cell_width * 10) {
+                    wanted := XGetPixel(expected, x.to_i32(), y.to_i32())
+                    got := XGetPixel(actual, x.to_i32(), y.to_i32())
+                    if wanted != got { println("Font mismatch at ", x, ",", y, ": ", wanted, " vs ", got, "; cell width ", cell_width); reported = true; break }
+                }
+                if reported { break }
+            }
+            XDestroyImage(expected); XDestroyImage(actual)
+        }
+        require(app, pid, found, "terminal font/spacing differs from the configured editor font")
+        require(app, pid, File.exists(dimensions), "missing PTY dimensions")
+        raw := File.readfile(dimensions)
+        size := raw.trim().split(" ")
+        mut body_height : I64 = 640
+        if host == "tiled" { body_height = body_height - 2 * (cell_height + 8) }
+        require(app, pid, size[0].to_i64() == body_height / cell_height && size[1].to_i64() == 960 / cell_width,
+            "configured font metrics did not reach the PTY size")
+        if host == "tiled" {
+            request_close(display, window); sleep_ms(150); type_text(display, "terminate")
+            for _ in 0..100 { if app.poll() { break }; sleep_ms(50) }
+            require(app, pid, app.poll(), "Tiled did not close"); assert(app.wait() == 0)
+        } else { close_app(app, pid, display, window) }
+        println("PASS: ", host, " custom 36px font matches editor text and determines PTY geometry")
+    }
+    XCloseDisplay(display); UnloadFont(font); CloseWindow()
+}

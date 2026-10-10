@@ -18,7 +18,7 @@ terminal_restore_text := func(mut screen: TerminalScreen, text: Str) {
     }
 }
 
-tilminal_restore_session := proc(mut store: SessionStore, mut terminal: Terminal, mut frame: SessionFrame) returns Bool {
+tilminal_restore_session := proc(mut store: SessionStore, terminal: Terminal, mut frame: SessionFrame, mut output: Str) returns Bool {
     if !store.enabled || !store.restore { return false }
     mut broken := false
     for suffix : Str in array(Str, "", ".previous") {
@@ -36,8 +36,7 @@ tilminal_restore_session := proc(mut store: SessionStore, mut terminal: Terminal
             if File.is_dir(directory) { terminal.session.set_directory(directory) }
             else { store.notice = format(store.notice, "; saved cwd unavailable, using launch directory") }
         }
-        terminal_restore_text(terminal.screen, text)
-        terminal_restore_text(terminal.screen, format("\n[", store.notice, "]\n"))
+        output = format(text, "\n[", store.notice, "]\n")
         return true
     }
     if broken { store.preserve_broken() }

@@ -100,11 +100,11 @@ main := proc() {
     println("PASS: crash recovery and explicit discard without resurrection")
 
     fresh := app_for(home, "crash"); fresh.arg("--fresh"); fresh_pid := fresh.start()
-    fresh_window := wait_window(fresh, fresh_pid, "Tiled - *scratch*"); focus(display, fresh_window)
+    fresh_window := wait_window(fresh, fresh_pid, "Tiled - *draft*"); focus(display, fresh_window)
     checkpoint(fresh, fresh_pid, crash_path, "")
     request_close(display, fresh_window); finished(fresh, fresh_pid)
     disabled := app_for(home, "disabled"); disabled.arg("--no-session"); disabled_pid := disabled.start()
-    disabled_window := wait_window(disabled, disabled_pid, "Tiled - *scratch*"); focus(display, disabled_window)
+    disabled_window := wait_window(disabled, disabled_pid, "Tiled - *draft*"); focus(display, disabled_window)
     request_close(display, disabled_window); finished(disabled, disabled_pid)
     assert(!File.exists(format(home, "/.tiled/sessions/disabled.session")))
     println("PASS: fresh start and disabled persistence")

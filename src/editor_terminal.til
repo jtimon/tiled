@@ -27,7 +27,7 @@ EditorTerminals := struct {
     slots := Vec(EditorTerminal).new()
     serial : I64 = 0
 namespace:
-    spawn := proc(mut self: EditorTerminals, mut editor: EditorState, font_path: Str, mut message: Str) returns Bool {
+    spawn := proc(mut self: EditorTerminals, mut editor: EditorState, font_path: Str, font_size: I32, mut message: Str) returns Bool {
         mut shell := get_env("SHELL")
         windows := host_os() == "windows"
         if windows { shell = get_env("COMSPEC"); if shell.len() == 0 { shell = "cmd.exe" } }
@@ -66,7 +66,7 @@ namespace:
         buffer.terminal = index.to_i64()
         buffer.terminal_name = name
         buffer.terminal_running = true
-        slot := EditorTerminal(owner = id, terminal = terminal, view = TerminalView.new(font_path))
+        slot := EditorTerminal(owner = id, terminal = terminal, view = TerminalView.new(font_path, font_size))
         if index == self.slots.len() { self.slots.push(own slot) }
         else { self.slots.set(index, own slot)! }
         editor.switch_buffer(id)

@@ -21,7 +21,7 @@ compiler bootstrap is needed here. =./make.til clean= removes build outputs
 and =tmp/=, preserving reference repositories under =.inspirations/=.
 
 Tiled restores its saved workspace by default; with no saved session it opens
-=*scratch*= using defaults. Use =--fresh= to start anew or =--no-session= to
+=*draft*= using defaults. Use =--fresh= to start anew or =--no-session= to
 disable persistence. See [[file:doc/sessions.org][saved sessions]]. The working
 config [[file:defaults/init.til][defaults/init.til]] can be copied to =~/.tiled/init.til= when ready.
 

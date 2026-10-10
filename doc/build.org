@@ -95,7 +95,7 @@ override [[file:keybindings.org][keymaps]] at startup; the older =keybindings.ti
 ./bin/tilminal
 #+end_src
 
-See [[file:configuration.org][startup and configuration]] for init-file loading and scratch buffers.
+See [[file:configuration.org][startup and configuration]] for init-file loading and draft buffers.
 
 ** Library build modes
 

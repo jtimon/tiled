@@ -12,7 +12,7 @@
   compiler's support tree; core continues to load automatically.
 - [[file:../src/tiled.til][src/tiled.til]] provides a build-time =VERSION= and =-v=/=--version=.
 - Startup checks =~/.tiled/init.til=. A missing file prints the defaults
-  notice; startup restores the workspace or opens =*scratch*= when there is no
+  notice; startup restores the workspace or opens =*draft*= when there is no
   saved session. A working config lives at [[file:../defaults/init.til][defaults/init.til]].
 - Startup checks exercised the copied example, configured window size and
   initial file, command-line file precedence, failing init code, and version
@@ -24,6 +24,10 @@
   gutter and status-bar spacing use font measurements. Headless previews
   checked the README at 20 px and 28 px. The default has since been increased
   to 28 px, both in the built-in fallback and =defaults/init.til=.
+- Embedded terminals now inherit the editor's font path and size. Standalone
+  tilminal defaults to the same 28 px and exposes both font settings. Renderer
+  spacing/filtering and glyph-edge clipping match ordinary editor text; a
+  custom 36 px font passes rendered-pixel and PTY-geometry checks in both hosts.
 - [[file:terminal.org][Tilminal]] now lives here as a standalone persistent-shell terminal, with
   reusable PTY/ConPTY, screen, text and rendering modules migrated from Til.
   Its model and session tests passed, including ASAN. The permanent GUI test
@@ -104,7 +108,7 @@ minibuffer filters choices, completes with Tab, selects with arrows, and
 accepts Enter or cancels with =C-g=/Escape. Dirty-buffer deletion requires
 the full =yes= confirmation; cancelling preserves the edits. Killing affects
 every view of the buffer, without closing panes or writing/deleting files;
-the last buffer is replaced by an empty scratch buffer.
+the last buffer is replaced by an empty draft buffer.
 
 Per-pane history restores points/scrolling when switching. It is copied on
 split, adjusted for shared edits, and pruned before a killed slot is reused.
@@ -113,7 +117,7 @@ character callbacks alongside key callbacks to preserve order across prompt
 transitions, even when a command, text and Enter arrive in the same frame.
 
 [[file:../test/buffers.til][Model tests]] cover identity, hidden points, split histories, completion,
-missing matches, confirmation, shared kills, scratch replacement and reuse.
+missing matches, confirmation, shared kills, draft replacement and reuse.
 [[file:../test/buffer_input.til][GUI tests]] load two same-basename files through the existing =mode gui=
 dialog, switch/edit/save in split panes, exercise cancellations and dirty
 kills, then check exact file contents and last-buffer replacement. Both
@@ -166,16 +170,24 @@ the active exit prompt.
 repeated requests, cancellation after discard/save, successful writes,
 open failure and a buffered write failure using Linux's =/dev/full=.
 [[file:../test/exit_input.til][GUI tests]] exercise all three exit paths, empty/=C-g=/Escape cancellation,
-save/discard, failed-save recovery, and scratch save-dialog acceptance and
+save/discard, failed-save recovery, and draft save-dialog acceptance and
 cancellation. [[file:../test/buffer_input.til][The buffer GUI test]] accepts =exit= to check multiple dirty
 buffers, cancellation at the second buffer and saving a hidden buffer; this
 also passed with remapped Control. Existing buffer, split, fast-quit and
 held-key GUI checks passed.
 
+[[file:../test/draft_save_gui.til][Draft Save As checks]] exercise the ordinary filename entry with suggested
+=draft.txt= and a new filename containing spaces, cancellation without losing
+text, and subsequent direct saves. The native result is captured once in
+=src/file_dialogs.til= so matching it cannot reopen the chooser. Tests also
+cover =draft_text= and the legacy =scratch_text= configuration alias.
+
 #+begin_src sh
 til run -o tmp/check_exit -c tmp/check_exit.c test/exit.til
 til build -o tmp/check_exit_input -c tmp/check_exit_input.c test/exit_input.til
 xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_exit_input
+til build --usize=64 -o tmp/check_draft_save_gui -c tmp/check_draft_save_gui.c test/draft_save_gui.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_draft_save_gui
 til build -o tmp/check_buffer_input -c tmp/check_buffer_input.c test/buffer_input.til
 xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_buffer_input remapped exit
 #+end_src

@@ -1,6 +1,7 @@
 * Cleanups
 ** Medium
 *** [[./open/4.org][#4]] Organize Tiled, tilminal and libterminal here before splitting repositories
+*** [[./open/13.org][#13]] Track deliberate differences from Emacs
 * Features
 ** Medium
 *** [[./open/5.org][#5]] Configure commands and keybindings in Til for Tiled and tilminal

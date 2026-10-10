@@ -10,7 +10,7 @@ Desktop window management and multiple OS-level frames remain future work.
 
 Use Emacs's distinction when discussing the editor:
 
-- A buffer owns content, such as a document or scratch text, independently
+- A buffer owns content, such as a document or draft text, independently
   of where it is displayed.
 - An editor window (also called a view) displays a buffer. Cursor and scroll
   state belong to that view, so several views can display the same buffer.
@@ -50,7 +50,7 @@ Splits copy that history; focus and switching then evolve independently.
 
 =C-x k= kills a buffer after confirmation if it is modified. All live views
 and their histories stop referring to it before its storage can be reused.
-Affected views select another buffer, with a fresh scratch buffer when the
+Affected views select another buffer, with a fresh draft buffer when the
 last one is killed. Stable buffer slots keep other buffers' identities intact.
 =C-x 5= is deferred until Tiled supports multiple OS-level frames.
 

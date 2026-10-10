@@ -170,23 +170,17 @@ main := proc(args: ..Str) {
     // Load through the existing mode gui dialog, not a test-only editor API.
     chord(display, 111)
     mut dialog := wait_window(app, pid, "Open file")
-    // Installed Til 2827886a4 emits the helper's switch scrutinee call twice.
-    // Answer a repeated native chooser too; a fixed compiler needs one round.
-    for _ in 0..3 {
-        focus(display, dialog)
-        sleep_ms(200)
-        chord(display, 108) // GTK file chooser's location entry.
-        sleep_ms(100)
-        type_text(display, second)
-        tap(display, 65293)
-        sleep_ms(500)
-        dialog = 0
-        for _ in 0..20 {
-            dialog = find_window("Open file")
-            if dialog != 0 { break }
-            sleep_ms(50)
-        }
+    focus(display, dialog)
+    sleep_ms(200)
+    chord(display, 108) // GTK file chooser's location entry.
+    sleep_ms(100)
+    type_text(display, second)
+    tap(display, 65293)
+    sleep_ms(500)
+    for _ in 0..40 {
+        dialog = find_window("Open file")
         if dialog == 0 { break }
+        sleep_ms(50)
     }
     require(app, pid, find_window("Open file") == 0, "file dialog did not close")
     focus(display, window)
@@ -272,9 +266,9 @@ main := proc(args: ..Str) {
     require(app, pid, File.readfile(first) == "axzclpha", "prompt text leaked into the document")
     require(app, pid, File.readfile(second) == "brqbeta", "killing a buffer wrote its unsaved edits")
 
-    // Killing the last file, displayed in two panes, leaves usable scratch.
+    // Killing the last file, displayed in two panes, leaves a usable draft.
     choose(display, 107, "")
-    wait_window(app, pid, "Tiled - *scratch*")
+    wait_window(app, pid, "Tiled - *draft*")
     type_text(display, "s")
     choose(display, 107, "")
     type_text(display, "yes")
@@ -289,5 +283,5 @@ main := proc(args: ..Str) {
     XCloseDisplay(display)
     File.remove(first)
     File.remove(second)
-    println("PASS: fast buffer prompts, list, shared views, cancellation, dirty kill and last-buffer scratch")
+    println("PASS: fast buffer prompts, list, shared views, cancellation, dirty kill and last-buffer draft")
 }

@@ -11,6 +11,7 @@ import("editor_commands")
 import("session_window")
 import("command_discovery")
 import("minibuffer_view")
+import("file_dialogs")
 
 link_c("editor_save.c")
 editor_write_file := ext_proc(path: I8, text: I8, shallow length: UPtr) returns shallow I32 {}
@@ -24,6 +25,8 @@ TiledConfig := struct {
     maximized := false
     tile_left := true
     initial_file := ""
+    draft_text := ""
+    // Legacy config spelling; used only when draft_text is empty.
     scratch_text := ""
     font_path := ""
     font_size : I32 = 28
@@ -64,11 +67,15 @@ editor_save_buffer := proc(mut editor: EditorState, id: USize, mut message: Str)
     if buffer.terminal >= 0 { message = "Terminal buffers cannot be saved as text"; return false }
     mut path := buffer.filename.clone()
     if path.len() == 0 {
-        path = save_file_dialog("Save file", "")
+        path = editor_save_dialog("Save draft as", "draft.txt")
         if path.len() == 0 {
             message = "Save cancelled; still editing"
             return false
         }
+    }
+    if File.is_dir(path) {
+        message = format("Choose a filename, such as draft.txt, not a directory: ", path)
+        return false
     }
     error := editor_write_file(path.c_str, buffer.text.c_str, buffer.text.len().to_uptr())
     if error != 0 {
@@ -87,7 +94,7 @@ editor_save_buffer := proc(mut editor: EditorState, id: USize, mut message: Str)
 }
 
 editor_open := proc(mut editor: EditorState) returns Bool {
-    selected := open_file_dialog("Open file", "")
+    selected := editor_open_dialog("Open file", "")
     if selected.len() == 0 { return false }
     path := editor_file_path(selected)
     editor.show_buffer(path, File.readfile(path))
@@ -295,7 +302,9 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
     if font_size <= 0 { panic("config.font_size must be positive") }
     font_path := editor_font_path(config)
     if !File.is_file(font_path) { panic("font file not found: ", font_path) }
-    mut editor := EditorState.new("", config.scratch_text)
+    mut initial_text := config.draft_text.clone()
+    if initial_text.len() == 0 { initial_text = config.scratch_text.clone() }
+    mut editor := EditorState.new("", initial_text)
     mut frame := SessionFrame()
     restored := editor_restore_session(session, editor, frame)
     mut filename := options.operand.clone()
@@ -506,7 +515,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                     if command == "kill-buffer" { kind = BufferPromptKind.Kill }
                     prompt.begin(editor, kind)
                 } else if command == "new-terminal" {
-                    terminals.spawn(editor, font_path, status_msg)
+                    terminals.spawn(editor, font_path, font_size, status_msg)
                 } else if command == "split-below" || command == "split-right" {
                     if !editor.split(command == "split-right", min_view_w, min_view_h) {
                         status_msg = "View too small to split"

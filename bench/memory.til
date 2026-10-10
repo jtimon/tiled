@@ -43,7 +43,7 @@ main := proc(args: ..Str) {
             terminal.stdout_to(format(dir, "/memory-tilminal.log")).stderr_to_stdout()
             tiled_pid := tiled.start()
             terminal_pid := terminal.start()
-            tiled_window := wait_window(tiled, tiled_pid, "Tiled - *scratch*")
+            tiled_window := wait_window(tiled, tiled_pid, "Tiled - *draft*")
             terminal_window := wait_window(terminal, terminal_pid, "tilminal")
             sleep_ms(250)
             XSetInputFocus(display, tiled_window, 2, 0); XFlush(display)

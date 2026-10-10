@@ -55,11 +55,17 @@ namespace:
         return false
     }
 }
-TilminalConfig := struct { commands := TilminalCommands.new(); session := SessionConfig() }
+TilminalConfig := struct {
+    commands := TilminalCommands.new()
+    session := SessionConfig()
+    font_path := ""
+    font_size : I32 = 28
+}
 
 // Use the same system monospace selection as Tiled. No font path depends on
 // a Til source checkout, the executable's directory, or the shell's cwd.
-tilminal_font_path := proc() returns Str {
+tilminal_font_path := proc(config: TilminalConfig) returns Str {
+    if config.font_path.len() > 0 { return config.font_path.clone() }
     query := Cmd.new("fc-match", "--format=%{file}", "monospace")
     query.capture_out()
     if query.run() != 0 { panic("cannot resolve terminal font; install fontconfig") }
@@ -69,6 +75,7 @@ tilminal_font_path := proc() returns Str {
 }
 
 start_tilminal := proc(config: TilminalConfig, args: ..Str) {
+    if config.font_size <= 0 { panic("config.font_size must be positive") }
     options := SessionArgs.parse(..args)
     mut settings := config.session.clone()
     // One-shot invocations must not overwrite the interactive default session.
@@ -94,15 +101,23 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
     SetExitKey(0) // Escape belongs to the foreground terminal application.
     window_init_input()
     SetTargetFPS(60)
-    font_path := tilminal_font_path()
-    mut view := TerminalView.new(font_path)
+    font_path := tilminal_font_path(config)
+    mut view := TerminalView.new(font_path, config.font_size)
+    footer_h := view.cell_height + 8
     mut viewport := TerminalViewport.new()
     mut key_state := KeyState()
     mut discovery := CommandDiscovery()
     mut notice := ""
     mut notice_until : F64 = 0.0
     mut frame := SessionFrame(width = 960, height = 640)
-    if tilminal_restore_session(session, terminal, frame) { session_restore_window(frame) }
+    mut restored_output := ""
+    if tilminal_restore_session(session, terminal, frame, restored_output) { session_restore_window(frame) }
+    // Apply the actual window/font metrics before replaying saved output.
+    // Replaying into the model's default 80-column grid and then shrinking it
+    // crops text when a larger font needs fewer columns.
+    PollInputEvents()
+    terminal.resize(GetScreenWidth().cast(I64) / view.cell_width, GetScreenHeight().cast(I64) / view.cell_height)
+    if restored_output.len() > 0 { terminal_restore_text(terminal.screen, restored_output) }
     if session.notice.len() > 0 { println(session.notice) }
     terminal.start()
     mut last_title := "tilminal"
@@ -182,11 +197,11 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
         ClearBackground(Color(r = 16, g = 18, b = 24, a = 255))
         view.draw_scrolled(terminal.screen, 0, 0, width, height, IsWindowFocused() && !discovery.active(), terminal.ended, viewport.offset, viewport.selection)
         if discovery.active() {
-            draw_minibuffer(discovery.mini, view.font, 20, 24, width.to_i32(), height.to_i32(), 32)
+            draw_minibuffer(discovery.mini, view.font, view.font_size, view.cell_height.to_i32(), width.to_i32(), height.to_i32(), footer_h.to_i32())
         } else if notice.len() > 0 && GetTime() < notice_until {
-            DrawRectangle(0, (height - 32).to_i32(), width.to_i32(), 32, Color(r = 24, g = 28, b = 42, a = 255))
-            BeginScissorMode(8, (height - 32).to_i32(), (width - 16).to_i32(), 32)
-            minibuffer_text(view.font, notice, 8, (height - 28).to_i32(), 20, Color(r = 240, g = 230, b = 190, a = 255))
+            DrawRectangle(0, (height - footer_h).to_i32(), width.to_i32(), footer_h.to_i32(), Color(r = 24, g = 28, b = 42, a = 255))
+            BeginScissorMode(8, (height - footer_h).to_i32(), (width - 16).to_i32(), footer_h.to_i32())
+            minibuffer_text(view.font, notice, 8, (height - footer_h + 4).to_i32(), view.font_size, Color(r = 240, g = 230, b = 190, a = 255))
             EndScissorMode()
         }
         EndDrawing()

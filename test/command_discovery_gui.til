@@ -65,10 +65,9 @@ main := proc() {
     if is_null(display) { panic("run under xvfb-run") }
     for host : Str in array(Str, "tiled", "tilminal") {
         is_editor := host == "tiled"
-        mut size : I32 = 20; mut footer : I32 = 32
-        if is_editor { size = 28; footer = 42 }
+        size : I32 = 28; footer : I32 = 42
         font := LoadFontEx(font_path.c_str, size, Option(ref I32).None, 0)
-        if is_editor { SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR) }
+        SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR)
         app := Cmd.new(format("./bin/", host)); if is_editor { app.arg(file) }
         app.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
         app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()

@@ -65,6 +65,12 @@ uses =$ORIGIN= to find its matching shared Til runtime/core siblings.
 
 ** API and ownership
 
+The optional source renderer uses =TerminalView.new(path, size)=, defaulting
+to 28 pixels. Use its measured =cell_width= and =cell_height= for viewport,
+input and PTY sizing. Base and cached Unicode glyph fonts use the same size
+and bilinear filtering. Backgrounds are painted before text, with pane-level
+clipping so natural glyph bearings are not cut off by per-cell scissors.
+
 - =TerminalSession.new(program)= creates a configured native session;
   =arg(value)= appends each argument before =start(columns, rows)=.
 - =set_directory(path)= chooses the child's startup directory before start.

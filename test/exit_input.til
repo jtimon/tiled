@@ -1,6 +1,6 @@
 mode cli
 
-// Run under xvfb-run. Scratch-save cancellation uses mode gui's zenity dialog.
+// Run under xvfb-run. Draft-save cancellation uses the native save dialog.
 import("std/sys")
 link("X11")
 link(":libXtst.so.6")
@@ -101,16 +101,16 @@ focus := proc(display: Dynamic, window: UPtr) {
 check_exit := proc(display: Dynamic, how: Str, decision: Str) {
     path := format("tmp/exit-", process_id().to_str(), ".txt")
     File.writefile(path, "base")
-    scratch := decision == "scratch" || decision == "scratch-save"
-    if decision == "scratch-save" { File.remove(path) }
+    draft := decision == "draft" || decision == "draft-save"
+    if decision == "draft-save" { File.remove(path) }
     // Each case starts from its fixture, not the previous case's saved point.
     app := Cmd.new("./bin/tiled", "--fresh")
-    if !scratch { app.arg(path) }
+    if !draft { app.arg(path) }
     app.env("HOME", format(get_cwd_str(), "/tmp/exit-home-", process_id().to_str()))
     app.stdout_to("tmp/exit-input-app.log").stderr_to_stdout()
     pid := app.start()
     mut title := format("Tiled - exit-", process_id().to_str(), ".txt")
-    if scratch { title = "Tiled - *scratch*" }
+    if draft { title = "Tiled - *draft*" }
     window := wait_window(app, pid, title)
     focus(display, window)
     type_text(display, "x")
@@ -138,34 +138,30 @@ check_exit := proc(display: Dynamic, how: Str, decision: Str) {
         type_text(display, "f")
         request_exit(display, window, how)
         answer(display, "save")
-    } else if scratch {
+    } else if draft {
         answer(display, "save")
-        mut dialog := wait_window(app, pid, "Save file")
-        // The installed mode gui helper can invoke its native dialog twice.
-        for _ in 0..3 {
-            focus(display, dialog)
-            if decision == "scratch-save" {
-                chord(display, 108)
-                sleep_ms(100)
-                type_text(display, format(get_cwd_str(), "/", path))
-                // GTK resolves the entered directory asynchronously before
-                // enabling its accept action.
-                sleep_ms(300)
-                tap(display, 65293)
-            } else {
-                tap(display, 65307)
-            }
-            sleep_ms(500)
-            dialog = 0
-            for _ in 0..20 {
-                dialog = find_window("Save file")
-                if dialog != 0 { break }
-                sleep_ms(50)
-            }
+        mut dialog := wait_window(app, pid, "Save draft as")
+        focus(display, dialog)
+        if decision == "draft-save" {
+            chord(display, 108)
+            chord(display, 97) // Replace the full suggested name, including .txt.
+            sleep_ms(100)
+            type_text(display, format(get_cwd_str(), "/", path))
+            // GTK resolves the entered directory asynchronously before
+            // enabling its accept action.
+            sleep_ms(300)
+            tap(display, 65293)
+        } else {
+            tap(display, 65307)
+        }
+        sleep_ms(500)
+        for _ in 0..40 {
+            dialog = find_window("Save draft as")
             if dialog == 0 { break }
+            sleep_ms(50)
         }
         require(app, pid, dialog == 0, "save dialog did not finish")
-        if decision == "scratch" {
+        if decision == "draft" {
             focus(display, window)
             require(app, pid, !app.poll(), "cancelled save exited editor")
             request_exit(display, window, how)
@@ -186,7 +182,7 @@ check_exit := proc(display: Dynamic, how: Str, decision: Str) {
     mut expected := "base"
     if decision == "save" { expected = "xyzwbase" }
     if decision == "failure" { expected = "xyzwfbase" }
-    if decision == "scratch-save" { expected = "xyzw" }
+    if decision == "draft-save" { expected = "xyzw" }
     assert(File.readfile(path) == expected)
     File.remove(path)
     println("PASS: ", how, " exit, cancellations and ", decision)
@@ -206,7 +202,7 @@ main := proc(args: ..Str) {
     check_exit(display, "close", "save")
     check_exit(display, "close", "discard")
     check_exit(display, "prefix", "failure")
-    check_exit(display, "prefix", "scratch")
-    check_exit(display, "prefix", "scratch-save")
+    check_exit(display, "prefix", "draft")
+    check_exit(display, "prefix", "draft-save")
     XCloseDisplay(display)
 }
