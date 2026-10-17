@@ -1,0 +1,5 @@
+# Match the Til compiler repository's GitHub Linguist language hint.
+*.til linguist-language=Zig
+
+# Generated build output should not skew language statistics.
+gen/** linguist-generated=true
