@@ -12,7 +12,9 @@ namespace:
         mut c := EditorCommands()
         terminal_keymaps(c.keys)
         discovery_keymaps(c.keys)
+        tab_keymaps(c.keys)
         c.keys.bind("text", "C-h k", "describe-key")
+        c.keys.declare("hide-tab")
         for name : Str in array(Str, "quit", "save-buffer", "session-save", "find-file", "switch-buffer", "list-buffers", "kill-buffer", "new-terminal",
             "split-below", "split-right", "other-view", "close-view", "only-view", "send-prefix", "set-mark", "cut",
             "left", "right", "up", "down", "home", "end", "newline", "backspace", "delete", "accept", "complete", "previous-choice", "next-choice") { c.keys.declare(name) }

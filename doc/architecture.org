@@ -76,7 +76,9 @@ component is under =lib/libterminal/=; =src/tilminal.til= is its standalone host
 The headless core builds as an archive/shared library, consumed through
 Til-generated bindings; the raylib adapter is compiled by each GUI host.
 See [[file:terminal-library-benchmark.org][linking measurements]] for the source/static/shared comparison.
-The standalone host owns one persistent session. Tiled's owning terminal pool
+The standalone host owns a stable pool of terminal tabs and pumps hidden sessions;
+each tab retains its viewport while a shared renderer owns glyph resources.
+Tiled's owning terminal pool
 keeps sessions/screens and renderer caches independent of its clonable layout
 tree: buffers reference stable pool slots, and panes reference buffer IDs.
 Closing a view never clones or destroys a session. Hidden buffers still pump;
@@ -84,6 +86,11 @@ killing a buffer releases its slot, which can be reused without stale buffer
 references. Each session has one resize owner (focused pane, otherwise first
 visible pane), so mirrored panes cannot fight over PTY dimensions. Input is
 routed once by the host. See [[file:terminal.org][terminal architecture and follow-ups]].
+
+Both hosts use the headless =TabGroup= for ordering non-owning resource references
+and the same tab-bar adapter. Editor groups belong to pane nodes, not buffers.
+Session records translate their references to stable IDs, while native process
+handles remain host-owned. See [[file:tabs.org][tabs and their lifecycle]].
 
 - Application: an ordinary OS window under the user's existing desktop,
   containing Tiled's own views. This is where the current editor starts.

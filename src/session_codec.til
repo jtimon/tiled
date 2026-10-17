@@ -7,10 +7,11 @@ SessionWriter := struct {
 namespace:
     put := func(mut w: SessionWriter, text: Str) { w.fields.push(own format(text.len().to_str(), ":", text, ",")) }
     number := func(mut w: SessionWriter, n: I64) { w.put(n.to_str()) }
-    finish := func(w: SessionWriter) returns Str {
+    finish := func(w: SessionWriter, version: I64 = 1) returns Str {
+        assert(version == 1 || version == 2)
         payload := join(w.fields, "")
         mut outer := SessionWriter()
-        outer.put("tiled-session-1"); outer.number(workspace_hash(payload)); outer.put(payload)
+        outer.put(format("tiled-session-", version.to_str())); outer.number(workspace_hash(payload)); outer.put(payload)
         return join(outer.fields, "")
     }
 }
@@ -18,6 +19,7 @@ SessionReader := struct {
     data := ""
     position : USize = 0
     error := ""
+    version : I64 = 1
 namespace:
     take := func(mut r: SessionReader) returns Str {
         if r.error.len() > 0 { return "" }
@@ -69,10 +71,12 @@ namespace:
     open := func(data: Str) returns SessionReader {
         mut outer := SessionReader(data = data.clone())
         magic := outer.take(); checksum := outer.number(); payload := outer.take()
-        if magic != "tiled-session-1" { outer.error = "unsupported session version" }
+        mut version : I64 = 1
+        if magic == "tiled-session-2" { version = 2 }
+        else if magic != "tiled-session-1" { outer.error = "unsupported session version" }
         if !outer.done() { return SessionReader(error = outer.error.clone()) }
         if workspace_hash(payload) != checksum { return SessionReader(error = "session checksum mismatch") }
-        return SessionReader(data = payload)
+        return SessionReader(data = payload, version = version)
     }
 }
 

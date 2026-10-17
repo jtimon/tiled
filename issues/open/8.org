@@ -56,4 +56,4 @@ References: [[file:../../doc/architecture.org][current buffer/view/frame and des
 Emacs's buffer/window/frame distinction, and tmux/Ghostty terminal ownership.
 Related: [[file:1.org][#1 integrated environment]], [[file:4.org][#4 library organization]],
 [[file:5.org][#5 commands/keymaps]], [[file:../fixed/6.org][#6 persistence]], [[file:7.org][#7 detach/reattach]] and
-[[file:9.org][#9 terminal and buffer tabs]].
+[[file:../fixed/9.org][#9 terminal and buffer tabs]].

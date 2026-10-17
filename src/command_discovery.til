@@ -24,9 +24,12 @@ namespace:
         for custom : Str in d.custom { if custom == name { return true } }
         if name == "execute-command" || name == "describe-key" || name == "cancel" || name == "ignore" || name == "quit" { return true }
         if d.context == "minibuffer" { return name == "accept" || command_key(name) != 0 }
+        for tab : Str in array(Str, "new-tab", "close-tab", "next-tab", "previous-tab", "move-tab-left", "move-tab-right", "toggle-tabs", "show-tabs", "hide-tabs") {
+            if name == tab { return true }
+        }
         if name == "session-save" || name == "copy" || name == "paste" { return true }
         if d.editor_host {
-            for common : Str in array(Str, "find-file", "switch-buffer", "list-buffers", "kill-buffer", "new-terminal",
+            for common : Str in array(Str, "find-file", "switch-buffer", "list-buffers", "kill-buffer", "new-terminal", "hide-tab",
                 "split-below", "split-right", "other-view", "close-view", "only-view") { if common == name { return true } }
         }
         if d.context == "terminal" {

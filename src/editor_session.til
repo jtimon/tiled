@@ -7,6 +7,7 @@ EditorCheckpoint := struct {
     editor := EditorState.new("", "")
     frame := SessionFrame()
     error := ""
+    version : I64 = 2
 namespace:
     write_view := func(mut w: SessionWriter, editor: EditorState, view: EditorView) {
         w.number(editor.buffers[view.buffer].session_id)
@@ -24,6 +25,8 @@ namespace:
             w.put("view"); EditorCheckpoint.write_view(w, editor, node.view)
             w.number(node.history.len().to_i64())
             for view : EditorView in node.history { EditorCheckpoint.write_view(w, editor, view) }
+            w.number(node.tabs.items.len().to_i64())
+            for id : USize in node.tabs.items { w.number(editor.buffers[id].session_id) }
         }
     }
     encode := func(editor: EditorState, frame: SessionFrame, outputs: Vec(SessionTerminalOutput), discarded: Vec(USize)) returns Str {
@@ -33,6 +36,7 @@ namespace:
         for index : USize in editor.views() { if editor.nodes[index].history.len() > 10000 { return "" } }
         mut w := SessionWriter()
         w.put("editor"); frame.write(w)
+        if editor.tabs_visible { w.number(1) } else { w.number(0) }
         w.number(editor.next_session_id); w.number(editor.nodes[editor.focused].session_id)
         w.number(editor.live_buffers().len().to_i64())
         for index : USize in editor.live_buffers() {
@@ -62,7 +66,7 @@ namespace:
         }
         EditorCheckpoint.write_node(w, editor, 0)
         w.put("end")
-        return w.finish()
+        return w.finish(2)
     }
     claim := func(mut r: SessionReader, mut ids: Vec(I64), limit: I64) returns I64 {
         id := r.number()
@@ -100,6 +104,22 @@ namespace:
             }
             ref mut node : EditorNode = out.editor.nodes[index]
             node.view = view; node.history = history
+            if r.version >= 2 {
+                tabs := r.number(10000)
+                for _ in 0..tabs {
+                    if r.error.len() > 0 { break }
+                    resource := r.number()
+                    mut id : I64 = -1
+                    for i in 0..out.editor.buffers.len() { if out.editor.buffers[i].session_id == resource { id = i.to_i64(); break } }
+                    if id < 0 { r.error = "tab references an absent buffer"; break }
+                    if node.tabs.index(id.to_usize()) >= 0 { r.error = "duplicate tab"; break }
+                    node.tabs.add(id.to_usize())
+                }
+                if node.tabs.index(node.view.buffer) < 0 { r.error = "current view is absent from its tabs" }
+            } else {
+                for old : EditorView in node.history { node.tabs.add(old.buffer) }
+                node.tabs.add(node.view.buffer)
+            }
             if id == focus { out.editor.focused = index }
         } else if kind == "columns" || kind == "rows" {
             first := EditorCheckpoint.read_node(r, out, ids, index.to_i32(), focus, depth + 1)
@@ -113,8 +133,10 @@ namespace:
         mut r := SessionReader.open(bytes)
         mut out := EditorCheckpoint()
         if r.error.len() > 0 { out.error = r.error.clone(); return out }
+        out.version = r.version
         if r.take() != "editor" { r.error = "not an editor workspace" }
         out.frame = SessionFrame.read(r)
+        if r.version >= 2 { out.editor.tabs_visible = r.number(1) == 1 }
         out.editor.next_session_id = r.number(9223372036854775806)
         focus := r.number()
         count := r.number(10000)
@@ -191,6 +213,7 @@ editor_restore_session := proc(mut store: SessionStore, mut editor: EditorState,
         mut loaded := EditorCheckpoint.decode(raw)
         if loaded.error.len() > 0 { broken = true; continue }
         warnings := loaded.recover_files()
+        if loaded.version == 1 { loaded.editor.tabs_visible = editor.tabs_visible }
         editor = loaded.editor; frame = loaded.frame
         store.main_good = suffix == ""
         store.notice = format("Restored session ", store.name)

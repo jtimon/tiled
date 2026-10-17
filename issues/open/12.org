@@ -44,4 +44,4 @@ This is an interactive terminal UI, not merely a noninteractive batch interface.
 - Keep model/command tests shared; add backend-specific rendering/input checks.
 
 Related: [[file:5.org][#5 commands/keymaps]], [[file:../fixed/6.org][#6 saved sessions]],
-[[file:8.org][#8 host/library boundaries]], [[file:9.org][#9 tabs]] and [[file:11.org][#11 optional modal editing]].
+[[file:8.org][#8 host/library boundaries]], [[file:../fixed/9.org][#9 tabs]] and [[file:11.org][#11 optional modal editing]].

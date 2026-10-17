@@ -3,7 +3,6 @@ mode lib
 import("std/sys")
 import("../lib/libterminal/view")
 import("../gen/terminal_api")
-import("../gen/terminal_profile")
 import("window_input")
 import("terminal_clipboard")
 import("keymap")
@@ -11,6 +10,8 @@ import("session_window")
 import("tilminal_session")
 import("command_discovery")
 import("minibuffer_view")
+import("tilminal_tabs")
+import("tab_bar")
 
 TilminalAction := proc(mut Terminal, mut TerminalViewport)
 TilminalUserCommand := struct { name : Str; callback : TilminalAction }
@@ -22,6 +23,7 @@ namespace:
         mut c := TilminalCommands()
         terminal_keymaps(c.keys)
         discovery_keymaps(c.keys)
+        tab_keymaps(c.keys)
         c.keys.declare("quit")
         c.keys.declare("session-save")
         c.keys.bind("prefix", "Escape", "cancel")
@@ -60,6 +62,24 @@ TilminalConfig := struct {
     session := SessionConfig()
     font_path := ""
     font_size : I32 = 28
+    tabs_visible := true
+}
+
+tilminal_invoke := proc(commands: TilminalCommands, mut tabs: TilminalTabs, name: Str) returns Bool {
+    ref mut entry : TerminalTab = tabs.slots[tabs.current]
+    return commands.invoke(name, entry.terminal, entry.viewport)
+}
+tilminal_forward := proc(mut tabs: TilminalTabs, key: I32, mods: I32, action: I32) {
+    ref mut entry : TerminalTab = tabs.slots[tabs.current]
+    terminal_forward(entry.viewport, entry.terminal, key.cast(I64), mods, action)
+}
+tilminal_builtin := proc(mut tabs: TilminalTabs, name: Str, rows: I64) returns Bool {
+    ref mut entry : TerminalTab = tabs.slots[tabs.current]
+    return terminal_command(entry.viewport, entry.terminal, name, rows)
+}
+tilminal_mouse := proc(mut tabs: TilminalTabs, view: TerminalView, top: I64, width: I64, height: I64) {
+    ref mut entry : TerminalTab = tabs.slots[tabs.current]
+    terminal_mouse(entry.viewport, entry.terminal.screen, view.cell_width, view.cell_height, 0, top, width, height)
 }
 
 // Use the same system monospace selection as Tiled. No font path depends on
@@ -87,13 +107,12 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
         shell = get_env("COMSPEC")
         if shell.len() == 0 { shell = "cmd.exe" }
     } else if shell.len() == 0 { shell = "/bin/sh" }
-    mut terminal := Terminal.new(shell)
-    terminal.session.set_directory(get_cwd_str())
-    if TERMINAL_TERMINFO.len() > 0 { terminal.session.set_profile("tilminal", TERMINAL_TERMINFO) }
-    if options.has_operand {
-        if windows { terminal.session.arg("/C") } else { terminal.session.arg("-c") }
-        terminal.session.arg(options.operand)
-    } else if windows.not() { terminal.session.arg("-i") }
+    workspace := tilminal_load_session(session)
+    mut tabs := TilminalTabs(visible = config.tabs_visible)
+    if workspace.loaded {
+        tabs.next_id = workspace.next_id
+        if workspace.version >= 2 { tabs.visible = workspace.tabs_visible }
+    }
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE.cast(U32))
     InitWindow(960, 640, "tilminal".c_str)
@@ -104,55 +123,81 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
     font_path := tilminal_font_path(config)
     mut view := TerminalView.new(font_path, config.font_size)
     footer_h := view.cell_height + 8
-    mut viewport := TerminalViewport.new()
     mut key_state := KeyState()
     mut discovery := CommandDiscovery()
     mut notice := ""
     mut notice_until : F64 = 0.0
-    mut frame := SessionFrame(width = 960, height = 640)
-    mut restored_output := ""
-    if tilminal_restore_session(session, terminal, frame, restored_output) { session_restore_window(frame) }
-    // Apply the actual window/font metrics before replaying saved output.
-    // Replaying into the model's default 80-column grid and then shrinking it
-    // crops text when a larger font needs fewer columns.
+    if workspace.loaded { session_restore_window(workspace.frame) }
     PollInputEvents()
-    terminal.resize(GetScreenWidth().cast(I64) / view.cell_width, GetScreenHeight().cast(I64) / view.cell_height)
-    if restored_output.len() > 0 { terminal_restore_text(terminal.screen, restored_output) }
+    mut initial_top : I64 = 0
+    if tabs.visible { initial_top = footer_h }
+    columns := GetScreenWidth().cast(I64) / view.cell_width
+    rows := (GetScreenHeight().cast(I64) - initial_top) / view.cell_height
+    for record : TerminalTabRecord in workspace.records {
+        tabs.open(shell, record, true, columns, rows, options.has_operand && record.id == workspace.active_id, options.operand)
+    }
+    if tabs.order.items.len() == 0 {
+        record := TerminalTabRecord(id = tabs.next_id, label = format("Terminal ", tabs.next_id.to_str()))
+        if !tabs.open(shell, record, false, columns, rows, options.has_operand, options.operand) { panic(tabs.notice) }
+    } else {
+        for id : USize in tabs.order.items { if tabs.slots[id].id == workspace.active_id { tabs.current = id.clone(); break } }
+    }
     if session.notice.len() > 0 { println(session.notice) }
-    terminal.start()
+    if tabs.notice.len() > 0 { println(tabs.notice) }
     mut last_title := "tilminal"
+    mut drawn_id : I64 = 0
     mut checkpoint_at := GetTime()
     mut checkpoint_now := false
     while true {
         width := GetScreenWidth().cast(I64)
         height := GetScreenHeight().cast(I64)
-        terminal.resize(width / view.cell_width, height / view.cell_height)
-        terminal.pump()
+        mut top : I64 = 0
+        if tabs.visible { top = footer_h }
+        body_height := height - top
+        tabs.update(width / view.cell_width, body_height / view.cell_height)
         if session.enabled && (checkpoint_now || GetTime() >= checkpoint_at) {
             checkpoint_now = false
             checkpoint_at = GetTime() + settings.interval_ms.to_f64() / 1000.0
-            if !session.save(tilminal_checkpoint(terminal, session_window_frame())) { println(session.notice) }
+            if !session.save(tabs.checkpoint(session_window_frame())) { println(session.notice) }
         }
-        viewport.sync(terminal.screen)
-        discovery.refresh(config.commands.keys, "terminal", "terminal", viewport.selection.active(), !terminal.screen.alternate_active)
-        if !discovery.active() { terminal_mouse(viewport, terminal.screen, view.cell_width, view.cell_height, 0, 0, width, height) }
+        discovery.refresh(config.commands.keys, tabs.slots[tabs.current].id.to_str(), "terminal", tabs.slots[tabs.current].viewport.selection.active(), !tabs.slots[tabs.current].terminal.screen.alternate_active)
+        mut mouse_command := ""
+        if !discovery.active() {
+            if tabs.visible {
+                mouse := GetMousePosition()
+                hit := tab_bar_event(tabs.order, tabs.current, 0, 0, width.to_i32(), footer_h.to_i32(), mouse.x, mouse.y,
+                    IsMouseButtonPressed(0), IsMouseButtonDown(0))
+                if hit.id >= 0 { tabs.current = hit.id.to_usize(); key_state.cancel() }
+                if hit.command.len() > 0 { mouse_command = hit.command.clone(); key_state.cancel() }
+            }
+            tilminal_mouse(tabs, view, top, width, body_height)
+        }
         wheel := GetMouseWheelMove()
-        if wheel != 0 && !discovery.active() { viewport.scroll(terminal.screen, (wheel * 3).to_i64()) }
+        if wheel != 0 && !discovery.active() {
+            ref mut entry : TerminalTab = tabs.slots[tabs.current]
+            entry.viewport.scroll(entry.terminal.screen, (wheel * 3).to_i64())
+        }
         mut mods : I32 = 0
         mut action : I32 = 0
-        mut key := window_next_event(mods, action)
+        mut key : I32 = 1
+        if mouse_command.len() > 0 { action = 5 } else { key = window_next_event(mods, action) }
         mut closing := false
         while key > 0 {
             if action == 4 { closing = true; break }
+            owner := tabs.slots[tabs.current].id.to_str()
+            selected := tabs.slots[tabs.current].viewport.selection.active()
+            primary := !tabs.slots[tabs.current].terminal.screen.alternate_active
+            discovery.refresh(config.commands.keys, owner, "terminal", selected, primary)
             mut dispatch := KeyDispatch()
-            if discovery.reading {
+            if action == 5 { dispatch = KeyDispatch(kind = 1, command = mouse_command.clone(), named = true) }
+            else if discovery.reading {
                 key_state.consume(key, mods, action)
                 dispatch = discovery.event(config.commands.keys, KeyDispatch(), key, mods, action)
             } else {
                 mut context := "terminal"
                 if discovery.active() { context = "minibuffer" }
-                key_state.context(context)
-                dispatch = key_state.event(config.commands.keys, context, viewport.selection.active(), !terminal.screen.alternate_active, key, mods, action)
+                key_state.context(format(owner, ":", context))
+                dispatch = key_state.event(config.commands.keys, context, selected, primary, key, mods, action)
                 if discovery.active() {
                     if dispatch.command == "forward-key" { key_state.consume(key, mods, action) }
                     dispatch = discovery.event(config.commands.keys, dispatch, key, mods, action)
@@ -161,17 +206,30 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
             if discovery.message.len() > 0 {
                 notice = discovery.message.clone(); notice_until = GetTime() + 10.0; discovery.message = ""
             }
-            if dispatch.kind == 0 { terminal_forward(viewport, terminal, key.cast(I64), mods, action) }
+            if dispatch.kind == 0 { tilminal_forward(tabs, key, mods, action) }
             else if dispatch.kind == 1 {
                 name := dispatch.command
-                if config.commands.invoke(name, terminal, viewport) {
+                if tilminal_invoke(config.commands, tabs, name) {
                 } else if name == "execute-command" || name == "describe-key" {
-                    discovery.begin(config.commands.keys, "terminal", "terminal", viewport.selection.active(), !terminal.screen.alternate_active,
+                    discovery.begin(config.commands.keys, owner, "terminal", selected, primary,
                         false, config.commands.user_names(), name == "describe-key")
                 } else if name == "quit" { closing = true; break }
                 else if name == "session-save" { checkpoint_now = true }
-                else if name == "forward-key" { terminal_forward(viewport, terminal, key.cast(I64), mods, action) }
-                else if !terminal_command(viewport, terminal, name, height / view.cell_height) {
+                else if name == "toggle-tabs" { tabs.visible = !tabs.visible }
+                else if name == "show-tabs" { tabs.visible = true }
+                else if name == "hide-tabs" { tabs.visible = false }
+                else if name == "new-tab" {
+                    tabs.new_tab(shell, width / view.cell_width, body_height / view.cell_height)
+                    if tabs.notice.len() > 0 { notice = tabs.notice.clone(); notice_until = GetTime() + 10.0 }
+                } else if name == "next-tab" { tabs.cycle(1) }
+                else if name == "previous-tab" { tabs.cycle(-1) }
+                else if name == "move-tab-left" { tabs.order.move(tabs.current, -1) }
+                else if name == "move-tab-right" { tabs.order.move(tabs.current, 1) }
+                else if name == "close-tab" {
+                    tabs.close_current()
+                    if tabs.order.items.len() == 0 { closing = true; break }
+                } else if name == "forward-key" { tilminal_forward(tabs, key, mods, action) }
+                else if !tilminal_builtin(tabs, name, body_height / view.cell_height) {
                     notice = format("Unavailable in terminal: ", name); notice_until = GetTime() + 10.0
                 }
             }
@@ -180,13 +238,16 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
         window_drain_input()
         if closing {
             if session.enabled {
-                if !session.seal(tilminal_checkpoint(terminal, session_window_frame())) { println(session.notice) }
+                if !session.seal(tabs.checkpoint(session_window_frame())) { println(session.notice) }
             }
             break
         }
         mut title := "tilminal"
-        if terminal.ended { title = format(title, " [exit ", terminal.session.status().to_str(), "]") }
-        if viewport.offset > 0 { title = format(title, " [scrollback ", viewport.offset.to_str(), "]") }
+        ref entry : TerminalTab = tabs.slots[tabs.current]
+        if tabs.order.items.len() > 1 { title = format(title, " [", entry.label, "]") }
+        if entry.error.len() > 0 { title = format(title, " [startup failed]") }
+        else if entry.terminal.ended { title = format(title, " [exit ", entry.terminal.session.status().to_str(), "]") }
+        if entry.viewport.offset > 0 { title = format(title, " [scrollback ", entry.viewport.offset.to_str(), "]") }
         if key_state.pending.len() > 0 { title = format(title, " [prefix]") }
         if discovery.active() { title = format(title, " [command]") }
         if title != last_title {
@@ -195,7 +256,19 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
         }
         BeginDrawing()
         ClearBackground(Color(r = 16, g = 18, b = 24, a = 255))
-        view.draw_scrolled(terminal.screen, 0, 0, width, height, IsWindowFocused() && !discovery.active(), terminal.ended, viewport.offset, viewport.selection)
+        if drawn_id != entry.id { view.bells = entry.terminal.screen.bells; view.bell_until = 0.0; drawn_id = entry.id }
+        view.draw_scrolled(entry.terminal.screen, 0, top, width, body_height, IsWindowFocused() && !discovery.active(), entry.terminal.ended, entry.viewport.offset, entry.viewport.selection)
+        if tabs.visible {
+            mut captions := Vec(TabCaption).new()
+            for id : USize in tabs.order.items {
+                ref tab : TerminalTab = tabs.slots[id]
+                mut label := format(tab.label, " [running]")
+                if tab.error.len() > 0 { label = format(tab.label, " [failed]") }
+                else if tab.terminal.ended { label = format(tab.label, " [exit ", tab.terminal.session.status().to_str(), "]") }
+                captions.push(own TabCaption(name = label))
+            }
+            draw_tab_bar(tabs.order, tabs.current, captions, view.font, view.font_size, 0, 0, width.to_i32(), footer_h.to_i32())
+        }
         if discovery.active() {
             draw_minibuffer(discovery.mini, view.font, view.font_size, view.cell_height.to_i32(), width.to_i32(), height.to_i32(), footer_h.to_i32())
         } else if notice.len() > 0 && GetTime() < notice_until {
@@ -206,7 +279,7 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
         }
         EndDrawing()
     }
-    terminal.close()
+    tabs.close()
     view.close()
     window_close_input()
     CloseWindow()

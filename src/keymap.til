@@ -293,3 +293,14 @@ discovery_keymaps := func(mut maps: Keymaps) {
     maps.bind("minibuffer", "Backspace", "backspace", true)
     maps.bind("minibuffer", "Delete", "delete", true)
 }
+
+tab_keymaps := func(mut maps: Keymaps) {
+    for name : Str in array(Str, "new-tab", "close-tab", "next-tab", "previous-tab", "move-tab-left", "move-tab-right", "toggle-tabs", "show-tabs", "hide-tabs") { maps.declare(name) }
+    maps.bind("global", "C-S-t", "new-tab")
+    maps.bind("global", "C-S-w", "close-tab")
+    maps.bind("global", "C-PageUp", "previous-tab", true)
+    maps.bind("global", "C-PageDown", "next-tab", true)
+    maps.bind("global", "C-S-PageUp", "move-tab-left", true)
+    maps.bind("global", "C-S-PageDown", "move-tab-right", true)
+    maps.bind("global", "C-S-b", "toggle-tabs")
+}

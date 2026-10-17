@@ -12,6 +12,7 @@ import("session_window")
 import("command_discovery")
 import("minibuffer_view")
 import("file_dialogs")
+import("tab_bar")
 
 link_c("editor_save.c")
 editor_write_file := ext_proc(path: I8, text: I8, shallow length: UPtr) returns shallow I32 {}
@@ -32,6 +33,7 @@ TiledConfig := struct {
     font_size : I32 = 28
     commands := EditorCommands.new()
     session := SessionConfig()
+    tabs_visible := true
 }
 
 editor_font_path := proc(config: TiledConfig) returns Str {
@@ -137,7 +139,7 @@ editor_mouse_text := proc(mut editor: EditorState, font: Font, size: I32, line_h
         ref mut view : EditorView = node.view
         ref buffer : EditorBuffer = editor.buffers[view.buffer]
         if buffer.terminal >= 0 { continue }
-        rect := node.rect.clone()
+        rect := editor_content_rect(node.rect, editor.tabs_visible, line_h + 8)
         inside := mouse.x >= rect.x.to_f32() && mouse.x < (rect.x + rect.width).to_f32() &&
             mouse.y >= rect.y.to_f32() && mouse.y < (rect.y + rect.height - line_h - 8).to_f32()
         if !view.dragging && !(inside && IsMouseButtonPressed(0)) { continue }
@@ -167,7 +169,7 @@ editor_draw_view := proc(mut editor: EditorState, index: USize, font: Font, size
     ref mut node : EditorNode = editor.nodes[index]
     ref mut view : EditorView = node.view
     ref buffer : EditorBuffer = editor.buffers[view.buffer]
-    rect := node.rect.clone()
+    rect := editor_content_rect(node.rect, editor.tabs_visible, line_h + 8)
     if rect.width <= 0 || rect.height <= 0 { return }
     DrawRectangle(rect.x, rect.y, rect.width, rect.height, Color(r = 30, g = 30, b = 40, a = 255))
     active := index == editor.focused
@@ -271,7 +273,7 @@ editor_draw_terminal := proc(mut terminals: EditorTerminals, editor: EditorState
                             font: Font, size: I32, line_h: I32, input_active: Bool) {
     ref node : EditorNode = editor.nodes[index]
     ref buffer : EditorBuffer = editor.buffers[node.view.buffer]
-    ref rect : EditorRect = node.rect
+    rect := editor_content_rect(node.rect, editor.tabs_visible, line_h + 8)
     if rect.width <= 0 || rect.height <= 0 { return }
     ref mut slot : EditorTerminal = terminals.slots[buffer.terminal.to_usize()]
     mut body_h := rect.height - line_h - 8
@@ -305,13 +307,14 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
     mut initial_text := config.draft_text.clone()
     if initial_text.len() == 0 { initial_text = config.scratch_text.clone() }
     mut editor := EditorState.new("", initial_text)
+    editor.tabs_visible = config.tabs_visible
     mut frame := SessionFrame()
     restored := editor_restore_session(session, editor, frame)
     mut filename := options.operand.clone()
     if !options.has_operand && !restored { filename = config.initial_file.clone() }
     if filename.len() > 0 {
         filename = editor_file_path(filename)
-        if !restored { editor = EditorState.new(filename, File.readfile(filename)) }
+        if !restored { editor = EditorState.new(filename, File.readfile(filename)); editor.tabs_visible = config.tabs_visible }
         else { editor.show_buffer(filename, File.readfile(filename)) }
     }
     mut status_msg := session.notice.clone()
@@ -335,7 +338,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
     SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR)
     line_h := MeasureTextEx(font, "Mg".c_str, font_size.to_f32(), 0).y.to_i64().to_i32() + 6
     footer_h := line_h + 8
-    min_view_h := line_h * 2 + 16
+    min_view_h := line_h * 2 + 16 + footer_h // Space for the optional tab bar too.
     min_view_w := font_size * 8 + 40
     SetWindowMinSize(400, min_view_h + footer_h)
     if restored { session_restore_window(frame) }
@@ -368,13 +371,20 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         height := GetScreenHeight()
         area := EditorRect(width = width, height = height - footer_h)
         editor.arrange(0, area)
-        if !prompt.mini.active && !exit_prompt.mini.active && !discovery.active() && IsMouseButtonPressed(0) {
+        mut mouse_command := ""
+        if !prompt.mini.active && !exit_prompt.mini.active && !discovery.active() {
             mouse := GetMousePosition()
             for index : USize in editor.views() {
                 ref rect : EditorRect = editor.nodes[index].rect
                 if mouse.x >= rect.x.to_f32() && mouse.x < (rect.x + rect.width).to_f32() &&
                    mouse.y >= rect.y.to_f32() && mouse.y < (rect.y + rect.height).to_f32() {
-                    editor.focused = index
+                    if IsMouseButtonPressed(0) { editor.focused = index }
+                }
+                if editor.tabs_visible {
+                    hit := tab_bar_event(editor.nodes[index].tabs, editor.nodes[index].view.buffer,
+                        rect.x, rect.y, rect.width, line_h + 8, mouse.x, mouse.y, IsMouseButtonPressed(0), IsMouseButtonDown(0))
+                    if hit.id >= 0 { editor.select_buffer(index, hit.id.to_usize()); key_state.cancel() }
+                    if hit.command.len() > 0 { mouse_command = hit.command.clone(); key_state.cancel() }
                 }
             }
         }
@@ -403,7 +413,8 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         mut quit := false
         mut mods : I32 = 0
         mut action : I32 = 0
-        mut key := window_next_event(mods, action)
+        mut key : I32 = 1
+        if mouse_command.len() > 0 { action = 5 } else { key = window_next_event(mods, action) }
         while key > 0 {
             mut save := false
             mut open := false
@@ -422,7 +433,8 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             owner := editor_key_owner(editor, prompting)
             discovery.refresh(config.commands.keys, owner, context, selected, primary)
             mut dispatch := KeyDispatch()
-            if discovery.reading && action != 4 {
+            if action == 5 { dispatch = KeyDispatch(kind = 1, command = mouse_command.clone(), named = true) }
+            else if discovery.reading && action != 4 {
                 key_state.consume(key, mods, action)
                 dispatch = discovery.event(config.commands.keys, KeyDispatch(), key, mods, action)
             } else {
@@ -507,6 +519,21 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                         else { prompt.mini.key(mapped, command_mods.band(1) != 0) }
                     }
                 } else if command == "save-buffer" { save = true }
+                else if command == "toggle-tabs" { editor.tabs_visible = !editor.tabs_visible }
+                else if command == "show-tabs" { editor.tabs_visible = true }
+                else if command == "hide-tabs" { editor.tabs_visible = false }
+                else if command == "new-tab" {
+                    if terminal >= 0 || editor.buffers[current].restored_terminal { terminals.spawn(editor, font_path, font_size, status_msg) }
+                    else { editor.new_draft() }
+                } else if command == "next-tab" { editor.cycle_tab(1) }
+                else if command == "previous-tab" { editor.cycle_tab(-1) }
+                else if command == "move-tab-left" { editor.move_tab(-1) }
+                else if command == "move-tab-right" { editor.move_tab(1) }
+                else if command == "hide-tab" { editor.hide_tab() }
+                else if command == "close-tab" {
+                    prompt.begin(editor, BufferPromptKind.Kill)
+                    status_msg = prompt.accept(editor)
+                }
                 else if command == "session-save" { checkpoint_now = true }
                 else if command == "find-file" { open = true }
                 else if command == "switch-buffer" || command == "list-buffers" || command == "kill-buffer" {
@@ -584,6 +611,20 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                 editor_draw_terminal(terminals, editor, index, font, font_size, line_h,
                     !prompt.mini.active && !exit_prompt.mini.active && !discovery.active())
             } else { editor_draw_view(editor, index, font, font_size, line_h) }
+            if editor.tabs_visible {
+                ref mut node : EditorNode = editor.nodes[index]
+                mut captions := Vec(TabCaption).new()
+                for id : USize in node.tabs.items {
+                    ref buffer : EditorBuffer = editor.buffers[id]
+                    mut label := editor.buffer_name(id)
+                    if buffer.terminal >= 0 {
+                        if buffer.terminal_running { label = format(label, " [running]") }
+                        else { label = format(label, " [exit ", buffer.terminal_status.to_str(), "]") }
+                    }
+                    captions.push(own TabCaption(name = label, marked = buffer.dirty))
+                }
+                draw_tab_bar(node.tabs, node.view.buffer, captions, font, font_size, node.rect.x, node.rect.y, node.rect.width, line_h + 8)
+            }
         }
         active_buffer := editor.nodes[editor.focused].view.buffer
         window_title := format("Tiled - ", editor_buffer_name(editor.buffers[active_buffer]))

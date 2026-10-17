@@ -51,6 +51,7 @@ main := proc() {
         mut title := "tilminal"
         if host == "tiled" { title = "Tiled - *draft*" }
         window := wait_window(app, pid, title)
+        sleep_ms(250)
         XMoveResizeWindow(display, window, 0, 0, 960, 640)
         XSetInputFocus(display, window, 2, 0); XFlush(display); sleep_ms(250)
         if host == "tiled" { prefix(display, 116); wait_window(app, pid, "Tiled - *terminal-1*") }

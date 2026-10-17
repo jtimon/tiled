@@ -92,7 +92,7 @@ namespace:
                 }
             }
             if sized_by >= 0 {
-                ref rect : EditorRect = editor.nodes[sized_by.to_usize()].rect
+                rect := editor_content_rect(editor.nodes[sized_by.to_usize()].rect, editor.tabs_visible, mode_h)
                 slot.terminal.resize(rect.width.cast(I64) / slot.view.cell_width,
                     (rect.height - mode_h).cast(I64) / slot.view.cell_height)
             }
@@ -114,7 +114,8 @@ namespace:
     command := proc(self: EditorTerminals, mut editor: EditorState, index: I64, name: Str, mode_h: I32) returns Bool {
         ref slot : EditorTerminal = self.slots[index.to_usize()]
         ref mut node : EditorNode = editor.nodes[editor.focused]
-        return terminal_command(node.view.terminal_viewport, slot.terminal, name, (node.rect.height - mode_h).cast(I64) / slot.view.cell_height)
+        rect := editor_content_rect(node.rect, editor.tabs_visible, mode_h)
+        return terminal_command(node.view.terminal_viewport, slot.terminal, name, (rect.height - mode_h).cast(I64) / slot.view.cell_height)
     }
 
     mouse := proc(self: EditorTerminals, mut editor: EditorState, mode_h: I32) {
@@ -123,15 +124,16 @@ namespace:
             id := editor.buffers[node.view.buffer].terminal
             if id < 0 { continue }
             ref slot : EditorTerminal = self.slots[id.to_usize()]
+            rect := editor_content_rect(node.rect, editor.tabs_visible, mode_h)
             terminal_mouse(node.view.terminal_viewport, slot.terminal.screen, slot.view.cell_width, slot.view.cell_height,
-                node.rect.x.cast(I64), node.rect.y.cast(I64), node.rect.width.cast(I64), (node.rect.height - mode_h).cast(I64))
+                rect.x.cast(I64), rect.y.cast(I64), rect.width.cast(I64), (rect.height - mode_h).cast(I64))
         }
     }
 
     wheel := func(self: EditorTerminals, mut editor: EditorState, lines: I64, x: F32, y: F32, mode_h: I32) {
         for index : USize in editor.views() {
             ref mut node : EditorNode = editor.nodes[index]
-            ref rect : EditorRect = node.rect
+            rect := editor_content_rect(node.rect, editor.tabs_visible, mode_h)
             terminal := editor.buffers[node.view.buffer].terminal
             if terminal >= 0 && x >= rect.x.to_f32() && x < (rect.x + rect.width).to_f32() &&
                 y >= rect.y.to_f32() && y < (rect.y + rect.height - mode_h).to_f32() {

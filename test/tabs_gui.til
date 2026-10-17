@@ -1,0 +1,147 @@
+mode gui
+import("terminal_gui_helpers")
+import("../src/editor_session")
+import("../src/tilminal_session")
+
+XTestFakeMotionEvent := ext_proc(display: Dynamic, shallow screen: I32, shallow x: I32, shallow y: I32, shallow delay: UPtr) returns shallow I32 {}
+XTestFakeButtonEvent := ext_proc(display: Dynamic, shallow button: U32, shallow pressed: I32, shallow delay: UPtr) returns shallow I32 {}
+XMoveResizeWindow := ext_proc(display: Dynamic, shallow window: UPtr, shallow x: I32, shallow y: I32, shallow width: U32, shallow height: U32) returns shallow I32 {}
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
+chord := proc(display: Dynamic, key: UPtr, shift: Bool = false) {
+    sleep_ms(40) // Distinguish a just-typed letter from the same shortcut key.
+    send(display, 65507, 1); if shift { send(display, 65505, 1) }
+    tap(display, key)
+    if shift { send(display, 65505, 0) }; send(display, 65507, 0); sleep_ms(70)
+}
+prefix := proc(display: Dynamic, key: UPtr) { chord(display, 120); tap(display, key) }
+focus := proc(display: Dynamic, window: UPtr) { sleep_ms(250); XSetInputFocus(display, window, 2, 0); XFlush(display); sleep_ms(100) }
+click := proc(display: Dynamic, x: I32) {
+    XTestFakeMotionEvent(display, 0, x, 20, 0); XTestFakeButtonEvent(display, 1, 1, 0); XFlush(display); sleep_ms(70)
+    XTestFakeButtonEvent(display, 1, 0, 0); XFlush(display); sleep_ms(100)
+}
+finished := proc(app: Cmd, pid: I64) {
+    for _ in 0..200 { if app.poll() { break }; sleep_ms(50) }
+    require(app, pid, app.poll(), "tab host did not close"); assert(app.wait() == 0)
+}
+wait_text := proc(app: Cmd, pid: I64, path: Str, text: Str) {
+    for _ in 0..200 {
+        mut error : I32 = 0; value := workspace_read(path, error)
+        if error == 0 && value.contains(text) { return }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, false, format("missing tab output: ", path))
+}
+launch := proc(home: Str, host: Str) returns Cmd {
+    app := Cmd.new(format("./bin/", host), "--session", "tabs")
+    app.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
+    app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    return app
+}
+main := proc() {
+    root := get_cwd_str()
+    home := format(root, "/tmp/tabs-gui-", process_id().to_str()); assert(mkdir_p(format(home, "/.tiled")) == 0)
+    File.writefile(format(home, "/.tiled/init.til"), "mode lib\ninit := func(mut c: TiledConfig) { c.tile_left = false; c.width = 960; c.height = 640; c.session.interval_ms = 100 }\n")
+    File.writefile(format(home, "/.tilminal.til"), "mode lib\ninit := func(mut c: TilminalConfig) { c.session.interval_ms = 100 }\n")
+    display_name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(display_name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    app := launch(home, "tiled"); pid := app.start()
+    path := format(home, "/.tiled/sessions/tabs.session")
+    window := wait_window(app, pid, "Tiled - *draft*"); focus(display, window)
+    XMoveResizeWindow(display, window, 0, 0, 960, 640); XFlush(display); sleep_ms(150)
+    type_keys(display, "FIRST"); chord(display, 116, true)
+    wait_window(app, pid, "Tiled - *draft-2*")
+    type_keys(display, "SECOND"); chord(display, 65365)
+    wait_window(app, pid, "Tiled - *draft*"); type_keys(display, "!")
+    chord(display, 65366); type_keys(display, "?")
+    wait_text(app, pid, path, "SECOND?") // Acknowledge text before separate mouse actions.
+    click(display, 150); wait_window(app, pid, "Tiled - *draft*")
+    click(display, 500); wait_window(app, pid, "Tiled - *draft-2*")
+    chord(display, 65365, true)
+    click(display, 440); type_text(display, "no"); sleep_ms(100)
+    chord(display, 98, true)
+    wait_text(app, pid, path, "SECOND?")
+    mut snapshot := EditorCheckpoint()
+    for _ in 0..200 {
+        mut error : I32 = 0; raw := workspace_read(path, error)
+        if error == 0 {
+            snapshot = EditorCheckpoint.decode(raw)
+            if snapshot.error == "" && !snapshot.editor.tabs_visible { break }
+        }
+        sleep_ms(50)
+    }
+    require(app, pid, snapshot.error == "" && !snapshot.editor.tabs_visible, format("bar toggle was not persisted: ", snapshot.error, " visible=", snapshot.editor.tabs_visible.to_str()))
+    require(app, pid, snapshot.editor.buffers[0].text == "FIRST!", "tab switch lost the first point/content")
+    require(app, pid, snapshot.editor.nodes[0].tabs.items[0] == 1, "tab reorder was not persisted")
+    chord(display, 119, true); type_text(display, "no"); sleep_ms(100)
+    wait_window(app, pid, "Tiled - *draft-2*")
+    chord(display, 119, true); type_text(display, "yes"); sleep_ms(100)
+    wait_window(app, pid, "Tiled - *draft*")
+    chord(display, 116, true); type_keys(display, "A"); prefix(display, 51)
+    // Both panes initially share the tab group; only one pane then visits a new draft.
+    chord(display, 116, true); type_keys(display, "B"); prefix(display, 111)
+    wait_window(app, pid, "Tiled - *draft-2*")
+    chord(display, 65366); wait_window(app, pid, "Tiled - *draft*")
+    request_close(display, window); sleep_ms(150)
+    type_text(display, "keep"); sleep_ms(100); type_text(display, "keep"); sleep_ms(100); type_text(display, "keep")
+    finished(app, pid)
+    saved := EditorCheckpoint.decode(File.readfile(path))
+    leaves := saved.editor.views()
+    assert(saved.error == "" && leaves.len() == 2)
+    assert(saved.editor.nodes[leaves[0]].tabs.items.len() == 3 && saved.editor.nodes[leaves[1]].tabs.items.len() == 2)
+    assert(!saved.editor.tabs_visible)
+    again := launch(home, "tiled"); again_pid := again.start()
+    again_window := wait_window(again, again_pid, "Tiled - *draft*"); focus(display, again_window)
+    chord(display, 65365); wait_window(again, again_pid, "Tiled - *draft-2*")
+    type_keys(display, "Z"); wait_text(again, again_pid, path, "AZ")
+    request_close(display, again_window); sleep_ms(150)
+    type_text(display, "keep"); sleep_ms(100); type_text(display, "keep"); sleep_ms(100); type_text(display, "keep")
+    finished(again, again_pid)
+    println("PASS: Tiled tab navigation/reorder, hidden bar, dirty close, independent split groups and restoration")
+
+    terminal := launch(home, "tilminal"); terminal_pid := terminal.start()
+    terminal_window := wait_window(terminal, terminal_pid, "tilminal"); focus(display, terminal_window)
+    XMoveResizeWindow(display, terminal_window, 0, 0, 960, 640); XFlush(display); sleep_ms(150)
+    first_pid := format(home, "/first-pid"); second_pid := format(home, "/second-pid"); done := format(home, "/done")
+    type_text(display, format("printf '%s' $$ > ", first_pid, "; i=0; while [ $i -lt 10000 ]; do printf 'HIDDEN_LINE\\n'; i=$((i+1)); done; printf done > ", done))
+    chord(display, 116, true); wait_window(terminal, terminal_pid, "tilminal [Terminal 2]")
+    type_text(display, format("printf '%s' $$ > ", second_pid, "; printf 'SECOND_VISIBLE\\n'"))
+    wait_text(terminal, terminal_pid, done, "done"); wait_text(terminal, terminal_pid, second_pid, "")
+    first_child := File.readfile(first_pid); second_child := File.readfile(second_pid)
+    require(terminal, terminal_pid, first_child != second_child, "tabs reused one process")
+    chord(display, 65365); wait_window(terminal, terminal_pid, "tilminal [Terminal 1]")
+    click(display, 500)
+    wait_window(terminal, terminal_pid, "tilminal [Terminal 2]")
+    XTestFakeMotionEvent(display, 0, 500, 20, 0); XTestFakeButtonEvent(display, 1, 1, 0); XFlush(display); sleep_ms(70)
+    XTestFakeMotionEvent(display, 0, 150, 20, 0); XFlush(display); sleep_ms(150)
+    XTestFakeButtonEvent(display, 1, 0, 0); XFlush(display); sleep_ms(150)
+    terminal_path := format(home, "/.tilminal/sessions/tabs.session")
+    reordered := TerminalWorkspace.decode(File.readfile(terminal_path))
+    require(terminal, terminal_pid, reordered.loaded && reordered.records[0].id == 2, "mouse drag did not reorder tabs")
+    click(display, 940); wait_window(terminal, terminal_pid, "tilminal [Terminal 3]")
+    third_pid := format(home, "/third-pid")
+    type_text(display, format("printf '%s' $$ > ", third_pid)); wait_text(terminal, terminal_pid, third_pid, "")
+    third_child := File.readfile(third_pid)
+    click(display, 850); wait_window(terminal, terminal_pid, "tilminal [Terminal 1]")
+    third_dead := Cmd.new("kill", "-0", third_child); third_dead.capture()
+    require(terminal, terminal_pid, third_dead.run() != 0, "mouse close did not reap the tab")
+    click(display, 150); wait_window(terminal, terminal_pid, "tilminal [Terminal 2]")
+    chord(display, 98, true)
+    // Closing the active tab ends only its child and leaves the hidden peer alive.
+    chord(display, 119, true); sleep_ms(150)
+    dead := Cmd.new("kill", "-0", second_child); dead.capture(); require(terminal, terminal_pid, dead.run() != 0, "closed tab child survived")
+    alive := Cmd.new("kill", "-0", first_child); alive.capture(); require(terminal, terminal_pid, alive.run() == 0, "closing a tab killed its peer")
+    close_app(terminal, terminal_pid, display, terminal_window)
+    workspace := TerminalWorkspace.decode(File.readfile(terminal_path))
+    assert(workspace.loaded && workspace.records.len() == 1 && !workspace.tabs_visible)
+    assert(workspace.records[0].output.contains("HIDDEN_LINE"))
+    restored := launch(home, "tilminal"); restored_pid := restored.start()
+    restored_window := wait_window(restored, restored_pid, "tilminal"); focus(display, restored_window)
+    chord(display, 116, true); wait_window(restored, restored_pid, "tilminal [Terminal 4]")
+    close_app(restored, restored_pid, display, restored_window)
+    multiple := launch(home, "tilminal"); multiple_pid := multiple.start()
+    multiple_window := wait_window(multiple, multiple_pid, "tilminal [Terminal 4]"); focus(display, multiple_window)
+    chord(display, 65365); wait_window(multiple, multiple_pid, "tilminal [Terminal 1]")
+    close_app(multiple, multiple_pid, display, multiple_window)
+    XCloseDisplay(display)
+    println("PASS: tilminal independent processes, mouse switching, hidden pumping, close/reaping and saved tabs")
+}

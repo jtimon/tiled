@@ -1,0 +1,109 @@
+mode lib
+import("std/sys")
+import("../gen/terminal_api")
+import("../gen/terminal_profile")
+import("tabs")
+import("tilminal_session")
+import("terminal_snapshot")
+
+TerminalTab := struct {
+    id : I64
+    label : Str
+    terminal : Terminal
+    viewport := TerminalViewport.new()
+    active := true
+    error := ""
+}
+
+TilminalTabs := struct {
+    slots := Vec(TerminalTab).new()
+    order := TabGroup()
+    current : USize = 0
+    next_id : I64 = 1
+    visible := true
+    notice := ""
+namespace:
+    open := proc(mut tabs: TilminalTabs, shell: Str, record: TerminalTabRecord, restored: Bool,
+        columns: I64, rows: I64, one_shot: Bool = false, command: Str = "") returns Bool {
+        tabs.notice = ""
+        mut terminal := Terminal.new(shell)
+        mut directory := record.directory.clone()
+        if directory.len() == 0 { directory = get_cwd_str() }
+        else if !File.is_dir(directory) { directory = get_cwd_str(); tabs.notice = "saved cwd unavailable, using launch directory" }
+        terminal.session.set_directory(directory)
+        if TERMINAL_TERMINFO.len() > 0 { terminal.session.set_profile("tilminal", TERMINAL_TERMINFO) }
+        if one_shot {
+            if host_os() == "windows" { terminal.session.arg("/C") } else { terminal.session.arg("-c") }
+            terminal.session.arg(command)
+        } else if host_os() != "windows" { terminal.session.arg("-i") }
+        terminal.resize(columns, rows)
+        if restored {
+            terminal_restore_text(terminal.screen, record.output)
+            mut message := "Restored output; starting a NEW shell, not reattaching"
+            if tabs.notice.len() > 0 { message = format(message, "; ", tabs.notice) }
+            terminal_restore_text(terminal.screen, format("\n[", message, "]\n"))
+        }
+        error := terminal.try_start()
+        if error.len() > 0 {
+            tabs.notice = format("Cannot start terminal: ", error)
+            if !restored { return false }
+            terminal.ended = true
+            terminal_restore_text(terminal.screen, format("\n[", tabs.notice, "]\n"))
+        }
+        mut viewport := TerminalViewport.new()
+        viewport.scroll(terminal.screen, record.offset)
+        entry := TerminalTab(id = record.id, label = record.label.clone(), terminal = terminal, viewport = viewport, error = error)
+        mut index : USize = 0
+        while index < tabs.slots.len() { if !tabs.slots[index].active { break }; index++ }
+        if index == tabs.slots.len() { tabs.slots.push(own entry) } else { tabs.slots.set(index, own entry)! }
+        tabs.order.add(index); tabs.current = index
+        if tabs.next_id <= record.id { tabs.next_id = record.id + 1 }
+        return true
+    }
+    new_tab := proc(mut tabs: TilminalTabs, shell: Str, columns: I64, rows: I64) returns Bool {
+        mut directory := get_cwd_str()
+        if tabs.order.items.len() > 0 { directory = tabs.slots[tabs.current].terminal.session.directory() }
+        record := TerminalTabRecord(id = tabs.next_id, label = format("Terminal ", tabs.next_id.to_str()), directory = directory)
+        return tabs.open(shell, record, false, columns, rows)
+    }
+    cycle := func(mut tabs: TilminalTabs, direction: I64) { tabs.current = tabs.order.adjacent(tabs.current, direction) }
+    close_current := proc(mut tabs: TilminalTabs) {
+        index := tabs.current
+        if tabs.order.items.len() > 1 {
+            mut direction : I64 = 1
+            if tabs.order.index(index) == tabs.order.items.len().to_i64() - 1 { direction = -1 }
+            tabs.current = tabs.order.adjacent(index, direction)
+        }
+        ref mut entry : TerminalTab = tabs.slots[index]
+        // try_start already closed a failed native session; only its output remains.
+        if entry.error.len() == 0 { entry.terminal.close() }
+        entry.active = false
+        entry.terminal.screen = TerminalScreen.new(1, 1)
+        entry.viewport = TerminalViewport.new()
+        tabs.order.remove(index)
+    }
+    update := proc(mut tabs: TilminalTabs, columns: I64, rows: I64) {
+        for id : USize in tabs.order.items {
+            ref mut entry : TerminalTab = tabs.slots[id]
+            if id == tabs.current { entry.terminal.resize(columns, rows) }
+            entry.terminal.pump(); entry.viewport.sync(entry.terminal.screen)
+        }
+    }
+    checkpoint := proc(tabs: TilminalTabs, frame: SessionFrame) returns Str {
+        mut workspace := TerminalWorkspace(frame = frame, tabs_visible = tabs.visible, next_id = tabs.next_id)
+        for id : USize in tabs.order.items {
+            ref entry : TerminalTab = tabs.slots[id]
+            workspace.records.push(own TerminalTabRecord(id = entry.id, label = entry.label.clone(),
+                directory = entry.terminal.session.directory(), output = terminal_saved_output(entry.terminal.screen), offset = entry.viewport.offset))
+            if id == tabs.current { workspace.active_id = entry.id }
+        }
+        return workspace.encode()
+    }
+    close := proc(mut tabs: TilminalTabs) {
+        for id : USize in tabs.order.items {
+            ref mut entry : TerminalTab = tabs.slots[id]
+            if entry.error.len() == 0 { entry.terminal.close() }
+            entry.active = false
+        }
+    }
+}

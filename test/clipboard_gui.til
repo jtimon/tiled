@@ -65,24 +65,24 @@ main := proc() {
         check_pixels(app, pid, display, window, reference, (view.cell_width * 9).to_i32())
         if host == "tiled" {
             prefix(display, 51)
-            drag(display, 0, (view.cell_width * 9).to_i32(), 12)
+            drag(display, 0, (view.cell_width * 9).to_i32(), 54)
             SetClipboardText("unchanged".c_str)
             prefix(display, 111); chord(display, 99, 65507, true)
             require(app, pid, clipboard() == "unchanged", "a split copied another pane's selection")
             prefix(display, 111)
         }
-        drag(display, 0, (view.cell_width * 9).to_i32(), 12)
-        ref image : Dynamic = XGetImage(display, window, 0, 0, 1, 1, 0xFFFFFF, 2)
+        drag(display, 0, (view.cell_width * 9).to_i32(), 54)
+        ref image : Dynamic = XGetImage(display, window, 0, 42, 1, 1, 0xFFFFFF, 2)
         highlighted := XGetPixel(image, 0, 0).band(0xFFFFFF) == 0x37557d
         XDestroyImage(image)
         require(app, pid, highlighted, "selection was not highlighted")
         chord(display, 99)
         require(app, pid, clipboard() == "SELECT_ME", "Ctrl-C did not copy selected terminal output")
         check_pixels(app, pid, display, window, reference, (view.cell_width * 9).to_i32())
-        drag(display, 0, (view.cell_width * 9).to_i32(), 12)
+        drag(display, 0, (view.cell_width * 9).to_i32(), 54)
         chord(display, 119, 65513)
         require(app, pid, clipboard() == "SELECT_ME", "M-w did not copy")
-        drag(display, 0, (view.cell_width * 9).to_i32(), 12)
+        drag(display, 0, (view.cell_width * 9).to_i32(), 54)
         chord(display, 103)
         check_pixels(app, pid, display, window, reference, (view.cell_width * 9).to_i32())
         SetClipboardText("paste\nline".c_str)
@@ -97,7 +97,7 @@ main := proc() {
             prefix(display, 98); type_text(display, "edit.txt"); wait_window(app, pid, "Tiled - edit.txt"); sleep_ms(150)
             gutter := MeasureTextEx(editor_font, "1".c_str, 28, 0).x.to_i64().to_i32() + 20
             text_width := MeasureTextEx(editor_font, "EDIT_ME".c_str, 28, 0).x.to_i64().to_i32()
-            drag(display, gutter, gutter + text_width, 16)
+            drag(display, gutter, gutter + text_width, 58)
             chord(display, 99); require(app, pid, clipboard() == "EDIT_ME", "text mouse selection/copy failed")
             chord(display, 65360, 65505) // Shift-Home selects backward from the end.
             chord(display, 120); require(app, pid, clipboard() == "EDIT_ME", "CUA cut failed")

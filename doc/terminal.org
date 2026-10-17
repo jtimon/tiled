@@ -23,6 +23,11 @@ the caller's working directory; =cd= and shell variables persist. After a
 command exits, its final screen stays visible and the title reports its exit
 status. Escape is terminal input. Closing the window closes the session.
 
+Standalone tilminal now supports [[file:tabs.org][multiple terminal tabs]]. Ctrl-Shift-T creates
+one, Ctrl-PageUp/PageDown switches, and Ctrl-Shift-B hides/shows the bar. Hidden
+tabs continue pumping output. Closing a tab ends its child; closing the window
+ends all its tabs. Embedded terminal buffers participate in Tiled's buffer tabs.
+
 Both hosts now [[file:sessions.org][save workspace/output checkpoints by default]]. Standalone
 restoration starts a fresh shell in the last known directory; embedded
 terminals restore as labelled output buffers. Neither reattaches running jobs.

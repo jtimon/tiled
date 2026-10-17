@@ -9,7 +9,8 @@ and at normal exit. No editor configuration or plugin is needed to enable it.
 ** What is restored
 
 - Tiled: open files, draft text, unsaved edits, split tree, focused pane,
-  independent text points/scroll positions, buffer-switching histories and
+  independent text points/scroll positions, buffer-switching histories, tab
+  groups/order/visibility and
   frame geometry. Native buffer slots and window handles are not persisted;
   the file contains stable resource/view identities and a validated tree.
 - Clean file buffers reload current disk contents. Dirty buffers restore their
@@ -20,13 +21,13 @@ and at normal exit. No editor configuration or plugin is needed to enable it.
   including scrollback and an alternate-screen transcript when applicable.
   Their original processes are not attached. =C-x t= from such a buffer starts
   a new shell in its saved directory if still available.
-- Standalone tilminal restores output into the new screen/history and starts a
-  fresh shell, with an explicit banner. Linux records the shell process's last
+- Standalone tilminal restores its tabs, active tab, output and scroll offsets,
+  starting a fresh shell per tab with an explicit banner. Linux records each shell process's last
   known cwd through =/proc=; other platforms retain the configured launch cwd.
   Missing directories fall back to the current launch directory with a notice.
 - Frame geometry is clamped to the current monitor work area. Current hosts
-  have one OS frame; tabs and external desktop clients will be integrated when
-  those features arrive.
+  have one OS frame; external desktop clients will be integrated when that host
+  arrives. See [[file:tabs.org][tabs]] for close versus hide behavior.
 
 This restores a workspace, not process memory. Shell variables, running jobs,
 terminal rendition/parser state and live selections are not recreated by
@@ -100,9 +101,10 @@ as configuration code.
 
 Files live under =~/.tiled/sessions/= and =~/.tilminal/sessions/= respectively:
 =NAME.session=, =NAME.session.previous= and =NAME.session.lock=. The shared
-version-1 codec uses length-framed fields with a =tiled-session-1= envelope and
+version-2 codec uses length-framed fields with a =tiled-session-2= envelope and
 an FNV-1a-derived integrity checksum. It stores editor/terminal resource data,
-not memory layouts. Unknown versions are preserved rather than guessed at.
+not memory layouts. Version 1 is still accepted and upgraded; unknown versions
+are preserved rather than guessed at.
 Checkpoints are bounded to 64 MiB, 10,000 editor resources/layout nodes and
 10,000 history entries per pane; text baselines count toward the byte limit.
 Oversized writes are refused with a diagnostic. Native Windows/macOS runtime

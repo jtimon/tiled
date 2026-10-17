@@ -28,7 +28,7 @@ clipboard, layout and buffer regressions pass. Native platform validation
 beyond Linux remains part of the existing platform follow-up work.
 
 See [[file:../../doc/sessions.org][session behavior, storage contract and test commands]]. Future tab/WM
-participants belong to [[file:../open/9.org][#9]] and [[file:../open/8.org][#8]]; keeping processes alive is [[file:../open/7.org][#7]].
+participants belong to [[file:9.org][#9 (tabs now implemented)]] and [[file:../open/8.org][#8]]; keeping processes alive is [[file:../open/7.org][#7]].
 
 Reverified with installed Til =0.0.1-3bcf0e933=: both builds, ASAN store tests,
 compiled/interpreted models, installed consumers and all ten GUI drivers pass.
@@ -100,4 +100,4 @@ Til's interpreter embedding API.
   revives arbitrary processes after reboot.
 
 Related: [[file:../open/1.org][#1 integrated environment]], [[file:../open/5.org][#5 configurable commands]],
-[[file:../open/8.org][#8 shared workspace/WM libraries]] and [[file:../open/9.org][#9 tabs]].
+[[file:../open/8.org][#8 shared workspace/WM libraries]] and [[file:9.org][#9 tabs]].

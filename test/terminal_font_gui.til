@@ -12,10 +12,10 @@ main := proc() {
     path := query.out().clone()
     escaped := path.replace("\\", "\\\\").replace("\"", "\\\"")
     File.writefile(format(home, "/.tiled/init.til"), format("mode lib\ninit := func(mut c: TiledConfig) {\n",
-        "c.tile_left = false; c.width = 960; c.height = 640; c.session.enabled = false;\n",
+        "c.tile_left = false; c.width = 960; c.height = 640; c.session.enabled = false; c.tabs_visible = false;\n",
         "c.font_size = 36; c.font_path = \"", escaped, "\"\n}\n"))
     File.writefile(format(home, "/.tilminal.til"), format("mode lib\ninit := func(mut c: TilminalConfig) {\n",
-        "c.session.enabled = false; c.font_size = 36; c.font_path = \"", escaped, "\"\n}\n"))
+        "c.session.enabled = false; c.tabs_visible = false; c.font_size = 36; c.font_path = \"", escaped, "\"\n}\n"))
     InitWindow(960, 80, "terminal GUI reference".c_str)
     SetWindowPosition(0, 1100); SetExitKey(0)
     font := LoadFontEx(path.c_str, 36, Option(ref I32).None, 0)

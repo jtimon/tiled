@@ -1,12 +1,69 @@
 mode lib
 import("session_codec")
-import("terminal_snapshot")
+import("../gen/terminal_api")
 
-tilminal_checkpoint := proc(terminal: Terminal, frame: SessionFrame) returns Str {
-    mut w := SessionWriter()
-    w.put("terminal-output"); frame.write(w)
-    w.put(terminal.session.directory()); w.put(terminal_saved_output(terminal.screen)); w.put("end")
-    return w.finish()
+TerminalTabRecord := struct {
+    id : I64 = 1
+    label := "Terminal 1"
+    directory := ""
+    output := ""
+    offset : I64 = 0
+}
+TerminalWorkspace := struct {
+    records := Vec(TerminalTabRecord).new()
+    active_id : I64 = 0
+    next_id : I64 = 1
+    tabs_visible := true
+    frame := SessionFrame(width = 960, height = 640)
+    loaded := false
+    version : I64 = 2
+    error := ""
+namespace:
+    encode := func(w: TerminalWorkspace) returns Str {
+        if w.records.len() > 10000 { return "" }
+        mut writer := SessionWriter()
+        writer.put("terminal-tabs"); w.frame.write(writer)
+        if w.tabs_visible { writer.number(1) } else { writer.number(0) }
+        writer.number(w.next_id); writer.number(w.active_id); writer.number(w.records.len().to_i64())
+        for record : TerminalTabRecord in w.records {
+            writer.number(record.id); writer.put(record.label); writer.put(record.directory)
+            writer.put(record.output); writer.number(record.offset)
+        }
+        writer.put("end")
+        return writer.finish(2)
+    }
+    decode := func(bytes: Str) returns TerminalWorkspace {
+        mut r := SessionReader.open(bytes)
+        mut out := TerminalWorkspace()
+        if r.error.len() > 0 { out.error = r.error.clone(); return out }
+        out.version = r.version
+        kind := r.take(); out.frame = SessionFrame.read(r)
+        if r.version == 1 && kind == "terminal-output" {
+            directory := r.take(); text := r.take()
+            if directory.contains(Str.from_byte(0)) { r.error = "invalid directory" }
+            out.records.push(own TerminalTabRecord(directory = directory, output = text))
+            out.active_id = 1; out.next_id = 2
+        } else if r.version == 2 && kind == "terminal-tabs" {
+            out.tabs_visible = r.number(1) == 1
+            out.next_id = r.number(9223372036854775806); out.active_id = r.number()
+            if out.next_id < 1 { r.error = "invalid terminal identity counter" }
+            count := r.number(10000)
+            for _ in 0..count {
+                if r.error.len() > 0 { break }
+                id := r.number(); label := r.take(); directory := r.take(); text := r.take(); offset := r.number(1000000)
+                if id == 0 || id >= out.next_id { r.error = "invalid terminal identity" }
+                for old : TerminalTabRecord in out.records { if old.id == id { r.error = "duplicate terminal identity" } }
+                if label.contains(Str.from_byte(0)) || directory.contains(Str.from_byte(0)) { r.error = "invalid terminal metadata" }
+                out.records.push(own TerminalTabRecord(id = id, label = label, directory = directory, output = text, offset = offset))
+            }
+        } else { r.error = "not a terminal workspace" }
+        mut focused := out.records.len() == 0 && out.active_id == 0
+        for record : TerminalTabRecord in out.records { if record.id == out.active_id { focused = true } }
+        if !focused { r.error = "missing active terminal" }
+        if r.error.len() == 0 { if r.take() != "end" { r.error = "incomplete terminal workspace" } }
+        r.done(); out.error = r.error.clone(); out.loaded = out.error.len() == 0
+        return out
+    }
 }
 
 terminal_restore_text := func(mut screen: TerminalScreen, text: Str) {
@@ -18,27 +75,19 @@ terminal_restore_text := func(mut screen: TerminalScreen, text: Str) {
     }
 }
 
-tilminal_restore_session := proc(mut store: SessionStore, terminal: Terminal, mut frame: SessionFrame, mut output: Str) returns Bool {
-    if !store.enabled || !store.restore { return false }
+tilminal_load_session := proc(mut store: SessionStore) returns TerminalWorkspace {
+    if !store.enabled || !store.restore { return TerminalWorkspace() }
     mut broken := false
     for suffix : Str in array(Str, "", ".previous") {
         raw := store.read(suffix)
         if raw.len() == 0 { if File.exists(format(store.path, suffix)) { broken = true }; continue }
-        mut r := SessionReader.open(raw)
-        kind := r.take(); saved_frame := SessionFrame.read(r); directory := r.take(); text := r.take(); end := r.take()
-        if kind != "terminal-output" || end != "end" || directory.contains(Str.from_byte(0)) { r.error = "invalid terminal checkpoint" }
-        if !r.done() { broken = true; continue }
-        frame = saved_frame
+        out := TerminalWorkspace.decode(raw)
+        if out.error.len() > 0 { broken = true; continue }
         store.main_good = suffix == ""
-        store.notice = format("Restored output for ", store.name, "; starting a NEW shell, not reattaching")
+        store.notice = format("Restored tabs for ", store.name, "; starting NEW shells, not reattaching")
         if suffix.len() > 0 { store.notice = format(store.notice, " (previous checkpoint)") }
-        if directory.len() > 0 {
-            if File.is_dir(directory) { terminal.session.set_directory(directory) }
-            else { store.notice = format(store.notice, "; saved cwd unavailable, using launch directory") }
-        }
-        output = format(text, "\n[", store.notice, "]\n")
-        return true
+        return out
     }
     if broken { store.preserve_broken() }
-    return false
+    return TerminalWorkspace()
 }

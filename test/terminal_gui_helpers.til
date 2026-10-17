@@ -66,9 +66,13 @@ has_rendered_row := proc(display: Dynamic, window: UPtr, reference: UPtr, width:
     if is_null(actual) { XDestroyImage(expected); panic("cannot capture terminal window") }
     first := XGetPixel(expected, 0, 0).band(mask)
     mut visible := false
+    mut anchor_x : I32 = 0
+    mut anchor_y : I32 = 0
+    mut ink : UPtr = 0
     for row in 0..cell_height.cast(I64) {
         for column in 0..width.cast(I64) {
-            if XGetPixel(expected, column.to_i32(), row.to_i32()).band(mask) != first { visible = true; break }
+            color := XGetPixel(expected, column.to_i32(), row.to_i32()).band(mask)
+            if color != first { visible = true; anchor_x = column.to_i32(); anchor_y = row.to_i32(); ink = color; break }
         }
         if visible { break }
     }
@@ -78,12 +82,14 @@ has_rendered_row := proc(display: Dynamic, window: UPtr, reference: UPtr, width:
         panic("reference row is blank; cannot verify visible output")
     }
     mut found := false
-    for line in 0..(actual_height.cast(U64).cast(I64) / cell_height.cast(I64)) {
+    // Host chrome need not be a multiple of the terminal row height.
+    for line in 0..(actual_height.cast(U64).cast(I64) - cell_height.cast(I64) + 1) {
+        if XGetPixel(actual, anchor_x, line.to_i32() + anchor_y).band(mask) != ink { continue }
         mut equal := true
         for row in 0..cell_height.cast(I64) {
             for column in 0..width.cast(I64) {
                 wanted := XGetPixel(expected, column.to_i32(), row.to_i32()).band(mask)
-                got := XGetPixel(actual, column.to_i32(), (line * cell_height.cast(I64) + row).to_i32()).band(mask)
+                got := XGetPixel(actual, column.to_i32(), (line + row).to_i32()).band(mask)
                 if wanted != got { equal = false; break }
             }
             if !equal { break }

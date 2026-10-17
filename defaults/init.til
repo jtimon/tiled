@@ -11,6 +11,8 @@ init := func(mut config: TiledConfig) {
     config.height = 700
     // Font size in pixels; increase or decrease this to suit your display.
     config.font_size = 28
+    // Ctrl-Shift-B toggles the tab bars; sessions remember the last choice.
+    config.tabs_visible = true
     // Sessions save/restore automatically; see doc/sessions.org.
     // config.session.enabled = false
     // config.session.name = "work"

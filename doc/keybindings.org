@@ -114,6 +114,10 @@ config.commands.bind("global", "F1 k", "describe-key")
 
 - Both hosts: =execute-command=, =describe-key=, =session-save=, =copy=, =paste=, =cancel-selection=, =scroll-page-up=,
   =scroll-page-down=, =forward-key=, =ignore=, =cancel= and =quit=.
+- Tab commands in both hosts: =new-tab=, =close-tab=, =next-tab=, =previous-tab=,
+  =move-tab-left=, =move-tab-right=, =toggle-tabs=, =show-tabs= and =hide-tabs=.
+  See [[file:tabs.org][default shortcuts and lifecycle semantics]]. Tiled also has =hide-tab=,
+  which removes a pane's tab reference without killing the underlying buffer.
 - Tiled: =save-buffer=, =find-file=, =switch-buffer=, =list-buffers=,
   =kill-buffer=, =new-terminal=, =split-below=, =split-right=, =other-view=,
   =close-view=, =only-view=, =send-prefix= (literal Ctrl-X), =set-mark=, =cut=,

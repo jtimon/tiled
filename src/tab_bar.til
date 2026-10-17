@@ -1,0 +1,77 @@
+mode lib
+import("tabs")
+import("minibuffer_view")
+
+TabCaption := struct { name : Str; marked := false }
+TabHit := struct { id : I64 = -1; command := "" }
+
+tab_bar_hit := func(mut group: TabGroup, active: USize, left: I32, top: I32, width: I32, height: I32, x: F32, y: F32) returns TabHit {
+    if width <= 0 || height <= 0 || group.items.len() == 0 { return TabHit() }
+    if x < left.to_f32() || x >= (left + width).to_f32() || y < top.to_f32() || y >= (top + height).to_f32() { return TabHit() }
+    layout := TabLayout.calculate(width, height, group.items.len())
+    group.reveal(active, layout.count)
+    px := x.to_i64().to_i32() - left
+    if px < layout.button { return TabHit(command = "previous-tab") }
+    if px >= width - layout.button { return TabHit(command = "new-tab") }
+    if px >= width - layout.button * 2 { return TabHit(command = "next-tab") }
+    column := (px - layout.button) / layout.tab_width
+    index := group.first + column.cast(I64).to_usize()
+    if column < 0 || column.cast(I64).to_usize() >= layout.count || index >= group.items.len() { return TabHit() }
+    mut command := ""
+    if (px - layout.button).mod(layout.tab_width) >= layout.tab_width - layout.button { command = "close-tab" }
+    return TabHit(id = group.items[index].to_i64(), command = command)
+}
+
+tab_bar_event := func(mut group: TabGroup, active: USize, left: I32, top: I32, width: I32, height: I32,
+    x: F32, y: F32, pressed: Bool, down: Bool) returns TabHit {
+    if pressed {
+        group.dragging = false
+        hit := tab_bar_hit(group, active, left, top, width, height, x, y)
+        if hit.id >= 0 && hit.command.len() == 0 {
+            group.dragging = true; group.drag_id = hit.id.to_usize(); group.drag_x = x.to_i64()
+        }
+        return hit
+    }
+    if !down { group.dragging = false }
+    if group.dragging {
+        delta := x.to_i64() - group.drag_x
+        if delta > -8 && delta < 8 { return TabHit() }
+        hit := tab_bar_hit(group, active, left, top, width, height, x, y)
+        if hit.id >= 0 && hit.id.to_usize() != group.drag_id {
+            target := group.index(hit.id.to_usize())
+            group.move_to(group.drag_id, target); group.drag_x = x.to_i64()
+            return TabHit(id = group.drag_id.to_i64())
+        }
+    }
+    return TabHit()
+}
+
+draw_tab_bar := proc(mut group: TabGroup, active: USize, captions: Vec(TabCaption), font: Font, size: I32,
+    left: I32, top: I32, width: I32, height: I32) {
+    if width <= 0 || height <= 0 || group.items.len() == 0 { return }
+    assert(captions.len() == group.items.len())
+    layout := TabLayout.calculate(width, height, group.items.len())
+    group.reveal(active, layout.count)
+    BeginScissorMode(left, top, width, height)
+    DrawRectangle(left, top, width, height, Color(r = 28, g = 30, b = 40, a = 255))
+    ink := Color(r = 220, g = 220, b = 225, a = 255)
+    minibuffer_text(font, "<", left + 4, top + 4, size, ink)
+    minibuffer_text(font, ">", left + width - layout.button * 2 + 4, top + 4, size, ink)
+    minibuffer_text(font, "+", left + width - layout.button + 4, top + 4, size, ink)
+    for column in 0..layout.count {
+        index := group.first + column
+        if index >= group.items.len() { break }
+        x := left + layout.button + column.to_i32() * layout.tab_width
+        selected := group.items[index] == active
+        if selected {
+            DrawRectangle(x, top, layout.tab_width - 1, height, Color(r = 55, g = 65, b = 85, a = 255))
+            DrawRectangle(x, top + height - 2, layout.tab_width - 1, 2, Color(r = 255, g = 200, b = 0, a = 255))
+        }
+        mut label := captions[index].name.clone()
+        if captions[index].marked { label = format(label, " *") }
+        label = minibuffer_tail(font, label, size, layout.tab_width - layout.button - 8)
+        minibuffer_text(font, label, x + 4, top + 4, size, ink)
+        minibuffer_text(font, "x", x + layout.tab_width - layout.button + 4, top + 4, size, ink)
+    }
+    EndScissorMode()
+}

@@ -1,5 +1,6 @@
 mode lib
 import("../gen/terminal_api")
+import("tabs")
 
 // Buffers own text or reference host-owned terminals. Leaves own views;
 // branches own layout decisions, never native terminal resources.
@@ -60,7 +61,18 @@ EditorNode := struct {
     side_by_side := false
     view := EditorView()
     history := Vec(EditorView).new()
+    tabs := TabGroup()
     rect := EditorRect()
+}
+
+editor_content_rect := func(rect: EditorRect, tabs_visible: Bool, tab_height: I32) returns EditorRect {
+    mut out := rect.clone()
+    if tabs_visible {
+        out.y = out.y + tab_height
+        out.height = out.height - tab_height
+        if out.height < 0 { out.height = 0 }
+    }
+    return out
 }
 
 editor_buffer_name := func(buffer: EditorBuffer) returns Str {
@@ -142,13 +154,14 @@ EditorState := struct {
     nodes : Vec(EditorNode)
     focused : USize = 0
     next_session_id : I64 = 3
+    tabs_visible := true
 
 namespace:
     new := func(filename: Str, text: Str) returns EditorState {
         mut buffers := Vec(EditorBuffer).new()
         buffers.push(own EditorBuffer(session_id = 1, filename = filename.clone(), text = text.clone(), disk_text = text.clone()))
         mut nodes := Vec(EditorNode).new()
-        nodes.push(own EditorNode(session_id = 2))
+        nodes.push(own EditorNode(session_id = 2, tabs = TabGroup.single(0)))
         return EditorState(buffers = buffers, nodes = nodes)
     }
 
@@ -203,8 +216,10 @@ namespace:
         // Copy before pushes, which may reallocate the node vector.
         view := self.nodes[index].view.clone()
         history := self.nodes[index].history.clone()
-        first := self.add_node(EditorNode(parent = index.to_i32(), view = view.clone(), history = history.clone()))
-        second := self.add_node(EditorNode(parent = index.to_i32(), view = view.clone(), history = history.clone()))
+        mut tabs := self.nodes[index].tabs.clone()
+        tabs.dragging = false
+        first := self.add_node(EditorNode(parent = index.to_i32(), view = view.clone(), history = history.clone(), tabs = tabs.clone()))
+        second := self.add_node(EditorNode(parent = index.to_i32(), view = view.clone(), history = history.clone(), tabs = tabs.clone()))
         ref mut branch : EditorNode = self.nodes[index]
         branch.first = first.to_i32()
         branch.second = second.to_i32()
@@ -280,7 +295,8 @@ namespace:
         view := self.nodes[self.focused].view.clone()
         history := self.nodes[self.focused].history.clone()
         mut nodes := Vec(EditorNode).new()
-        nodes.push(own EditorNode(session_id = self.nodes[self.focused].session_id, view = view, history = history))
+        nodes.push(own EditorNode(session_id = self.nodes[self.focused].session_id, view = view, history = history,
+            tabs = self.nodes[self.focused].tabs.clone()))
         self.nodes = nodes
         self.focused = 0
     }
@@ -324,6 +340,7 @@ namespace:
     select_buffer := func(mut self: EditorState, index: USize, id: USize) {
         assert(self.buffers[id].alive)
         ref mut node : EditorNode = self.nodes[index]
+        node.tabs.add(id)
         if node.view.buffer == id { return }
         mut view := EditorView(buffer = id)
         mut history := Vec(EditorView).new()
@@ -338,6 +355,41 @@ namespace:
 
     switch_buffer := func(mut self: EditorState, id: USize) {
         self.select_buffer(self.focused, id)
+    }
+    new_draft := func(mut self: EditorState) {
+        mut number : I64 = 1
+        mut name := "*draft*"
+        while true {
+            mut used := false
+            for id : USize in self.live_buffers() { if editor_buffer_name(self.buffers[id]) == name { used = true; break } }
+            if !used { break }
+            number = number + 1; name = format("*draft-", number.to_str(), "*")
+        }
+        id := self.add_buffer("", "")
+        ref mut buffer : EditorBuffer = self.buffers[id]
+        buffer.label = name
+        self.switch_buffer(id)
+    }
+    cycle_tab := func(mut self: EditorState, direction: I64) {
+        ref node : EditorNode = self.nodes[self.focused]
+        id := node.tabs.adjacent(node.view.buffer, direction)
+        self.switch_buffer(id)
+    }
+    move_tab := func(mut self: EditorState, direction: I64) {
+        ref mut node : EditorNode = self.nodes[self.focused]
+        node.tabs.move(node.view.buffer, direction)
+    }
+    hide_tab := func(mut self: EditorState) {
+        index := self.focused
+        id := self.nodes[index].view.buffer
+        mut replacement := id
+        if self.nodes[index].tabs.items.len() > 1 { replacement = self.nodes[index].tabs.adjacent(id, 1) }
+        else {
+            for other : USize in self.live_buffers() { if other != id { replacement = other.clone(); break } }
+            if replacement == id { self.new_draft(); replacement = self.nodes[index].view.buffer }
+        }
+        self.select_buffer(index, replacement)
+        self.nodes[index].tabs.remove(id)
     }
 
     other_buffer := func(self: EditorState, index: USize) returns USize {
@@ -378,6 +430,7 @@ namespace:
             }
             ref mut node : EditorNode = self.nodes[index]
             node.history = history
+            node.tabs.remove(id)
         }
         self.buffers.set(id, own EditorBuffer(alive = false))!
         return true

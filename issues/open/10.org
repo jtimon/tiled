@@ -43,5 +43,5 @@ menu in future desktop/WM mode is a separate platform integration question.
   compiled startup configuration is sufficient for the first milestone.
 
 References: Emacs's menu bar and =menu-bar-mode=; familiar desktop File/Edit/
-View/Help conventions. Related: [[file:5.org][#5 commands/keymaps]], [[file:9.org][#9 tabs]],
+View/Help conventions. Related: [[file:5.org][#5 commands/keymaps]], [[file:../fixed/9.org][#9 tabs]],
 [[file:../fixed/6.org][#6 saved workspaces]] and [[file:8.org][#8 shared host policy]].

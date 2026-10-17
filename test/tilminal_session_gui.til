@@ -1,6 +1,6 @@
 mode gui
 import("terminal_gui_helpers")
-import("../src/session_codec")
+import("../src/tilminal_session")
 
 XResizeWindow := ext_proc(display: Dynamic, shallow window: UPtr, shallow width: U32, shallow height: U32) returns shallow I32 {}
 
@@ -15,9 +15,12 @@ wait_output := proc(app: Cmd, pid: I64, path: Str, directory: Str, marker: Str) 
         mut error : I32 = 0
         bytes := workspace_read(path, error)
         if error == 0 {
-            mut r := SessionReader.open(bytes)
-            kind := r.take(); SessionFrame.read(r); cwd := r.take(); text := r.take()
-            if kind == "terminal-output" && cwd == directory && text.replace("\n", "").contains(marker) { return }
+            workspace := TerminalWorkspace.decode(bytes)
+            if workspace.loaded {
+                for tab : TerminalTabRecord in workspace.records {
+                    if tab.directory == directory && tab.output.replace("\n", "").contains(marker) { return }
+                }
+            }
         }
         if app.poll() { break }; sleep_ms(50)
     }

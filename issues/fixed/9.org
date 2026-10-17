@@ -1,6 +1,35 @@
 # priority: medium
 # category: features
-** OPEN #9 Add tilminal tabs and optional Tiled buffer tab bars
+** FIXED #9 Add tilminal tabs and optional Tiled buffer tab bars
+
+*** Resolution
+
+Both hosts now use a shared non-owning TabGroup and font-scaled tab-bar adapter.
+Bars are visible by default and configurable through =tabs_visible=; Ctrl-Shift-B
+toggles them, with named show/hide commands available through M-x. Keyboard and
+mouse controls support creation, selection, cycling, reordering and closing;
+overflow keeps the selected tab visible.
+
+Tiled groups visited buffers per pane, clones groups on split, retains independent
+view history/points and supports non-destructive =hide-tab=. Closing requests a
+shared-buffer kill with existing dirty/live confirmation. Tilminal owns a reusable
+pool of independent sessions/screens/viewports, pumps hidden output, and reaps
+only the closed tab's child. Closing its last tab exits with an empty saved group.
+
+Checkpoint version 2 preserves order, active tabs and visibility; version 1 loads
+as inferred editor groups or one standalone terminal. Restoration still uses
+saved output/new shells, not live process reattachment. Failed starts retain
+their output and can be closed without repeating native teardown errors.
+
+Verification: =test/tabs.til= passes compiled ASAN and interpreted checks for
+view isolation, hide/kill, ordering, overflow, migration, hidden PTY output,
+process reaping and failed-start teardown. =test/tabs_gui.til= verifies actual
+mouse/keyboard controls, dirty close/cancel, independent split groups, multiple
+processes, bar visibility and multi-tab restoration. Existing terminal,
+clipboard, discovery, fullscreen, font, session, exit, buffer and draft-save GUI
+regressions pass with tab-bar geometry. See [[file:../../doc/tabs.org][controls and lifecycle details]].
+
+*** Original scope
 
 Provide multiple terminal tabs in standalone tilminal and an optional tab-bar
 presentation for Tiled buffers, alongside existing buffer switching and splits.
@@ -15,7 +44,7 @@ presentation for Tiled buffers, alongside existing buffer switching and splits.
 - Show the active tab and useful running/exited state. Specify titles, overflow
   behavior, last-tab/window closing and handling of a running child.
 - Closing/detaching a tab must follow the terminal lifecycle policy; share
-  ownership with [[file:7.org][future detach/reattach]] rather than introducing another PTY layer.
+  ownership with [[file:../open/7.org][future detach/reattach]] rather than introducing another PTY layer.
 
 *** Tiled buffers
 
@@ -32,7 +61,7 @@ presentation for Tiled buffers, alongside existing buffer switching and splits.
 - Keep C-x b/C-x C-b and keyboard-only navigation working when the bar is hidden.
 
 Emacs =tab-bar-mode= instead switches whole window configurations. Such
-workspace/layout tabs may be a later presentation of [[file:8.org][the shared workspace model]],
+workspace/layout tabs may be a later presentation of [[file:../open/8.org][the shared workspace model]],
 but are not a substitute for the requested buffer tabs.
 
 *** Integration and acceptance
@@ -45,5 +74,5 @@ but are not a substitute for the requested buffer tabs.
   overflow/small windows, and restoration of the same tab arrangement.
 
 References: Emacs =lisp/tab-line.el= and =lisp/tab-bar.el=, Ghostty tabs,
-and tmux windows. Related: [[file:3.org][#3 terminal integration]], [[file:5.org][#5 keymaps]],
-[[file:../fixed/6.org][#6 sessions]], [[file:7.org][#7 persistent terminals]] and [[file:8.org][#8 workspace libraries]].
+and tmux windows. Related: [[file:../open/3.org][#3 terminal integration]], [[file:../open/5.org][#5 keymaps]],
+[[file:../fixed/6.org][#6 sessions]], [[file:../open/7.org][#7 persistent terminals]] and [[file:../open/8.org][#8 workspace libraries]].

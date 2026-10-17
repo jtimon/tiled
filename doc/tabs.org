@@ -1,0 +1,101 @@
+* Terminal and buffer tabs
+
+[[file:../README.org][Tiled]] | [[file:keybindings.org][Commands/keymaps]] | [[file:sessions.org][Saved sessions]]
+
+Both hosts show a tab bar by default. =Ctrl+Shift+B= hides or shows it; tabs
+and their keyboard commands continue to work while the bar is hidden.
+
+| Default binding       | Named command      | Action                         |
+|-----------------------+--------------------+--------------------------------|
+| Ctrl+Shift+T          | new-tab            | Create a tab                   |
+| Ctrl+Shift+W          | close-tab          | Close the current tab          |
+| Ctrl+PageUp           | previous-tab       | Select previous, wrapping      |
+| Ctrl+PageDown         | next-tab           | Select next, wrapping          |
+| Ctrl+Shift+PageUp     | move-tab-left      | Move the current tab left      |
+| Ctrl+Shift+PageDown   | move-tab-right     | Move the current tab right     |
+| Ctrl+Shift+B          | toggle-tabs        | Hide/show the bar              |
+
+All are available through M-x. =show-tabs= and =hide-tabs= set visibility
+explicitly. Mouse controls select tabs, close them with =x=, create with =+=,
+and cycle with =<= / =>=. Drag a tab label onto another to reorder within its
+bar. Overflow shows a contiguous range containing the active tab; cycling or
+moving the active tab brings it into view. Long labels are clipped/truncated.
+
+** Tiled
+
+Each pane has its own ordered group of visited buffers. Opening/switching to a
+buffer adds it to that pane's tabs without duplicating the buffer. Splitting
+copies the group and per-view history; subsequent selection/order is independent.
+Text and terminal buffers use the same bar. Dirty text has a =*= marker;
+terminals show running/exited status.
+
+=new-tab= creates an empty, uniquely named draft in a text pane. From a terminal
+or saved-terminal-output buffer it starts a new terminal. =C-x t= remains the
+unconditional new-terminal command. =C-x b= and =C-x C-b= still access all live
+buffers, including ones not currently present in a pane's tab group.
+
+=close-tab= requests a buffer kill through the existing lifecycle handling.
+Dirty buffers require discard confirmation and running terminals require
+termination confirmation; accepting affects every view of that buffer.
+Killing the last buffer leaves a fresh draft. In contrast, =M-x hide-tab=
+removes only the focused pane's tab reference and selects another buffer (or
+creates a draft when needed). The hidden buffer and its edits/process stay alive
+and can be reopened with C-x b. Hiding the entire bar never closes anything.
+
+Visibility is shared across the editor's panes, while tab groups are per-pane.
+
+** Tilminal
+
+Each tab owns an independent shell/process, screen, input state and viewport.
+New tabs use the active tab's last known cwd when available. Hidden sessions
+retain their last size and keep pumping output. Only the displayed tab follows
+the current viewport dimensions. Glyph resources are shared across tabs; process
+handles are never cloned while switching/reordering.
+
+Titles are stable =Terminal N= labels with running, exited or startup-failed
+state. Closing a tab terminates/reaps that tab's child and selects its neighbor.
+Closing the last tab exits the window; the saved tab list is empty so the next
+launch starts fresh. Window close or =quit= saves the remaining arrangement and
+then terminates all children, retaining standalone tilminal's existing immediate
+close policy. This is not detach/reattach; that remains [[file:../issues/open/7.org][#7]].
+
+** Configuration and persistence
+
+In either host's init function:
+
+#+begin_src til
+config.tabs_visible = false // Default for a new/fresh workspace.
+config.commands.bind("global", "C-S-b", "toggle-tabs")
+// Other tab shortcuts can be rebound/unbound in the same way.
+#+end_src
+
+Restored workspaces remember their last visibility choice, tab order, active
+tab and per-view state. Use the toggle to change an existing workspace; config
+supplies the default for a fresh one. Terminal resizing caused by visibility
+changes follows the existing screen resize policy, including normal selection
+invalidation.
+
+Checkpoint version 2 adds editor tab groups and multiple standalone terminal
+records. Version-1 checkpoints are read and upgraded: editor groups are inferred
+from view history, and a standalone checkpoint becomes one tab. Older binaries
+cannot read version 2 and will preserve it via their existing recovery behavior.
+Each restored tilminal tab starts a NEW shell with saved output/cwd and a clamped
+scroll offset; no old jobs are reattached or recorded commands replayed. Failed
+starts retain readable saved output. One-shot invocations keep the existing
+opt-in persistence policy; an explicitly named one-shot targets the active tab.
+
+** Verification
+
+#+begin_src sh
+./make.til
+til run --asan --usize=64 -o tmp/check_tabs -c tmp/check_tabs.c test/tabs.til
+til interpret --usize=64 test/tabs.til
+til build --usize=64 -o tmp/check_tabs_gui -c tmp/check_tabs_gui.c test/tabs_gui.til
+xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_tabs_gui
+#+end_src
+
+Checks cover independent pane groups/points, hide versus kill, dirty close,
+overflow, v1 migration, process isolation, hidden output exceeding a PTY buffer,
+reaping, failed-start teardown, mouse/keyboard controls, ordering, visibility,
+and restoration of multiple tabs. Existing clipboard, prompt, font, full-screen
+application and session regressions also exercise the added tab-bar geometry.

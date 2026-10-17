@@ -130,6 +130,11 @@ and keeps its buffer.
 
 ** Text selection and clipboard
 
+[[file:tabs.org][Tab bars]] are shown by default in both hosts. =Ctrl+Shift+B= toggles them;
+=Ctrl+Shift+T/W= creates/closes a tab, and =Ctrl+PageUp/PageDown= switches tabs.
+Use =config.tabs_visible= for the fresh-workspace default; saved sessions retain
+the last visibility choice. All tab commands can be rebound through keymaps.
+
 =M-x= searches and executes named commands, including user-defined Til commands.
 =M-x describe-key= inspects a key sequence without executing it; text panes also
 provide =C-h k=. See [[file:keybindings.org][command discovery and effective bindings]].
@@ -213,7 +218,7 @@ cp defaults/init.til ~/.tiled/init.til
 
 It defines =init(mut config: TiledConfig)=, which runs before the editor
 opens. The supported fields are =width=, =height=, =maximized=, =tile_left=, =draft_text=,
-=initial_file=, =font_path=, =font_size=, =session= and =commands=. The latter registers
+=initial_file=, =font_path=, =font_size=, =tabs_visible=, =session= and =commands=. The latter registers
 Til callbacks and overrides the default [[file:keybindings.org][named commands and contextual keymaps]]. A command-line filename takes
 precedence over =initial_file= on a fresh startup. A restored workspace keeps
 its existing focus unless a command-line file is supplied; with neither,
@@ -226,7 +231,7 @@ silently loading defaults. =-v= and =--version= bypass configuration and GUI
 startup.
 
 Standalone tilminal loads =~/.tilminal.til=, defining
-=init(mut config: TilminalConfig)=, with =commands=, =session=, =font_path= and =font_size= fields;
+=init(mut config: TilminalConfig)=, with =commands=, =session=, =font_path=, =font_size= and =tabs_visible= fields;
 copy [[file:../defaults/tilminal.til][defaults/tilminal.til]] as a starting point. Embedded terminal panes
 use Tiled's command configuration instead of separately loading this file.
 

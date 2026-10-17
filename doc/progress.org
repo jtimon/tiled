@@ -40,6 +40,11 @@
 
 ** Internal splits
 
+[[file:tabs.org][Tabs]] now work in both hosts, with configurable keyboard controls, mouse
+selection/creation/closing/reordering and Ctrl-Shift-B visibility. Tilminal owns
+independent sessions and pumps hidden output; Tiled panes have independent groups
+of shared buffers. Version-2 checkpoints retain tabs and read older sessions.
+
 Default [[file:sessions.org][workspace persistence]] now restores files, recoverable unsaved text,
 split/focus/history state and frame geometry. Both hosts use shared versioned
 checkpoint I/O, writer locks and previous-generation recovery. Tiled has a Keep

@@ -1,0 +1,77 @@
+mode lib
+
+// Non-owning resource references. Hosts retain document/process ownership.
+TabGroup := struct {
+    items := Vec(USize).new()
+    first : USize = 0
+    dragging := false
+    drag_id : USize = 0
+    drag_x : I64 = 0
+namespace:
+    single := func(id: USize) returns TabGroup {
+        mut group := TabGroup()
+        group.add(id)
+        return group
+    }
+    index := func(group: TabGroup, id: USize) returns I64 {
+        for i in 0..group.items.len() { if group.items[i] == id { return i.to_i64() } }
+        return -1
+    }
+    add := func(mut group: TabGroup, id: USize) {
+        if group.index(id) < 0 { group.items.push(own id.clone()) }
+    }
+    remove := func(mut group: TabGroup, id: USize) {
+        if group.drag_id == id { group.dragging = false }
+        mut kept := Vec(USize).new()
+        for item : USize in group.items { if item != id { kept.push(own item.clone()) } }
+        group.items = kept
+        if group.first >= group.items.len() { group.first = 0 }
+    }
+    adjacent := func(group: TabGroup, id: USize, direction: I64) returns USize {
+        at := group.index(id)
+        assert(at >= 0)
+        next := (at + direction + group.items.len().to_i64()).mod(group.items.len().to_i64())
+        return group.items[next.to_usize()].clone()
+    }
+    move := func(mut group: TabGroup, id: USize, direction: I64) {
+        at := group.index(id); assert(at >= 0)
+        next := at + direction
+        if next < 0 || next >= group.items.len().to_i64() { return }
+        other := group.items[next.to_usize()].clone()
+        group.items[at.to_usize()] = other
+        group.items[next.to_usize()] = id.clone()
+    }
+    move_to := func(mut group: TabGroup, id: USize, target: I64) {
+        assert(target >= 0 && target < group.items.len().to_i64())
+        while group.index(id) != target {
+            mut direction : I64 = 1
+            if group.index(id) > target { direction = -1 }
+            group.move(id, direction)
+        }
+    }
+    reveal := func(mut group: TabGroup, id: USize, count: USize) {
+        assert(count > 0)
+        at := group.index(id); assert(at >= 0)
+        index := at.to_usize()
+        if index < group.first { group.first = index }
+        if index >= group.first + count { group.first = index - count + 1 }
+    }
+}
+
+TabLayout := struct {
+    button : I32 = 1
+    tab_width : I32 = 1
+    count : USize = 1
+namespace:
+    calculate := func(width: I32, height: I32, tabs: USize) returns TabLayout {
+        assert(width > 0 && height > 0 && tabs > 0)
+        mut button := height
+        if button > width / 4 { button = width / 4 }
+        mut available := width - button * 3
+        if available < 1 { available = 1 }
+        mut count := (available / (height * 5)).cast(I64)
+        if count < 1 { count = 1 }
+        if count > tabs.to_i64() { count = tabs.to_i64() }
+        return TabLayout(button = button, tab_width = available / count.to_i32(), count = count.to_usize())
+    }
+}

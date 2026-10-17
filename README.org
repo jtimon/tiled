@@ -35,5 +35,6 @@ config [[file:defaults/init.til][defaults/init.til]] can be copied to =~/.tiled/
 - [[file:lib/libterminal/README.org][libterminal build/install API]] and [[file:doc/terminal-library-benchmark.org][linking measurements]]
 - [[file:doc/configuration.org][Startup and user configuration]]
 - [[file:doc/sessions.org][Default session saving, restoration and recovery]]
+- [[file:doc/tabs.org][Terminal/buffer tabs and show/hide controls]]
 - [[file:doc/architecture.org][Buffers, windows, frames and desktop hosting]]
 - [[file:doc/keybindings.org][Commands, configurable keymaps and future extensions]]
