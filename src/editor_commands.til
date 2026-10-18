@@ -15,6 +15,16 @@ namespace:
         tab_keymaps(c.keys)
         c.keys.bind("text", "C-h k", "describe-key")
         c.keys.declare("hide-tab")
+        for name : Str in array(Str, "undo", "redo", "undo-tree-visualize", "undo-branch-next", "undo-branch-previous") { c.keys.declare(name) }
+        // undo-tree uses C-/, C-_ for undo, M-_ for redo and C-x u for its tree.
+        // KeyStroke stores physical keys, so shifted punctuation is explicit.
+        c.bind("text", "C-/", "undo", true)
+        c.bind("text", "C-S--", "undo", true)
+        c.bind("text", "C-S-/", "redo", true)
+        c.bind("text", "M-S--", "redo", true)
+        c.bind("text", "C-z", "undo", true)
+        c.bind("text", "C-S-z", "redo", true)
+        c.bind("text", "C-x u", "undo-tree-visualize")
         for name : Str in array(Str, "quit", "save-buffer", "session-save", "find-file", "switch-buffer", "list-buffers", "kill-buffer", "new-terminal",
             "split-below", "split-right", "other-view", "close-view", "only-view", "send-prefix", "set-mark", "cut",
             "left", "right", "up", "down", "home", "end", "newline", "backspace", "delete", "accept", "complete", "previous-choice", "next-choice") { c.keys.declare(name) }
@@ -83,8 +93,13 @@ namespace:
         noop_proc()
         for entry : EditorUserCommand in c.callbacks {
             if entry.name == name {
+                // Direct invocations and overrides of deletion commands are
+                // atomic too. Reuse an outer command's transaction if present.
+                started := editor.undo_token == 0
+                if started { editor.begin_edit_command(name) }
                 callback := entry.callback
                 callback(editor)
+                if started { editor.end_edit_command() }
                 return true
             }
         }

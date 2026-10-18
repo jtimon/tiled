@@ -6,7 +6,9 @@
   a consequential choice is genuinely unclear.
 - Keep changes focused, follow existing patterns, and fix causes rather than
   hiding errors. Read actual build/test failures before changing course.
-- Preserve unrelated work. Commit only when asked; the user handles pushes.
+- Preserve unrelated work. Commit completed, tested tasks automatically;
+  the user handles pushes. Track each task in an issue, even when opening
+  and closing it in the same commit.
   Do not create branches/worktrees or rewrite history without being asked.
 
 ** Build and verification

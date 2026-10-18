@@ -184,10 +184,11 @@ namespace:
             mut error : I32 = 0
             disk := workspace_read(buffer.filename, error)
             if error != 0 {
-                buffer.dirty = true; buffer.recovery_note = "file missing/unreadable; recovered text"; warnings++
+                buffer.dirty = true; buffer.needs_save = true; buffer.recovery_note = "file missing/unreadable; recovered text"; warnings++
             } else if !buffer.dirty {
                 buffer.text = disk.clone(); buffer.disk_text = disk
             } else if disk != buffer.disk_text {
+                buffer.needs_save = true
                 buffer.recovery_note = "disk changed; recovered edits"; warnings++
             }
         }

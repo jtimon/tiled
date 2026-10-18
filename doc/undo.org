@@ -1,0 +1,79 @@
+* Branching undo
+
+[[file:keybindings.org][Commands and keymaps]] | [[file:sessions.org][Saved workspaces]]
+
+Text buffers keep a shared branching edit history by default. Undo moves to
+the parent state; redo follows that state's preferred child. Editing after
+undo creates another child and retains the previous future. Undo/redo never
+write a file or undo a terminal child's input/output.
+
+** Commands and tree browser
+
+| Command                | Default text bindings                     |
+|------------------------+-------------------------------------------|
+| =undo=                 | =C-/=, =C-_=, =C-z=                        |
+| =redo=                 | =C-?=, =M-_=, =C-S-z=                      |
+| =undo-tree-visualize=   | =C-x u=                                   |
+| =undo-branch-next=     | =M-x undo-branch-next=                     |
+| =undo-branch-previous= | =M-x undo-branch-previous=                 |
+
+In configuration strings shifted punctuation is physical-key notation:
+=C-S--= for Ctrl-underscore, =C-S-/= for Ctrl-question-mark, and =M-S--=
+for Alt-underscore. Text-region =C-x= still cuts the region; use M-x to open
+the tree while a region is selected. Terminal contexts retain their input
+bindings and mark these editing commands unavailable in discovery.
+
+The tree browser lists nodes in depth-first order with indented ancestry,
+node/parent IDs, command labels and preferred-child annotations. =*= marks
+the current node; =S= marks the last saved node (or the clean initial root).
+Up/Down selects a row; Left selects its parent, Right its preferred child.
+Typing filters the rows, e.g. =#0 = finds the initial state. Enter restores
+the selected state, traversing through the common ancestor as necessary.
+C-g/Escape cancels. Browsing alone changes neither the document nor redo
+preferences. Deep indentation is capped; explicit parent IDs remain visible.
+
+At a fork, the branch commands cycle the preferred redo child without editing
+text. Undo remembers the child it came from; editing or tree traversal selects
+the path just taken. The tree browser can select any retained alternative.
+
+** Editing and saved state
+
+- Adjacent typing, consecutive backspaces or consecutive forward deletes in
+  the same view group within one second, up to 64 edits per group. Direction
+  changes, newline, region replacement, cursor movement, mouse selection,
+  commands and focus/buffer switches separate groups.
+- Paste, cut and other editing commands are atomic. All edits through the
+  editor's mutation methods during one registered Til callback form a single
+  undo step, including callbacks that move the cursor between edits. Directly
+  assigning =EditorBuffer.text= bypasses these guarantees; use =insert=,
+  =replace=, =cut_selection=, =backspace= or =delete_forward= instead.
+- Every buffer owns one tree, regardless of how many panes show it. Undo/redo
+  restores the editing command's before/after cursor in the invoking pane;
+  other visible and hidden view points are adjusted for the shared text change.
+  Regions are cleared when their buffer changes.
+- Saving closes the current group and updates the saved-content baseline.
+  Undoing back to those bytes clears the dirty marker; redoing away from them
+  marks the buffer dirty. Equal bytes on another branch are also clean. A
+  recovered missing or externally changed file remains marked for saving until
+  a successful save, even when an edit returns to its previous baseline.
+
+History is currently in memory for the lifetime of the buffer. Closing/killing
+the buffer or restarting drops the tree. Session checkpoints restore content,
+dirty baselines and view state, then start fresh history; they do not serialize
+undo nodes. There is no automatic history pruning or memory budget yet: retained
+branches consume memory proportional to their edit payloads and metadata.
+
+** Verification
+
+#+begin_src sh
+./make.til
+til run --usize=64 --asan -o tmp/undo_tree -c tmp/undo_tree.c test/undo_tree.til
+til interpret --usize=64 test/undo_tree.til
+xvfb-run -a -s "-screen 0 1600x1200x24" til run --usize=64 -o tmp/undo_gui -c tmp/undo_gui.c test/undo_gui.til
+#+end_src
+
+The model checks retained branches and cross-branch jumps, grouping/boundaries,
+UTF-8 edit payloads, shared/hidden views, saved-content equality, missing/changed
+file recovery, command overrides, tree browsing and terminal key isolation.
+The GUI driver checks real undo/redo keys, M-x branch choice, tree apply/cancel,
+successful saves, atomic callbacks and paste without writing the file on undo.

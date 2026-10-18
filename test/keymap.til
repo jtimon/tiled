@@ -49,6 +49,10 @@ main := proc() {
     assert(state.event(commands.keys, "terminal", false, true, 84, 0, 1).kind == 0)
     assert(KeyStroke.parse("C-S-v").tag() == KeyStroke.parse("S-C-V").tag())
     commands.unbind("global", "C-x")
+    // The text-local undo tree keeps its own C-x prefix after global unbinding.
+    assert(state.event(commands.keys, "text", false, true, 88, 2, 1).kind == 2)
+    assert(state.event(commands.keys, "text", false, true, 85, 0, 1).command == "undo-tree-visualize")
+    commands.unbind("text", "C-x")
     assert(state.event(commands.keys, "text", false, true, 88, 2, 1).kind == 0)
     commands.bind("global", "C-x", "ignore")
     assert(state.event(commands.keys, "text", false, true, 88, 2, 1).command == "ignore")

@@ -37,7 +37,8 @@ namespace:
             if name == "send-prefix" { return d.editor_host }
             return d.primary && (name == "scroll-page-up" || name == "scroll-page-down")
         }
-        for text : Str in array(Str, "save-buffer", "set-mark", "cut", "left", "right", "up", "down", "home", "end", "newline", "backspace", "delete") {
+        for text : Str in array(Str, "save-buffer", "set-mark", "cut", "left", "right", "up", "down", "home", "end", "newline", "backspace", "delete",
+            "undo", "redo", "undo-tree-visualize", "undo-branch-next", "undo-branch-previous") {
             if text == name { return true }
         }
         return false

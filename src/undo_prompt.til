@@ -1,0 +1,74 @@
+mode lib
+import("editor_model")
+import("minibuffer")
+
+// A selection-only tree browser: navigation never edits the document. Enter
+// traverses to the selected node; cancelling leaves text and redo choices alone.
+UndoPrompt := struct {
+    mini := Minibuffer()
+    buffer : USize = 0
+    view : USize = 0
+namespace:
+    begin := func(mut p: UndoPrompt, mut editor: EditorState) {
+        editor.edit_boundary()
+        p.view = editor.focused; p.buffer = editor.nodes[p.view].view.buffer
+        ref mut buffer : EditorBuffer = editor.buffers[p.buffer]
+        buffer.undo.ensure(editor.nodes[p.view].view.cursor, !buffer.dirty)
+        ref tree : UndoTree = buffer.undo
+        mut choices := Vec(MinibufferChoice).new()
+        // Iterative depth-first traversal avoids stack growth for long histories.
+        mut stack := Vec(USize).new(); stack.push(own 0)
+        mut depths := Vec(USize).new(); depths.push(own 0)
+        while stack.len() > 0 {
+            index := stack.pop()
+            depth := depths.pop()
+            ref node : UndoNode = tree.nodes[index]
+            mut indent := ""
+            mut shown_depth := depth
+            if shown_depth > 12 { shown_depth = 12 }
+            for _ in 0..shown_depth { indent = format(indent, "  ") }
+            mut marker := ""
+            if index == tree.current { marker = "* " }
+            if index.to_i64() == tree.saved { marker = format(marker, "S ") }
+            mut detail := "root"
+            if node.parent >= 0 {
+                detail = format("parent #", node.parent.to_str())
+                ref ancestor : UndoNode = tree.nodes[node.parent.to_usize()]
+                if ancestor.children[ancestor.preferred] == index { detail = format(detail, " preferred") }
+            }
+            choices.push(own MinibufferChoice(id = index, name = format(indent, "#", index.to_str(), " ", node.label), marker = marker, detail = detail))
+            mut child := node.children.len()
+            while child > 0 { child--; stack.push(own node.children[child].clone()); depths.push(own depth + 1) }
+        }
+        p.mini.begin("Undo tree: ", choices)
+        p.mini.help = "Up/Down browse  Left/Right tree  Enter apply  Esc cancel  * current / S saved"
+        p.select(tree.current)
+    }
+    select := func(mut p: UndoPrompt, id: USize) {
+        p.mini.input = ""; p.mini.cursor = 0
+        for i in 0..p.mini.choices.len() { if p.mini.choices[i].id == id { p.mini.selected = i; return } }
+    }
+    cancel := func(mut p: UndoPrompt) { p.mini.active = false }
+    command := func(mut p: UndoPrompt, mut editor: EditorState, command: Str, key: I32, shift: Bool) returns Str {
+        if editor.focused != p.view || editor.nodes[p.view].view.buffer != p.buffer {
+            p.cancel(); return "Undo tree cancelled: target changed"
+        }
+        if command == "cancel" { p.cancel(); return "Undo tree cancelled" }
+        chosen := p.mini.choice()
+        if command == "accept" {
+            if chosen < 0 { p.mini.hint = "Choose a history node"; return "" }
+            target := p.mini.choices[chosen.to_usize()].id
+            editor.undo_to(target); p.cancel()
+            return format("Undo tree: restored #", target.to_str())
+        }
+        if command == "left" || command == "right" {
+            if chosen < 0 { return "" }
+            id := p.mini.choices[chosen.to_usize()].id
+            ref node : UndoNode = editor.buffers[p.buffer].undo.nodes[id]
+            if command == "left" && node.parent >= 0 { p.select(node.parent.to_usize()) }
+            if command == "right" && node.children.len() > 0 { p.select(node.children[node.preferred]) }
+        } else if key != 0 { p.mini.key(key, shift) }
+        else { p.mini.hint = "Choose a node or cancel the undo tree first" }
+        return ""
+    }
+}

@@ -112,6 +112,10 @@ config.commands.bind("global", "F1 k", "describe-key")
 
 *** Built-in command names
 
+Text editing includes [[file:undo.org][branching undo and a tree browser]]: =undo=, =redo=,
+=undo-tree-visualize=, =undo-branch-next= and =undo-branch-previous=.
+=C-z=/=C-/= undo, =C-S-z= redoes, and =C-x u= opens the tree in text panes.
+
 - Both hosts: =execute-command=, =describe-key=, =session-save=, =copy=, =paste=, =cancel-selection=, =scroll-page-up=,
   =scroll-page-down=, =forward-key=, =ignore=, =cancel= and =quit=.
 - Tab commands in both hosts: =new-tab=, =close-tab=, =next-tab=, =previous-tab=,

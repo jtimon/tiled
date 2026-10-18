@@ -1,6 +1,7 @@
 mode lib
 import("../gen/terminal_api")
 import("tabs")
+import("undo_tree")
 
 // Buffers own text or reference host-owned terminals. Leaves own views;
 // branches own layout decisions, never native terminal resources.
@@ -15,6 +16,8 @@ EditorBuffer := struct {
     recovery_note := ""
     restored_terminal := false
     saved_directory := ""
+    undo := UndoTree()
+    needs_save := false
     // Native sessions live in the host's owning pool, not in clonable layout data.
     terminal : I64 = -1
     terminal_name := ""
@@ -155,6 +158,10 @@ EditorState := struct {
     focused : USize = 0
     next_session_id : I64 = 3
     tabs_visible := true
+    edit_time_ms : I64 = 0
+    undo_serial : I64 = 0
+    undo_token : I64 = 0
+    undo_label := "edit"
 
 namespace:
     new := func(filename: Str, text: Str) returns EditorState {
@@ -206,6 +213,7 @@ namespace:
     }
 
     split := func(mut self: EditorState, side_by_side: Bool, min_width: I32, min_height: I32) returns Bool {
+        self.edit_boundary()
         index := self.focused
         rect := self.nodes[index].rect.clone()
         if side_by_side {
@@ -245,6 +253,7 @@ namespace:
     }
 
     next_view := func(mut self: EditorState) {
+        self.edit_boundary()
         order := self.views()
         mut i : USize = 0
         while i < order.len() {
@@ -257,6 +266,7 @@ namespace:
     }
 
     close_view := func(mut self: EditorState) returns Bool {
+        self.edit_boundary()
         index := self.focused
         parent := self.nodes[index].parent
         if parent < 0 { return false }
@@ -292,6 +302,7 @@ namespace:
     }
 
     only_view := func(mut self: EditorState) {
+        self.edit_boundary()
         view := self.nodes[self.focused].view.clone()
         history := self.nodes[self.focused].history.clone()
         mut nodes := Vec(EditorNode).new()
@@ -338,6 +349,7 @@ namespace:
     }
 
     select_buffer := func(mut self: EditorState, index: USize, id: USize) {
+        self.edit_boundary()
         assert(self.buffers[id].alive)
         ref mut node : EditorNode = self.nodes[index]
         node.tabs.add(id)
@@ -437,6 +449,7 @@ namespace:
     }
 
     move_cursor := func(mut self: EditorState, key: I32) {
+        self.edit_boundary()
         ref mut view : EditorView = self.nodes[self.focused].view
         assert(self.buffers[view.buffer].terminal < 0)
         ref text : Str = self.buffers[view.buffer].text
@@ -482,8 +495,27 @@ namespace:
         if v.selected() { self.replace(v.selection_start(), v.selection_end() - v.selection_start(), "") }
     }
 
-    replace := func(mut self: EditorState, start: USize, count: USize, inserted: Str) {
-        id := self.nodes[self.focused].view.buffer
+    edit_boundary := func(mut self: EditorState) {
+        if self.undo_token == 0 { self.buffers[self.nodes[self.focused].view.buffer].undo.boundary() }
+    }
+    begin_edit_command := func(mut self: EditorState, name: Str, grouped_deletion: Bool = false) {
+        self.undo_label = name.clone()
+        self.undo_token = 0
+        if !grouped_deletion {
+            self.edit_boundary()
+            self.undo_serial = self.undo_serial + 1; self.undo_token = self.undo_serial
+        }
+    }
+    end_edit_command := func(mut self: EditorState) { self.undo_token = 0 }
+
+    mark_saved := func(mut self: EditorState, id: USize) {
+        ref mut buffer : EditorBuffer = self.buffers[id]
+        buffer.disk_text = buffer.text.clone()
+        buffer.needs_save = false; buffer.dirty = false
+        buffer.undo.mark_saved()
+    }
+
+    priv apply_change := func(mut self: EditorState, id: USize, start: USize, count: USize, inserted: Str) {
         ref mut buffer : EditorBuffer = self.buffers[id]
         assert(buffer.terminal < 0)
         end := start + count
@@ -491,7 +523,7 @@ namespace:
         replacement := format(buffer.text.substr(0, start), inserted,
             buffer.text.substr(end, buffer.text.len() - end))
         buffer.text = replacement
-        buffer.dirty = true
+        buffer.dirty = buffer.needs_save || buffer.text != buffer.disk_text
         // Other views retain their own points, adjusted for the shared edit.
         mut i : USize = 0
         while i < self.nodes.len() {
@@ -509,8 +541,102 @@ namespace:
             }
             i++
         }
-        ref mut active : EditorNode = self.nodes[self.focused]
-        active.view.cursor = start + inserted.len()
+    }
+
+    replace := func(mut self: EditorState, start: USize, count: USize, inserted: Str, kind: I64 = 0) {
+        id := self.nodes[self.focused].view.buffer
+        ref mut buffer : EditorBuffer = self.buffers[id]
+        assert(buffer.terminal < 0 && start + count <= buffer.text.len())
+        removed := buffer.text.substr(start, count).clone()
+        if removed == inserted {
+            ref mut view : EditorView = self.nodes[self.focused].view
+            view.cursor = start + inserted.len(); view.clear_mark()
+            self.edit_boundary()
+            return
+        }
+        before := self.nodes[self.focused].view.cursor
+        after := start + inserted.len()
+        buffer.undo.record(UndoEdit(start = start, removed = removed, inserted = inserted.clone()), before, after,
+            self.nodes[self.focused].session_id, self.edit_time_ms, kind, self.undo_token, self.undo_label, !buffer.dirty)
+        self.apply_change(id, start, count, inserted)
+        ref mut view : EditorView = self.nodes[self.focused].view
+        view.cursor = after
+    }
+
+    type_text := func(mut self: EditorState, text: Str) {
+        ref v : EditorView = self.nodes[self.focused].view
+        self.undo_label = "typing"
+        mut kind : I64 = 1
+        if v.selected() || text.contains("\n") { kind = 0 }
+        self.replace(v.selection_start(), v.selection_end() - v.selection_start(), text, kind)
+    }
+
+    undo_edit := func(mut self: EditorState) returns Bool {
+        id := self.nodes[self.focused].view.buffer
+        ref mut buffer : EditorBuffer = self.buffers[id]
+        assert(buffer.terminal < 0)
+        buffer.undo.boundary()
+        if buffer.undo.nodes.len() == 0 || buffer.undo.current == 0 { return false }
+        index := buffer.undo.current
+        node := buffer.undo.nodes[index].clone()
+        mut i := node.edits.len()
+        while i > 0 {
+            i--
+            ref edit : UndoEdit = node.edits[i]
+            assert(buffer.text.substr(edit.start, edit.inserted.len()) == edit.inserted)
+            self.apply_change(id, edit.start, edit.inserted.len(), edit.removed)
+        }
+        buffer.undo.current = node.parent.to_usize()
+        buffer.undo.prefer(buffer.undo.current, index)
+        ref mut view : EditorView = self.nodes[self.focused].view
+        view.cursor = node.before
+        return true
+    }
+    redo_edit := func(mut self: EditorState) returns Bool {
+        id := self.nodes[self.focused].view.buffer
+        ref mut buffer : EditorBuffer = self.buffers[id]
+        assert(buffer.terminal < 0)
+        buffer.undo.boundary()
+        next := buffer.undo.redo_node()
+        if next < 0 { return false }
+        node := buffer.undo.nodes[next.to_usize()].clone()
+        for edit : UndoEdit in node.edits {
+            assert(buffer.text.substr(edit.start, edit.removed.len()) == edit.removed)
+            self.apply_change(id, edit.start, edit.removed.len(), edit.inserted)
+        }
+        buffer.undo.current = next.to_usize()
+        ref mut view : EditorView = self.nodes[self.focused].view
+        view.cursor = node.after
+        return true
+    }
+    undo_to := func(mut self: EditorState, target: USize) {
+        id := self.nodes[self.focused].view.buffer
+        ref mut tree : UndoTree = self.buffers[id].undo
+        assert(target < tree.nodes.len())
+        mut path := Vec(USize).new()
+        mut at := target
+        while true {
+            path.push(own at.clone())
+            if at == 0 { break }
+            at = tree.nodes[at].parent.to_usize()
+        }
+        while true {
+            mut common := false
+            for node : USize in path { if node == tree.current { common = true; break } }
+            if common { break }
+            changed := self.undo_edit(); assert(changed)
+        }
+        while tree.current != target {
+            mut next := target
+            while true {
+                parent := tree.nodes[next].parent.to_usize()
+                if parent == tree.current { break }
+                next = parent
+            }
+            tree.prefer(tree.current, next)
+            changed := self.redo_edit(); assert(changed)
+        }
+        tree.boundary()
     }
 
     insert := func(mut self: EditorState, text: Str) {
@@ -518,17 +644,21 @@ namespace:
         self.replace(v.selection_start(), v.selection_end() - v.selection_start(), text)
     }
 
-    backspace := func(mut self: EditorState) {
+    backspace := func(mut self: EditorState, grouped: Bool = false) {
         if self.nodes[self.focused].view.selected() { self.cut_selection(); return }
         cursor := self.nodes[self.focused].view.cursor
         start := text_previous(self.buffers[self.nodes[self.focused].view.buffer].text, cursor)
-        if cursor > 0 { self.replace(start, cursor - start, "") }
+        mut kind : I64 = 0
+        if grouped { kind = 2; self.undo_label = "backspace" }
+        if cursor > 0 { self.replace(start, cursor - start, "", kind) }
     }
 
-    delete_forward := func(mut self: EditorState) {
+    delete_forward := func(mut self: EditorState, grouped: Bool = false) {
         if self.nodes[self.focused].view.selected() { self.cut_selection(); return }
         ref view : EditorView = self.nodes[self.focused].view
         cursor := view.cursor
-        if cursor < self.buffers[view.buffer].text.len() { self.replace(cursor, text_next(self.buffers[view.buffer].text, cursor) - cursor, "") }
+        mut kind : I64 = 0
+        if grouped { kind = 3; self.undo_label = "delete" }
+        if cursor < self.buffers[view.buffer].text.len() { self.replace(cursor, text_next(self.buffers[view.buffer].text, cursor) - cursor, "", kind) }
     }
 }

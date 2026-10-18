@@ -1,0 +1,36 @@
+# priority: high
+# category: features
+** FIXED #14 Branching undo history and tree navigation
+
+Implemented per-buffer delta trees retaining alternate futures, preferred redo
+branches, atomic commands/callbacks, timed typing/deletion groups, shared-view
+point adjustment, saved-content dirty tracking and a selection-only tree browser.
+Text bindings include C-/ and C-z undo, C-S-z redo and C-x u tree navigation;
+M-x exposes undo/redo and branch choice without capturing terminal child keys.
+The reference is credited in source comments. =doc/undo.org= documents behavior,
+including in-memory history lifetime, fresh history on restore and no pruning.
+
+Verification with installed Til =0.0.1-f24e6004c=:
+- =./make.til= built both hosts.
+- =test/undo_tree.til= passed compiled with ASAN and interpreted: branching,
+  grouping, UTF-8 payloads, saved baselines, missing/changed-file recovery,
+  shared/hidden views, multi-view callbacks, no-op replacement, tree navigation,
+  command overrides and terminal binding isolation.
+- ASAN regressions passed: =editor_selection=, =buffers=, =layout=, =exit=,
+  =editor_terminal_model=, =keymap=, =command_discovery=, =session_model=, =tabs=.
+- Xvfb GUI checks passed: =undo_gui=, =command_discovery_gui=, =clipboard_gui=,
+  =draft_save_gui=, =session_gui=, =tabs_gui= and =exit_input=.
+  The undo GUI test exercises real key dispatch, alternate futures, tree
+  apply/cancel, saving and atomic callback/paste, checking live model contents
+  and verifying undo never writes the document file.
+
+*** Original request
+
+Make branching undo the default for text buffers. Preserve alternate futures
+when editing after undo; provide undo, redo, branch choice and a tree viewer.
+Group typing/deletion sensibly and treat commands as atomic edits. Share history
+across views, restore cursors, and keep saved-content dirty tracking correct.
+
+Record the behavioral inspiration in source comments, not the README.
+Verify branching, grouping, shared views, save baselines and GUI dispatch before
+closing this issue. Document the lifetime of history across session restores.

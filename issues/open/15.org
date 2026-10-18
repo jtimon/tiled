@@ -1,0 +1,58 @@
+# priority: medium
+# category: features
+** OPEN #15 Coordinate reusable Unicode support with Til std
+
+Unicode support is useful to other Til applications. A separate session should
+inventory the shared primitives, coordinate an implementation/design issue in
+Til, and migrate Tiled consumers once the installed library supplies them.
+This issue tracks that handoff and the application migration; no Til-side issue
+or implementation has been created as part of filing it.
+
+*** Existing source and gaps
+
+- =lib/libterminal/text.til=: UTF-8 scalar encoding/streaming decoding and
+  Unicode 17.0 scalar terminal-width tables. Decoding distinguishes incomplete
+  chunks from final input and replaces malformed sequences while making progress.
+  Preserve the Unicode/wcwidth provenance and license notices on extraction.
+- =src/editor_model.til=: =text_next=/=text_previous= skip continuation bytes;
+  these are byte-boundary helpers, not validation or grapheme segmentation.
+  Cursors, selections, undo deltas and saved positions currently use byte offsets.
+- =src/minibuffer.til= and =src/minibuffer_view.til=: editing and truncation have
+  byte-oriented paths. =src/editor.til= and =src/command_discovery.til= currently
+  restrict typed character events to ASCII, despite accepting UTF-8 file/paste data.
+- =test/terminal_model.til=, =test/terminal_input.til=,
+  =test/editor_selection.til= and =test/undo_tree.til= supply initial consumer
+  cases. Current scalar-width handling explicitly does not provide emoji/ZWJ
+  shaping; renderer/font policy must remain distinct from Unicode primitives.
+
+*** Decisions for the Til session
+
+1. Audit existing Til APIs and issues first. Propose a reusable =std/= module
+   for validation, scalar encoding/decoding (including streaming), iteration and
+   boundary discovery, with explicit malformed-input/error/replacement policy.
+2. Decide whether Unicode APIs extend =Str=, operate on explicit views, or need
+   a separate validated UTF-8 type. Keep the question open. An additive API that
+   preserves existing byte offsets is a sensible first step; silently changing
+   =len=, indexing or slicing would break editor/FFI/persistence consumers.
+3. Distinguish bytes, scalar values and extended grapheme clusters in names and
+   contracts. Specify the complexity of indexing and offset conversion; Unicode
+   character indexing must not imply constant-time byte indexing.
+4. Plan grapheme segmentation and versioned Unicode property data separately
+   from scalar decoding. Consider terminal-cell width as a reusable policy layer
+   (ambiguous width, controls, emoji/variation selectors), not a universal
+   string length or graphical text measurement. Normalization/case folding can
+   follow as explicitly scoped work rather than hidden string conversions.
+
+*** Acceptance / handoff
+
+- Link the resulting Til issue here, with the proposed API, ownership and
+  sequencing. Do not block Tiled's current work on the library migration.
+- Test valid 1–4 byte scalars, truncated/chunked input, overlong encodings,
+  surrogate/out-of-range values, combining sequences and emoji/ZWJ boundaries
+  where segmentation is implemented. Require compiled/interpreted parity and
+  defined progress on malformed input.
+- Add a non-GUI Til consumer test, then move Tiled/terminal consumers to the
+  installed API without changing byte-offset undo/checkpoint contracts.
+- Verify Unicode cursor/selection/deletion, prompts and non-ASCII character
+  input; retain terminal-width and rendering regressions. Record the supported
+  Unicode version and a reproducible table-update procedure.

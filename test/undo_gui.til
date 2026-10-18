@@ -1,0 +1,64 @@
+mode gui
+import("terminal_gui_helpers")
+
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
+chord := proc(display: Dynamic, key: UPtr, shift: Bool = false) {
+    send(display, 65507, 1)
+    if shift { send(display, 65505, 1) }
+    tap(display, key)
+    if shift { send(display, 65505, 0) }
+    send(display, 65507, 0); sleep_ms(70)
+}
+snapshot := proc(app: Cmd, pid: I64, display: Dynamic, path: Str, expected: Str) {
+    if File.exists(path) { File.remove(path) }
+    tap(display, 65478) // F9: test-only callback observes the live model.
+    for _ in 0..200 {
+        BeginDrawing(); EndDrawing()
+        if File.exists(path) { if File.readfile(path) == expected { return } }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, false, format("undo state did not become: ", expected))
+}
+tree := proc(display: Dynamic) { chord(display, 120); tap(display, 117) }
+main := proc() {
+    root := get_cwd_str()
+    home := format(root, "/tmp/undo-gui-", process_id().to_str()); assert(mkdir_p(format(home, "/.tiled")) == 0)
+    file := format(home, "/notes.txt"); File.writefile(file, "")
+    state := format(home, "/state")
+    File.writefile(format(home, "/.tiled/init.til"), format(
+        "mode lib\n",
+        "observe := proc(mut e: EditorState) { e.edit_boundary(); ref b : EditorBuffer = e.buffers[e.nodes[e.focused].view.buffer]; mut mark := \"clean:\"; if b.dirty { mark = \"dirty:\" }; File.writefile(\"", state, "\", format(mark, b.text)) }\n",
+        "compound := func(mut e: EditorState) { e.insert(\"END\"); e.move_cursor(268); e.insert(\"START\") }\n",
+        "init := func(mut c: TiledConfig) { c.tile_left = false; c.session.enabled = false; c.commands.command(\"observe\", observe); c.commands.bind(\"text\", \"F9\", \"observe\"); c.commands.command(\"compound\", compound); c.commands.bind(\"text\", \"F7\", \"compound\") }\n"))
+    InitWindow(960, 80, "undo test clipboard".c_str); SetWindowPosition(0, 1100); SetExitKey(0)
+    name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    app := Cmd.new("./bin/tiled", file); app.env("HOME", home)
+    app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    pid := app.start(); window := wait_window(app, pid, "Tiled - notes.txt"); sleep_ms(250)
+    XSetInputFocus(display, window, 2, 0); XFlush(display)
+    type_keys(display, "abc"); chord(display, 47)
+    snapshot(app, pid, display, state, "clean:")
+    chord(display, 122, true); snapshot(app, pid, display, state, "dirty:abc")
+    chord(display, 115); type_keys(display, "d"); chord(display, 122)
+    snapshot(app, pid, display, state, "clean:abc")
+    type_keys(display, "e"); chord(display, 122)
+    send(display, 65513, 1); tap(display, 120); send(display, 65513, 0)
+    type_text(display, "undo-branch-previous"); chord(display, 122, true)
+    snapshot(app, pid, display, state, "dirty:abcd")
+    tree(display); type_keys(display, "#0 "); tap(display, 65307)
+    snapshot(app, pid, display, state, "dirty:abcd")
+    tree(display); type_text(display, "#0 ")
+    snapshot(app, pid, display, state, "dirty:") // Saved baseline is abc now.
+    tree(display); type_text(display, "#1 ")
+    snapshot(app, pid, display, state, "clean:abc")
+    tap(display, 65476); snapshot(app, pid, display, state, "dirty:STARTabcEND")
+    chord(display, 122); snapshot(app, pid, display, state, "clean:abc")
+    SetClipboardText("PASTED".c_str); chord(display, 118)
+    snapshot(app, pid, display, state, "dirty:abcPASTED")
+    chord(display, 122); snapshot(app, pid, display, state, "clean:abc")
+    require(app, pid, File.readfile(file) == "abc", "undo rewrote the saved file")
+    close_app(app, pid, display, window)
+    XCloseDisplay(display); CloseWindow()
+    println("PASS: GUI undo/redo, alternate branch, tree apply/cancel, saved state and atomic callback/paste")
+}

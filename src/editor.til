@@ -13,6 +13,7 @@ import("command_discovery")
 import("minibuffer_view")
 import("file_dialogs")
 import("tab_bar")
+import("undo_prompt")
 
 link_c("editor_save.c")
 editor_write_file := ext_proc(path: I8, text: I8, shallow length: UPtr) returns shallow I32 {}
@@ -88,8 +89,7 @@ editor_save_buffer := proc(mut editor: EditorState, id: USize, mut message: Str)
     resolved := realpath_str(path)
     if resolved.len() > 0 { path = resolved.clone() }
     buffer.filename = path
-    buffer.dirty = false
-    buffer.disk_text = buffer.text.clone()
+    editor.mark_saved(id)
     buffer.label = ""; buffer.recovery_note = ""; buffer.restored_terminal = false
     message = "Saved!"
     return true
@@ -143,6 +143,7 @@ editor_mouse_text := proc(mut editor: EditorState, font: Font, size: I32, line_h
         inside := mouse.x >= rect.x.to_f32() && mouse.x < (rect.x + rect.width).to_f32() &&
             mouse.y >= rect.y.to_f32() && mouse.y < (rect.y + rect.height - line_h - 8).to_f32()
         if !view.dragging && !(inside && IsMouseButtonPressed(0)) { continue }
+        editor.edit_boundary()
         lines := buffer.text.split("\n")
         gutter := editor_text_width(font, lines.len().to_str(), size) + 20
         row := terminal_bound(((mouse.y.to_i64() - rect.y.cast(I64) - 8) / line_h.cast(I64)) + view.scroll_y.cast(I64), 0, lines.len().to_i64() - 1)
@@ -361,8 +362,10 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
     SetTargetFPS(60)
     mut checkpoint_at := GetTime()
     mut checkpoint_now := false
+    mut undo_prompt := UndoPrompt()
 
     while true {
+        editor.edit_time_ms = (GetTime() * 1000).to_i64()
         if status_timer > 0 {
             status_timer = status_timer - (GetFrameTime() * 1000).to_i64()
             if status_timer <= 0 { status_msg = "" }
@@ -372,13 +375,13 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         area := EditorRect(width = width, height = height - footer_h)
         editor.arrange(0, area)
         mut mouse_command := ""
-        if !prompt.mini.active && !exit_prompt.mini.active && !discovery.active() {
+        if !prompt.mini.active && !exit_prompt.mini.active && !discovery.active() && !undo_prompt.mini.active {
             mouse := GetMousePosition()
             for index : USize in editor.views() {
                 ref rect : EditorRect = editor.nodes[index].rect
                 if mouse.x >= rect.x.to_f32() && mouse.x < (rect.x + rect.width).to_f32() &&
                    mouse.y >= rect.y.to_f32() && mouse.y < (rect.y + rect.height).to_f32() {
-                    if IsMouseButtonPressed(0) { editor.focused = index }
+                    if IsMouseButtonPressed(0) { editor.edit_boundary(); editor.focused = index; editor.edit_boundary() }
                 }
                 if editor.tabs_visible {
                     hit := tab_bar_event(editor.nodes[index].tabs, editor.nodes[index].view.buffer,
@@ -397,16 +400,16 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             if !session.save(data) { status_msg = session.notice.clone(); status_timer = 10000; println(status_msg) }
         }
         had_prefix := key_state.pending.len() > 0
-        mut key_owner := editor_key_owner(editor, prompt.mini.active || exit_prompt.mini.active)
+        mut key_owner := editor_key_owner(editor, prompt.mini.active || exit_prompt.mini.active || undo_prompt.mini.active)
         if discovery.active() { key_owner = format(key_owner, ":discovery") }
         key_state.context(key_owner)
         if had_prefix && key_state.pending.len() == 0 { status_msg = ""; status_timer = 0 }
-        if !prompt.mini.active && !exit_prompt.mini.active && !discovery.active() && key_state.pending.len() == 0 {
+        if !prompt.mini.active && !exit_prompt.mini.active && !discovery.active() && !undo_prompt.mini.active && key_state.pending.len() == 0 {
             terminals.mouse(editor, line_h + 8)
             editor_mouse_text(editor, font, font_size, line_h)
         }
         wheel := GetMouseWheelMove()
-        if wheel != 0 && !prompt.mini.active && !exit_prompt.mini.active && !discovery.active() && key_state.pending.len() == 0 {
+        if wheel != 0 && !prompt.mini.active && !exit_prompt.mini.active && !discovery.active() && !undo_prompt.mini.active && key_state.pending.len() == 0 {
             mouse := GetMousePosition()
             terminals.wheel(editor, (wheel * 3).to_i64(), mouse.x, mouse.y, line_h + 8)
         }
@@ -420,7 +423,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             mut open := false
             current := editor.nodes[editor.focused].view.buffer
             terminal := editor.buffers[current].terminal
-            prompting := prompt.mini.active || exit_prompt.mini.active
+            prompting := prompt.mini.active || exit_prompt.mini.active || undo_prompt.mini.active
             mut context := "text"
             mut selected := editor.nodes[editor.focused].view.selected()
             mut primary := true
@@ -456,24 +459,30 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             if action == 4 {
                 quit = true
             } else if dispatch.kind == 2 {
+                editor.edit_boundary()
                 status_msg = "Prefix..."; status_timer = 0
             } else if dispatch.kind == 4 {
+                editor.edit_boundary()
                 status_msg = "Undefined key sequence"; status_timer = 2000
             } else if dispatch.kind == 0 {
                 if terminal >= 0 && !prompting {
                     terminals.forward(editor, terminal, key, mods, action)
                 } else if action == 3 && mods.band(6) == 0 && key >= 32 && key < 127 {
                     typed := Str.from_byte(key.cast(I64).to_u8())
-                    if exit_prompt.mini.active { exit_prompt.mini.insert(typed) }
+                    if undo_prompt.mini.active { undo_prompt.mini.insert(typed) }
+                    else if exit_prompt.mini.active { exit_prompt.mini.insert(typed) }
                     else if prompt.mini.active { prompt.mini.insert(typed) }
-                    else { editor.insert(typed) }
+                    else { editor.type_text(typed) }
                 }
             } else if dispatch.kind == 1 {
                 command := dispatch.command
                 mut command_mods := mods
                 if dispatch.named { command_mods = 0 }
                 status_msg = ""; status_timer = 2000
-                if config.commands.invoke(command, editor) {
+                editor.begin_edit_command(command, command == "backspace" || command == "delete")
+                if undo_prompt.mini.active && command != "execute-command" && command != "describe-key" && command != "quit" {
+                    status_msg = undo_prompt.command(editor, command, command_key(command), command_mods.band(1) != 0)
+                } else if config.commands.invoke(command, editor) {
                     // Registered Til callbacks take precedence over built-ins.
                 } else if command == "execute-command" || command == "describe-key" {
                     discovery.begin(config.commands.keys, owner, context, selected, primary, true, config.commands.user_names(), command == "describe-key")
@@ -558,17 +567,29 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                     else if command == "send-prefix" { terminals.forward(editor, terminal, 88, 2, 1) }
                     else if !terminals.command(editor, terminal, command, line_h + 8) { status_msg = format("Unavailable in terminal: ", command) }
                 } else if editor_clipboard(editor, command) {
+                } else if command == "undo" {
+                    if !editor.undo_edit() { status_msg = "No earlier undo history" }
+                } else if command == "redo" {
+                    if !editor.redo_edit() { status_msg = "No redo on this branch" }
+                } else if command == "undo-tree-visualize" { undo_prompt.begin(editor) }
+                else if command == "undo-branch-next" || command == "undo-branch-previous" {
+                    mut direction : I64 = 1
+                    if command == "undo-branch-previous" { direction = -1 }
+                    if editor.buffers[current].undo.branch(direction) { status_msg = "Redo branch selected" }
+                    else { status_msg = "No alternate redo branch here" }
                 } else if command == "newline" { editor.insert("\n") }
-                else if command == "backspace" { editor.backspace() }
-                else if command == "delete" { editor.delete_forward() }
+                else if command == "backspace" { editor.backspace(true) }
+                else if command == "delete" { editor.delete_forward(true) }
                 else {
                     mapped := command_key(command)
                     if mapped >= 262 && mapped <= 269 { editor.select_move(mapped, command_mods.band(1) != 0) }
                     else if command != "forward-key" { status_msg = format("Unavailable in text: ", command) }
                 }
+                editor.end_edit_command()
                 editor.arrange(0, area)
             }
             if quit {
+                undo_prompt.cancel()
                 discovery.cancel()
                 key_state.cancel()
                 prompt.cancel()
@@ -609,7 +630,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             id := editor.nodes[index].view.buffer
             if editor.buffers[id].terminal >= 0 {
                 editor_draw_terminal(terminals, editor, index, font, font_size, line_h,
-                    !prompt.mini.active && !exit_prompt.mini.active && !discovery.active())
+                    !prompt.mini.active && !exit_prompt.mini.active && !discovery.active() && !undo_prompt.mini.active)
             } else { editor_draw_view(editor, index, font, font_size, line_h) }
             if editor.tabs_visible {
                 ref mut node : EditorNode = editor.nodes[index]
@@ -638,6 +659,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         EndScissorMode()
         if prompt.mini.active { draw_minibuffer(prompt.mini, font, font_size, line_h, width, height, footer_h) }
         if exit_prompt.mini.active { draw_minibuffer(exit_prompt.mini, font, font_size, line_h, width, height, footer_h) }
+        if undo_prompt.mini.active { draw_minibuffer(undo_prompt.mini, font, font_size, line_h, width, height, footer_h) }
         if discovery.active() { draw_minibuffer(discovery.mini, font, font_size, line_h, width, height, footer_h) }
         EndDrawing()
     }

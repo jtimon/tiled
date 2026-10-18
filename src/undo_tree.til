@@ -1,0 +1,87 @@
+mode lib
+
+// Behavioral reference: Toby Cubitt's undo-tree (GNU ELPA, version 0.8.2),
+// https://elpa.gnu.org/packages/undo-tree.html; source in .inspirations/undo-tree.
+// Independent Til implementation: edits form branches, undo never creates an
+// edit, redo follows a chosen child, and editing after undo retains the old path.
+UndoEdit := struct { start : USize; removed : Str; inserted : Str }
+UndoNode := struct {
+    parent : I64 = -1
+    children := Vec(USize).new()
+    preferred : USize = 0
+    edits := Vec(UndoEdit).new()
+    before : USize = 0
+    after : USize = 0
+    label := "initial"
+    time_ms : I64 = 0
+    token : I64 = 0
+    kind : I64 = 0
+    view : I64 = 0
+}
+UndoTree := struct {
+    nodes := Vec(UndoNode).new()
+    current : USize = 0
+    saved : I64 = -1
+    group_open := false
+namespace:
+    ensure := func(mut tree: UndoTree, cursor: USize, clean: Bool) {
+        if tree.nodes.len() > 0 { return }
+        tree.nodes.push(own UndoNode(before = cursor, after = cursor))
+        if clean { tree.saved = 0 }
+    }
+    boundary := func(mut tree: UndoTree) { tree.group_open = false }
+    mark_saved := func(mut tree: UndoTree) {
+        tree.ensure(0, true)
+        tree.saved = tree.current.to_i64(); tree.boundary()
+    }
+    record := func(mut tree: UndoTree, edit: UndoEdit, before: USize, after: USize,
+        view: I64, time_ms: I64, kind: I64, token: I64, label: Str, clean: Bool) {
+        tree.ensure(before, clean)
+        mut merge := false
+        if tree.group_open && tree.current > 0 {
+            ref node : UndoNode = tree.nodes[tree.current]
+            if node.children.len() == 0 {
+                if token > 0 && token == node.token { merge = true }
+                else if node.view == view && token == 0 && node.token == 0 && kind > 0 && kind == node.kind &&
+                    time_ms >= node.time_ms && time_ms - node.time_ms <= 1000 && node.edits.len() < 64 {
+                    ref last : UndoEdit = node.edits[node.edits.len() - 1]
+                    if kind == 1 { merge = edit.removed.len() == 0 && last.start + last.inserted.len() == edit.start }
+                    if kind == 2 { merge = edit.inserted.len() == 0 && edit.start + edit.removed.len() == last.start }
+                    if kind == 3 { merge = edit.inserted.len() == 0 && edit.start == last.start }
+                }
+            }
+        }
+        if !merge {
+            parent := tree.current
+            index := tree.nodes.len()
+            tree.nodes.push(own UndoNode(parent = parent.to_i64(), before = before, after = after,
+                view = view, time_ms = time_ms, kind = kind, token = token, label = label.clone()))
+            ref mut previous : UndoNode = tree.nodes[parent]
+            if parent == 0 && previous.children.len() == 0 { previous.before = before; previous.after = before }
+            previous.children.push(own index.clone()); previous.preferred = previous.children.len() - 1
+            tree.current = index
+        }
+        ref mut node : UndoNode = tree.nodes[tree.current]
+        node.edits.push(own edit.clone()); node.after = after; node.time_ms = time_ms
+        tree.group_open = true
+    }
+    redo_node := func(tree: UndoTree) returns I64 {
+        if tree.nodes.len() == 0 { return -1 }
+        ref node : UndoNode = tree.nodes[tree.current]
+        if node.children.len() == 0 { return -1 }
+        return node.children[node.preferred].to_i64()
+    }
+    branch := func(mut tree: UndoTree, direction: I64) returns Bool {
+        tree.boundary()
+        if tree.nodes.len() == 0 { return false }
+        ref mut node : UndoNode = tree.nodes[tree.current]
+        if node.children.len() < 2 { return false }
+        node.preferred = (node.preferred.to_i64() + direction + node.children.len().to_i64()).mod(node.children.len().to_i64()).to_usize()
+        return true
+    }
+    prefer := func(mut tree: UndoTree, parent: USize, child: USize) {
+        ref mut node : UndoNode = tree.nodes[parent]
+        for i in 0..node.children.len() { if node.children[i] == child { node.preferred = i; return } }
+        panic("undo child is not attached to its parent")
+    }
+}
