@@ -2,7 +2,10 @@
 
 A text editor, windows manager, IDE, browser and agentic tool written
 in [[https://github.com/jtimon/til][til]] language.
-Inspired in [[https://savannah.gnu.org/projects/emacs/][emacs]], [[https://github.com/i3/i3][i3]], [[http://conkeror.org/][conkeror]] and [[https://github.com/anomalyco/opencode][opencode]].
+
+Inspired by [[https://www.gnu.org/software/emacs/][Emacs]] and [[https://neovim.io/][Neovim]] (editing), [[https://github.com/i3/i3][i3]] (window management),
+[[http://conkeror.org/][Conkeror]] (browsing), [[https://www.gnu.org/software/screen/][GNU Screen]] and [[https://github.com/tmux/tmux][tmux]] (persistent sessions),
+[[https://docs.xfce.org/apps/xfce4-terminal/start][xfce4-terminal]] and [[https://ghostty.org/][Ghostty]] (terminal UX), and [[https://github.com/anomalyco/opencode][OpenCode]] (agents).
 
 ** Getting started
 
