@@ -4,14 +4,15 @@
 
 ** Default startup
 
-=tiled= checks =$HOME/.tiled/init.til= at startup. If it is absent, it prints:
+=tiled= checks =$HOME/.tiled/init.til= at startup. This is the only config
+entry point; =~/.tiled.til= is not loaded. If the directory init is absent, it prints:
 
 #+begin_example
 No ~/.tiled/init.til file found; using defaults.
 #+end_example
 
-It restores the saved workspace when available. On first use or with =--fresh=,
-it opens an empty =*draft*= buffer in the left half of the current monitor,
+By default it starts fresh, without reading or writing saved sessions. With
+no requested file, it opens an empty =*draft*= buffer in the left half of the current monitor,
 using its full height. A draft has no filename; =Ctrl+S= opens Save draft as,
 with =draft.txt= suggested in the Name field. Choose a directory and edit that
 filename to create a new file; the file does not have to exist already.
@@ -203,9 +204,21 @@ as status messages and leave the existing editor buffer usable.
 
 ** Init file
 
-[[file:sessions.org][Workspace persistence]] is enabled by default. Both config types expose
+Tiled's [[file:sessions.org][workspace persistence]] is opt-in. Enable it in =~/.tiled/init.til=:
+
+#+begin_src til
+mode lib
+init := func(mut config: TiledConfig) {
+    config.session.enabled = true
+    config.session.restore = true
+}
+#+end_src
+
+Both settings default to =false= in Tiled. Standalone tilminal retains its
+automatic saving/restoration defaults. Both config types expose
 =session.enabled=, =session.restore=, =session.name= and =session.interval_ms=.
-=--session NAME=, =--fresh= and =--no-session= select or bypass saved state.
+=--session NAME= selects a profile without enabling disabled persistence;
+=--fresh= bypasses restoration and =--no-session= disables persistence for that launch.
 Dirty-buffer exit prompts offer =keep= when a session checkpoint is available.
 
 [[file:../defaults/init.til][defaults/init.til]] is the working configuration to copy when ready.
@@ -229,6 +242,25 @@ without changing their contents or session format.
 Errors in an existing init file are reported and stop startup rather than
 silently loading defaults. =-v= and =--version= bypass configuration and GUI
 startup.
+
+Imports work as in other Til modules. Keep larger configurations in files
+under =~/.tiled/=, using relative imports from =init.til=. For example:
+
+#+begin_src til
+// ~/.tiled/init.til
+mode lib
+import("session_settings")
+init := func(mut config: TiledConfig) { configure_sessions(config) }
+#+end_src
+
+#+begin_src til
+// ~/.tiled/session_settings.til
+mode lib
+configure_sessions := func(mut config: TiledConfig) {
+    config.session.enabled = true
+    config.session.restore = true
+}
+#+end_src
 
 Standalone tilminal loads =~/.tilminal.til=, defining
 =init(mut config: TilminalConfig)=, with =commands=, =session=, =font_path=, =font_size= and =tabs_visible= fields;

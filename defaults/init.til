@@ -13,8 +13,9 @@ init := func(mut config: TiledConfig) {
     config.font_size = 28
     // Ctrl-Shift-B toggles the tab bars; sessions remember the last choice.
     config.tabs_visible = true
-    // Sessions save/restore automatically; see doc/sessions.org.
-    // config.session.enabled = false
+    // Opt in to saving/restoring opened files and tabs; see doc/sessions.org.
+    // config.session.enabled = true
+    // config.session.restore = true
     // config.session.name = "work"
     // config.session.interval_ms = 2000
     // Commands/keymaps are ordinary Til configuration; see doc/keybindings.org.

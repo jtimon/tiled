@@ -24,10 +24,10 @@ The executable Til build script uses installed =til run=; no GNU Make or
 compiler bootstrap is needed here. =./make.til clean= removes build outputs
 and =tmp/=, preserving reference repositories under =.inspirations/=.
 
-Tiled restores its saved workspace by default; with no saved session it opens
-=*draft*= using defaults. Use =--fresh= to start anew or =--no-session= to
-disable persistence. See [[file:doc/sessions.org][saved sessions]]. The working
-config [[file:defaults/init.til][defaults/init.til]] can be copied to =~/.tiled/init.til= when ready.
+Tiled starts fresh by default. Opt in to saving/restoring opened files and tabs
+in =~/.tiled/init.til=; see [[file:doc/sessions.org][saved sessions]]. The working
+config [[file:defaults/init.til][defaults/init.til]] includes the settings to enable it.
+Use =--no-session= to bypass persistence for one launch.
 
 ** Documentation
 
@@ -38,7 +38,7 @@ config [[file:defaults/init.til][defaults/init.til]] can be copied to =~/.tiled/
 - [[file:doc/terminal.org][Standalone tilminal, shared terminal modules and tests]]
 - [[file:lib/libterminal/README.org][libterminal build/install API]] and [[file:doc/terminal-library-benchmark.org][linking measurements]]
 - [[file:doc/configuration.org][Startup and user configuration]]
-- [[file:doc/sessions.org][Default session saving, restoration and recovery]]
+- [[file:doc/sessions.org][Session saving, restoration and recovery]]
 - [[file:doc/tabs.org][Terminal/buffer tabs and show/hide controls]]
 - [[file:doc/architecture.org][Buffers, windows, frames and desktop hosting]]
 - [[file:doc/keybindings.org][Commands, configurable keymaps and future extensions]]

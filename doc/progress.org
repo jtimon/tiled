@@ -11,9 +11,11 @@
   Til #413. Reserved =std/= and =core/= imports resolve against the selected
   compiler's support tree; core continues to load automatically.
 - [[file:../src/tiled.til][src/tiled.til]] provides a build-time =VERSION= and =-v=/=--version=.
-- Startup checks =~/.tiled/init.til=. A missing file prints the defaults
-  notice; startup restores the workspace or opens =*draft*= when there is no
-  saved session. A working config lives at [[file:../defaults/init.til][defaults/init.til]].
+- Startup checks only =~/.tiled/init.til=, with imports for modular config.
+  A missing file prints the defaults notice; Tiled starts fresh unless session
+  saving/restoration is explicitly enabled. A working config lives at
+  [[file:../defaults/init.til][defaults/init.til]]. Isolated GUI fixtures verify file/tab restoration,
+  imported settings, ignored =~/.tiled.til=, and preservation of disabled sessions.
 - Startup checks exercised the copied example, configured window size and
   initial file, command-line file precedence, failing init code, and version
   output bypassing init. An init path containing spaces worked.

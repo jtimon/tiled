@@ -2,9 +2,21 @@
 
 [[file:../README.org][Tiled]] | [[file:configuration.org][Configuration]] | [[file:terminal.org][Terminals]]
 
-Tiled and interactive tilminal save and restore the =default= session
-automatically. Checkpoints are taken every two seconds when state changes,
-and at normal exit. No editor configuration or plugin is needed to enable it.
+Tiled starts fresh by default. To remember opened files, tabs and layout, opt
+in through =~/.tiled/init.til=:
+
+#+begin_src til
+mode lib
+init := func(mut config: TiledConfig) {
+    config.session.enabled = true
+    config.session.restore = true
+}
+#+end_src
+
+With persistence enabled, checkpoints are taken every two seconds when state
+changes and at normal exit. Removing the opt-in leaves existing checkpoints
+untouched: a default fresh launch neither reads nor overwrites them.
+Interactive tilminal still saves/restores its =default= session automatically.
 
 ** What is restored
 
@@ -65,7 +77,9 @@ session is used instead of overwriting them.
 ./bin/tilminal --session work
 #+end_src
 
-=--session NAME= selects a profile. Names contain 1..128 letters, digits,
+=--session NAME= selects a profile; it does not enable persistence if disabled
+in the config. Enable the settings above before using Tiled's saved profiles.
+Names contain 1..128 letters, digits,
 hyphens or underscores. =--fresh= skips restoration and starts replacing the
 selected profile with the new workspace as checkpoints are saved.
 =--no-session= disables both loading and writing. =--= ends option parsing.
@@ -94,7 +108,11 @@ config.session.interval_ms = 2000 // Minimum 100 ms.
 // config.commands.bind("global", "F12", "session-save")
 #+end_src
 
-These are the defaults; CLI flags override the corresponding settings.
+The example enables saving/restoration: Tiled defaults both flags to =false=,
+while tilminal defaults both to =true=. Name and interval are defaults in both
+hosts. Setting only =enabled=true= in Tiled saves a fresh workspace without
+restoring the old one, replacing the selected profile as checkpoints are saved.
+CLI flags override the corresponding settings.
 =session-save= requests a checkpoint at the next update. Configuration remains
 in =~/.tiled/init.til= or =~/.tilminal.til=; saved state is data, never executed
 as configuration code.
@@ -111,6 +129,16 @@ Oversized writes are refused with a diagnostic. Native Windows/macOS runtime
 validation remains pending.
 
 ** Verification and references
+
+=test/session_optin_gui.til= uses its own temporary HOME, fixture files and
+imported settings module under =tmp/=. It checks directory-only init loading,
+default/explicit disable without overwriting saved state, file/tab restoration,
+cursor retention, save-only mode and command-line overrides. It never accesses
+personal configuration or sessions. Run after =./make.til=:
+
+#+begin_src sh
+xvfb-run -a -s "-screen 0 1600x1200x24" til run --usize=64 -o tmp/session_optin_gui -c tmp/session_optin_gui.c test/session_optin_gui.til
+#+end_src
 
 #+begin_src sh
 ./make.til

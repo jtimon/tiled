@@ -1,0 +1,110 @@
+mode gui
+import("terminal_gui_helpers")
+import("../src/editor_session")
+
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
+chord := proc(display: Dynamic, key: UPtr) {
+    send(display, 65507, 1); tap(display, key); send(display, 65507, 0); sleep_ms(70)
+}
+focus := proc(display: Dynamic, window: UPtr) { sleep_ms(250); XSetInputFocus(display, window, 2, 0); XFlush(display); sleep_ms(100) }
+launch := proc(home: Str, args: ..Str) returns Cmd {
+    app := Cmd.new("./bin/tiled", ..args)
+    app.env("HOME", home)
+    app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    return app
+}
+quoted := func(path: Str) returns Str { return format("\"", path.replace("\\", "\\\\").replace("\"", "\\\""), "\"") }
+write_init := proc(home: Str, first: Str, second: Str) {
+    File.writefile(format(home, "/.tiled/init.til"), format(
+        "mode lib\nimport(\"session_settings\")\n",
+        "open_second := proc(mut editor: EditorState) { editor.show_buffer(", quoted(second), ", File.readfile(", quoted(second), ")) }\n",
+        "init := func(mut config: TiledConfig) { configure_sessions(config); config.tile_left = false; config.initial_file = ", quoted(first), "; ",
+        "config.commands.command(\"open-second\", open_second); config.commands.bind(\"text\", \"F6\", \"open-second\") }\n"))
+}
+write_settings := proc(home: Str, enabled: Bool, restore: Bool) {
+    File.writefile(format(home, "/.tiled/session_settings.til"), format(
+        "mode lib\nconfigure_sessions := func(mut config: TiledConfig) { config.session.enabled = ", enabled.to_str(),
+        "; config.session.restore = ", restore.to_str(), "; config.session.interval_ms = 100 }\n"))
+}
+main := proc() {
+    // All configuration, documents and checkpoints belong to this test's HOME.
+    // No external files or terminal shells are needed for a file-only workspace.
+    home := format(get_cwd_str(), "/tmp/session-optin-", process_id().to_str())
+    assert(mkdir_p(home) == 0)
+    // An unsupported single-file config must not be loaded, even when the
+    // directory init is absent. Leave it present through all subsequent cases.
+    File.writefile(format(home, "/.tiled.til"), "this unsupported configuration must never be parsed\n")
+    first := format(home, "/first.txt"); second := format(home, "/second file.txt"); third := format(home, "/third.txt")
+    File.writefile(first, "FIRST"); File.writefile(second, "SECOND"); File.writefile(third, "THIRD")
+    display_name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(display_name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    path := format(home, "/.tiled/sessions/default.session")
+
+    plain := launch(home, first); plain_pid := plain.start()
+    plain_window := wait_window(plain, plain_pid, "Tiled - first.txt"); focus(display, plain_window)
+    close_app(plain, plain_pid, display, plain_window)
+    assert(!File.exists(format(home, "/.tiled/sessions")))
+    println("PASS: directory init only; no supported init starts fresh without creating session storage")
+
+    assert(mkdir_p(format(home, "/.tiled")) == 0)
+    write_init(home, first, second); write_settings(home, true, true)
+    app := launch(home); pid := app.start()
+    window := wait_window(app, pid, "Tiled - first.txt"); focus(display, window)
+    tap(display, 65475) // F6 opens the second fixture through an imported init.
+    wait_window(app, pid, "Tiled - second file.txt")
+    tap(display, 65363); tap(display, 65363); tap(display, 65363)
+    close_app(app, pid, display, window)
+    saved := EditorCheckpoint.decode(File.readfile(path))
+    assert(saved.error == "" && saved.editor.live_buffers().len() == 2)
+    assert(saved.editor.nodes[saved.editor.focused].tabs.items.len() == 2)
+    assert(saved.editor.nodes[saved.editor.focused].view.cursor == 3)
+
+    again := launch(home); again_pid := again.start()
+    again_window := wait_window(again, again_pid, "Tiled - second file.txt"); focus(display, again_window)
+    chord(display, 65365); wait_window(again, again_pid, "Tiled - first.txt")
+    chord(display, 65366); wait_window(again, again_pid, "Tiled - second file.txt")
+    close_app(again, again_pid, display, again_window)
+    baseline := File.readfile(path); previous := File.readfile(format(path, ".previous"))
+    restored := EditorCheckpoint.decode(baseline)
+    assert(restored.editor.nodes[restored.editor.focused].view.cursor == 3)
+    println("PASS: imported init settings opt in; files, tabs, focus and cursor survive restart")
+
+    File.remove(format(home, "/.tiled/init.til"))
+    defaults := launch(home); defaults_pid := defaults.start()
+    defaults_window := wait_window(defaults, defaults_pid, "Tiled - *draft*"); focus(display, defaults_window)
+    close_app(defaults, defaults_pid, display, defaults_window)
+    assert(File.readfile(path) == baseline && File.readfile(format(path, ".previous")) == previous)
+    write_init(home, first, second); write_settings(home, false, true)
+    disabled := launch(home, "--session", "default"); disabled_pid := disabled.start()
+    disabled_window := wait_window(disabled, disabled_pid, "Tiled - first.txt"); focus(display, disabled_window)
+    close_app(disabled, disabled_pid, display, disabled_window)
+    assert(File.readfile(path) == baseline && File.readfile(format(path, ".previous")) == previous)
+    println("PASS: default/explicit disable preserves prior checkpoints; a profile name does not opt in")
+
+    write_settings(home, true, true)
+    bypass := launch(home, "--no-session"); bypass_pid := bypass.start()
+    bypass_window := wait_window(bypass, bypass_pid, "Tiled - first.txt"); focus(display, bypass_window)
+    close_app(bypass, bypass_pid, display, bypass_window)
+    assert(File.readfile(path) == baseline && File.readfile(format(path, ".previous")) == previous)
+    operand := launch(home, third); operand_pid := operand.start()
+    operand_window := wait_window(operand, operand_pid, "Tiled - third.txt"); focus(display, operand_window)
+    close_app(operand, operand_pid, display, operand_window)
+    with_operand := EditorCheckpoint.decode(File.readfile(path))
+    assert(with_operand.error == "" && with_operand.editor.live_buffers().len() == 3)
+    active := with_operand.editor.nodes[with_operand.editor.focused].view.buffer
+    assert(with_operand.editor.buffers[active].filename == third)
+    println("PASS: --no-session overrides init; an explicit filename opens within the restored workspace")
+
+    write_settings(home, true, false)
+    other_path := format(home, "/.tiled/sessions/save-only.session")
+    File.writefile(other_path, baseline)
+    save_only := launch(home, "--session", "save-only"); save_only_pid := save_only.start()
+    save_only_window := wait_window(save_only, save_only_pid, "Tiled - first.txt"); focus(display, save_only_window)
+    close_app(save_only, save_only_pid, display, save_only_window)
+    fresh := EditorCheckpoint.decode(File.readfile(other_path))
+    assert(fresh.error == "" && fresh.editor.live_buffers().len() == 1)
+    assert(fresh.editor.buffers[0].filename == first)
+    assert(File.readfile(first) == "FIRST" && File.readfile(second) == "SECOND" && File.readfile(third) == "THIRD")
+    XCloseDisplay(display)
+    println("PASS: saving and restoring are separate opt-ins; fixture documents remain unchanged")
+}

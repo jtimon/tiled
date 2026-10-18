@@ -1,0 +1,39 @@
+# priority: medium
+# category: features
+** FIXED #17 Make Tiled workspace persistence an init-file opt-in
+
+Tiled's session enabled/restore settings now both default to false. Users
+opt in through the existing =~/.tiled/init.til=, including via imported modules.
+The directory entry point was already exclusive; a regression now verifies
+that =~/.tiled.til= is ignored. Disabled sessions leave prior checkpoints
+untouched. Standalone tilminal keeps its existing defaults.
+
+=test/session_optin_gui.til= creates its own HOME and fixture documents under
+=tmp/= and exercises default startup, imported opt-in, real file/tab/cursor
+restoration, explicit disable, saved-state preservation, save-only mode and CLI
+overrides. Existing session/tab fixtures now opt in. The crash/writer-isolation
+test records the configured GUI child's PID rather than assuming the launcher
+owns the session lock.
+
+Verification:
+- =./make.til= built both hosts using the recorded installed compiler.
+- Xvfb: =session_optin_gui=, =session_gui=, =tabs_gui=, =exit_input= and
+  =tilminal_session_gui= passed.
+- Compiled ASAN: =session_model=, =session_store= and =exit= passed.
+- Updated README, sample config and startup/session documentation to describe
+  opt-in persistence, directory-only config and relative imports.
+
+*** Request
+
+Keep =~/.tiled/init.til= as the configuration entry point. Tiled should start
+fresh unless the user explicitly enables workspace saving/restoration there.
+Use the existing session settings, without a new path or startup dialog.
+
+Add repository tests using temporary HOME directories and fixture documents,
+never personal configuration or saved state. Cover defaults, explicit opt-in,
+opened-file/tab restoration, disabled-state preservation, CLI overrides and
+settings supplied by an imported config module. Update existing session tests
+to opt in explicitly and document the new defaults.
+
+Only the directory entry point is supported; verify that =~/.tiled.til= is
+ignored both with and without =~/.tiled/init.til= present.

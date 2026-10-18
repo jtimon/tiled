@@ -33,7 +33,7 @@ TiledConfig := struct {
     font_path := ""
     font_size : I32 = 28
     commands := EditorCommands.new()
-    session := SessionConfig()
+    session := SessionConfig(enabled = false, restore = false)
     tabs_visible := true
 }
 

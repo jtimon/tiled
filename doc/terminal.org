@@ -28,7 +28,8 @@ one, Ctrl-PageUp/PageDown switches, and Ctrl-Shift-B hides/shows the bar. Hidden
 tabs continue pumping output. Closing a tab ends its child; closing the window
 ends all its tabs. Embedded terminal buffers participate in Tiled's buffer tabs.
 
-Both hosts now [[file:sessions.org][save workspace/output checkpoints by default]]. Standalone
+Standalone tilminal [[file:sessions.org][saves workspace/output checkpoints by default]];
+Tiled requires an explicit opt-in through =~/.tiled/init.til=. Standalone
 restoration starts a fresh shell in the last known directory; embedded
 terminals restore as labelled output buffers. Neither reattaches running jobs.
 Use =--session NAME=, =--fresh= or =--no-session= to control persistence.
