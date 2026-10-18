@@ -170,11 +170,7 @@ namespace:
     }
     clamp_view := func(mut view: EditorView, editor: EditorState) {
         ref text : Str = editor.buffers[view.buffer].text
-        if view.cursor > text.len() { view.cursor = text.len() }
-        while view.cursor > 0 && view.cursor < text.len() {
-            if text.get(view.cursor).cast(I64).band(192) != 128 { break }
-            view.cursor = view.cursor - 1
-        }
+        view.cursor = unicode_floor(text, view.cursor)
     }
     recover_files := proc(mut out: EditorCheckpoint) returns I64 {
         mut warnings : I64 = 0

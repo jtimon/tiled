@@ -28,7 +28,7 @@ Interactive tilminal still saves/restores its =default= session automatically.
 - Clean file buffers reload current disk contents. Dirty buffers restore their
   checkpoint text without writing to the original file. If the file changed
   or disappeared, the mode line identifies the recovery; cursor positions are
-  clamped to valid UTF-8 boundaries after reload.
+  clamped to Unicode grapheme boundaries after reload.
 - Embedded terminals restore as editable, clearly labelled saved-output buffers,
   including scrollback and an alternate-screen transcript when applicable.
   Their original processes are not attached. =C-x t= from such a buffer starts

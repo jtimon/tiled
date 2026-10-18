@@ -50,13 +50,11 @@ editor_font_path := proc(config: TiledConfig) returns Str {
 }
 
 editor_text_width := func(font: Font, text: Str, size: I32) returns I32 {
-    terminated := text.clone()
-    return MeasureTextEx(font, terminated.c_str, size.to_f32(), 0).x.to_i64().to_i32()
+    return text_measure(font, text, size)
 }
 
 editor_draw_text := proc(font: Font, text: Str, x: I32, y: I32, size: I32, color: Color) {
-    DrawTextEx(font, text.c_str, Vector2(x = x.to_f32(), y = y.to_f32()),
-               size.to_f32(), 0, color)
+    text_draw(font, text, x, y, size, color)
 }
 
 editor_file_path := proc(path: Str) returns Str {
@@ -253,7 +251,7 @@ editor_draw_view := proc(mut editor: EditorState, index: USize, font: Font, size
     mut name := editor_buffer_name(buffer)
     if buffer.recovery_note.len() > 0 { name = format(name, " [", buffer.recovery_note, "]") }
     if buffer.dirty { name = format(name, " *") }
-    position := format("Ln ", (cursor_row + 1).to_str(), " Col ", (column + 1).to_str())
+    position := format("Ln ", (cursor_row + 1).to_str(), " Col ", (unicode_column(buffer.text, start, view.cursor) + 1).to_str())
     position_w := editor_text_width(font, position, size)
     mut name_w := rect.width - 16
     if rect.width > position_w + 100 { name_w = rect.width - position_w - 32 }
@@ -332,11 +330,10 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
     window_init_input()
     // Escape cancels an active prompt; outside prompts it retains quit behavior.
     SetExitKey(0)
-    font := LoadFontEx(font_path.c_str, font_size, Option(ref I32).None, 0)
-    if !IsFontValid(font) || font.texture.id == GetFontDefault().texture.id {
-        panic("could not load font: ", font_path)
-    }
-    SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR)
+    mut text_font := TextFont.new(font_path, font_size)
+    for buffer : EditorBuffer in editor.buffers { if buffer.alive { text_font.include(buffer.text); text_font.include(buffer.filename); text_font.include(editor_buffer_name(buffer)) } }
+    text_font.refresh()
+    mut font := text_font.font.clone()
     line_h := MeasureTextEx(font, "Mg".c_str, font_size.to_f32(), 0).y.to_i64().to_i32() + 6
     footer_h := line_h + 8
     min_view_h := line_h * 2 + 16 + footer_h // Space for the optional tab bar too.
@@ -467,8 +464,8 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             } else if dispatch.kind == 0 {
                 if terminal >= 0 && !prompting {
                     terminals.forward(editor, terminal, key, mods, action)
-                } else if action == 3 && mods.band(6) == 0 && key >= 32 && key < 127 {
-                    typed := Str.from_byte(key.cast(I64).to_u8())
+                } else if key_text_event(key, mods, action) {
+                    typed := unicode_encode(key.cast(I64))
                     if undo_prompt.mini.active { undo_prompt.mini.insert(typed) }
                     else if exit_prompt.mini.active { exit_prompt.mini.insert(typed) }
                     else if prompt.mini.active { prompt.mini.insert(typed) }
@@ -624,6 +621,9 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
             break
         }
 
+        for buffer : EditorBuffer in editor.buffers { if buffer.alive { text_font.include(buffer.text); text_font.include(buffer.filename); text_font.include(editor_buffer_name(buffer)); text_font.include(buffer.recovery_note) } }
+        text_font.prompt(prompt.mini); text_font.prompt(exit_prompt.mini); text_font.prompt(discovery.mini); text_font.prompt(undo_prompt.mini)
+        text_font.include(status_msg); text_font.refresh(); font = text_font.font.clone()
         BeginDrawing()
         ClearBackground(Color(r = 70, g = 70, b = 90, a = 255))
         for index : USize in editor.views() {
@@ -664,7 +664,7 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
         EndDrawing()
     }
     terminals.close()
-    UnloadFont(font)
+    text_font.close()
     window_close_input()
     CloseWindow()
 }

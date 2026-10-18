@@ -1,0 +1,100 @@
+* Unicode editing
+
+[[file:configuration.org][Configuration]] | [[file:keybindings.org][Commands]] | [[file:undo.org][Undo]]
+
+** Current behavior
+
+Tiled accepts Unicode scalar character events from the window system. File
+contents, clipboard text, command names and buffer names remain UTF-8 byte
+strings; they are not normalized. M-x and other minibuffers accept non-ASCII
+input in both Tiled and tilminal. Physical shortcut descriptions still use the
+existing ASCII/named-key syntax.
+
+Left/Right, Shift selection, mouse hit testing, Backspace and Delete operate
+on Unicode 17.0 extended grapheme clusters (UAX #29). A base plus combining
+marks, a flag pair, an emoji ZWJ sequence or an Indic conjunct is one editing
+unit. Up/Down preserves the logical grapheme column, not a byte count; the
+mode-line column uses the same units. A tab counts as one logical unit.
+CRLF is one grapheme for horizontal navigation/deletion.
+
+Minibuffer cursor movement/deletion and label truncation also use grapheme
+boundaries. Saved cursor points are clamped to these boundaries on recovery,
+including hidden views. Edits that join previously separate clusters snap
+affected view points onto boundaries. Undo and session formats continue using
+byte offsets and exact byte payloads.
+
+Malformed file bytes are not silently rewritten. The decoder reports malformed
+sequences as U+FFFD for display/iteration, consuming the maximal valid prefix;
+edits and undo still operate on the original byte ranges. Streaming callers can
+distinguish incomplete non-final input and retry without consuming it.
+
+** Rendering scope
+
+The GUI lazily adds encountered scalars to the configured font's atlas. Glyph
+measurement, drawing, selection and mouse placement use the same advances;
+supported zero-advance combining marks do not acquire a fake character width.
+Default-ignorable scalars such as variation selectors and joiners are hidden.
+Tabs use four space advances in the text renderer.
+
+This is scalar glyph rendering, not a full shaping or bidirectional-layout
+engine. Grapheme editing works for emoji/Indic sequences even when their
+constituent glyphs are drawn separately. Missing glyphs use the configured
+font's '?' replacement; there is no automatic font fallback or color-emoji
+support. Select a font containing the scripts you use. Full IME composition
+UI, complex shaping and visual bidi navigation remain later rendering/input
+work; committed scalar input delivered by GLFW is handled now.
+
+** Local implementation and later extraction
+
+=lib/libunicode/unicode.til= is pure Til, independent of GUI, terminal, editor
+and native FFI code. It exposes scalar validation/encoding, a decoder result
+with end offset and valid/incomplete flags, UTF-8 validation, next/previous
+grapheme boundaries, floor/ceiling clamping and logical column conversion.
+=Str.len= and ordinary indexing/slicing retain byte semantics.
+
+=unicode_next= takes a grapheme boundary and scans the following cluster.
+Backward movement and clamping scan from the preceding LF, so their cost is
+linear in the logical line. Property lookup uses generated balanced range
+trees rather than a linear scan through Unicode tables. Unicode data and the
+standard conformance corpus are pinned to version 17.0.0 and checked in.
+
+=src/keymap.til= owns the host character-event policy. =src/text_view.til= owns
+font resources/rendering; neither belongs in the eventual generic std module.
+The terminal's existing scalar-width/decoder API remains stable. The later
+[[file:../issues/open/15.org][Til std extraction]] should consolidate shared primitives and decide its public
+API after the local behavior is exercised, without changing byte-offset
+document/undo/checkpoint contracts.
+
+** Regeneration and verification
+
+Normal builds and tests are offline. To update the checked-in property code
+and official conformance cases from the pinned Unicode URLs (requires curl):
+
+#+begin_src sh
+til run -o tmp/unicode_tables -c tmp/unicode_tables.c examples/unicode_tables.til
+#+end_src
+
+The generator downloads GraphemeBreakProperty, emoji-data, DerivedCoreProperties
+and GraphemeBreakTest from Unicode 17.0.0. It selects GCB, Extended_Pictographic,
+Indic_Conjunct_Break and Default_Ignorable_Code_Point properties, merges adjacent
+equal ranges, and emits balanced lookups into =lib/libunicode/grapheme_data.til=.
+Downloaded property inputs are retained in =tmp/= for inspection. Preserve
+=lib/libunicode/LICENSE.txt= and the data notices when extracting/updating it.
+
+#+begin_src sh
+./make.til
+til run --usize=64 --asan -o tmp/unicode -c tmp/unicode.c test/unicode.til
+til interpret --usize=64 test/unicode.til
+til run --usize=64 --asan -o tmp/unicode_editing -c tmp/unicode_editing.c test/unicode_editing.til
+til interpret --usize=64 test/unicode_editing.til
+xvfb-run -a -s "-screen 0 1600x1200x24" til run --usize=64 -o tmp/unicode_gui -c tmp/unicode_gui.c test/unicode_gui.til
+#+end_src
+
+The pure test runs all 766 official grapheme conformance cases, forward/backward
+and at every byte offset, plus malformed/truncated UTF-8 and scalar bounds.
+Editor tests cover movement, regions, deletion, undo, Unicode columns,
+minibuffers, CRLF and restored cursors. The GUI driver uses a private HOME and
+Xvfb keymap to deliver real accented/CJK/combining/emoji character events,
+checks rendered glyphs independently, exercises clipboard/undo and selects
+Unicode command/buffer names in both hosts. It resolves its test font through
+fontconfig and does not read personal init files or saved sessions.

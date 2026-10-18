@@ -98,8 +98,8 @@ namespace:
             d.cancel()
             return KeyDispatch(kind = 3)
         }
-        if dispatch.kind == 0 && action == 3 && mods.band(6) == 0 && key >= 32 && key < 127 {
-            d.mini.insert(Str.from_byte(key.cast(I64).to_u8()))
+        if dispatch.kind == 0 && key_text_event(key, mods, action) {
+            d.mini.insert(unicode_encode(key.cast(I64)))
         } else if dispatch.kind == 1 {
             if dispatch.command == "cancel" { d.cancel(); d.message = "Command prompt cancelled" }
             else if dispatch.command == "accept" {

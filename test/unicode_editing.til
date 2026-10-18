@@ -1,0 +1,84 @@
+mode cli
+import("../src/editor_model")
+import("../src/editor_session")
+import("../src/editor_commands")
+import("../src/command_discovery")
+
+main := proc() {
+    assert(key_text_event(0x754c, 0, 3) && key_text_event(0x301, 1, 3))
+    assert(!key_text_event(0xd800, 0, 3) && !key_text_event(0x110000, 0, 3))
+    assert(!key_text_event(0x754c, 2, 3) && !key_text_event(0x754c, 4, 3))
+    clusters := array(Str, "é", "界", "é", "👩‍💻", "🇪🇸", "क्‍ष")
+    mut text := ""; for cluster : Str in clusters { text = format(text, cluster) }
+    mut e := EditorState.new("", text)
+    mut offset : USize = 0
+    for cluster : Str in clusters {
+        e.select_move(262, true)
+        assert(e.selected_text() == cluster)
+        offset = offset + cluster.len(); assert(e.nodes[0].view.cursor == offset)
+        e.nodes[0].view.clear_mark()
+    }
+    for _ in 0..clusters.len() { e.backspace() }
+    assert(e.buffers[0].text == "")
+    for _ in 0..clusters.len() { assert(e.undo_edit()) }
+    assert(e.buffers[0].text == text)
+    e.move_cursor(268)
+    for _ in 0..clusters.len() { e.delete_forward() }
+    assert(e.buffers[0].text == "")
+    for _ in 0..clusters.len() { assert(e.undo_edit()) }
+    assert(e.buffers[0].text == text)
+
+    mut vertical := EditorState.new("", "é界a\naé界")
+    vertical.move_cursor(262); vertical.move_cursor(262)
+    assert(vertical.nodes[0].view.cursor == 5)
+    vertical.move_cursor(264); assert(vertical.nodes[0].view.cursor == 10)
+    vertical.move_cursor(265); assert(vertical.nodes[0].view.cursor == 5)
+    mut crlf := EditorState.new("", "é\r\n界")
+    crlf.move_cursor(269); assert(crlf.nodes[0].view.cursor == 2)
+    crlf.move_cursor(262); assert(crlf.nodes[0].view.cursor == 4)
+    crlf.backspace(); assert(crlf.buffers[0].text == "é界")
+    assert(crlf.undo_edit()); assert(crlf.buffers[0].text == "é\r\n界")
+    // Inserting a base before an existing mark joins a cluster. The active point
+    // moves to its end; other points never remain inside the newly joined bytes.
+    mut join := EditorState.new("", "́a")
+    join.insert("e"); assert(join.nodes[0].view.cursor == "é".len())
+    assert(join.undo_edit()); assert(join.buffers[0].text == "́a" && join.nodes[0].view.cursor == 0)
+    assert(join.redo_edit()); assert(join.nodes[0].view.cursor == "é".len())
+    ref mut point : EditorView = join.nodes[0].view
+    point.cursor = 1 // An old checkpoint can point between base and mark.
+    bytes := EditorCheckpoint.encode(join, SessionFrame(), Vec(SessionTerminalOutput).new(), Vec(USize).new())
+    mut recovered := EditorCheckpoint.decode(bytes)
+    assert(recovered.recover_files() == 0)
+    assert(recovered.error == "" && recovered.editor.nodes[0].view.cursor == 0)
+
+    mut prompt := Minibuffer()
+    prompt.begin("", Vec(MinibufferChoice).new())
+    prompt.insert(text)
+    for _ in 0..clusters.len() { prompt.key(263, false) }
+    assert(prompt.cursor == 0)
+    prompt.key(262, false); prompt.key(259, false)
+    assert(prompt.input == text.substr(2, text.len() - 2) && prompt.cursor == 0)
+    prompt.key(261, false); assert(prompt.input.starts_with("é"))
+    prompt.key(261, false); assert(prompt.input.starts_with("👩‍💻"))
+    prompt.key(262, false); prompt.key(259, false); assert(prompt.input == "🇪🇸क्‍ष")
+    prompt.key(269, false); prompt.key(259, false); prompt.key(259, false)
+    assert(prompt.input == "" && prompt.cursor == 0)
+    prompt.insert("x́"); prompt.key(263, false); prompt.insert("é")
+    assert(prompt.input == "éx́" && prompt.cursor == 2)
+
+    mut maps := EditorCommands.new()
+    maps.keys.declare("café")
+    mut discovery := CommandDiscovery()
+    discovery.begin(maps.keys, "view", "text", false, true, true, Vec(Str).new(), false)
+    for c : I32 in array(I32, 99, 97, 102, 233) { discovery.event(maps.keys, KeyDispatch(), c, 0, 3) }
+    assert(discovery.mini.input == "café")
+    discovery.event(maps.keys, KeyDispatch(kind = 1, command = "backspace"), 259, 0, 1)
+    assert(discovery.mini.input == "caf")
+    // Malformed file bytes round-trip through editing/undo; they are not
+    // silently normalized or replaced in the document by the rendering policy.
+    malformed := format(Str.from_byte(0xe2), Str.from_byte(0x82), "A")
+    mut raw := EditorState.new("", malformed)
+    raw.delete_forward(); assert(raw.buffers[0].text == "A")
+    assert(raw.undo_edit()); assert(raw.buffers[0].text == malformed && !raw.buffers[0].dirty)
+    println("PASS: Unicode editor/prompt movement, selection, deletion, undo, columns and restored positions")
+}

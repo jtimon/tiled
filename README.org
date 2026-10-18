@@ -42,3 +42,4 @@ Use =--no-session= to bypass persistence for one launch.
 - [[file:doc/tabs.org][Terminal/buffer tabs and show/hide controls]]
 - [[file:doc/architecture.org][Buffers, windows, frames and desktop hosting]]
 - [[file:doc/keybindings.org][Commands, configurable keymaps and future extensions]]
+- [[file:doc/unicode.org][Unicode input, grapheme editing and rendering]]

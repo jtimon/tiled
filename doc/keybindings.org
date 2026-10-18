@@ -67,6 +67,8 @@ letters are case-insensitive in binding descriptions; express Shift explicitly.
 Named keys include =Space=, =Enter=/=RET=, =Escape=/=ESC=, =Tab=, =Backspace=,
 =Delete=, =Insert=, arrows, =Home=, =End=, =PageUp=, =PageDown= and =F1=..=F25=.
 Character-key bindings beyond ASCII are not implemented yet.
+This restriction is on shortcut descriptions, not [[file:unicode.org][Unicode text input]]:
+documents, command names and minibuffers accept non-ASCII characters.
 
 Consumed keypresses also consume their associated character events. Prefixes
 have no timeout: a command, undefined continuation, cancellation or change of

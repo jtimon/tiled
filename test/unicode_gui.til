@@ -1,0 +1,114 @@
+mode gui
+import("terminal_gui_helpers")
+import("../src/minibuffer_view")
+
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
+chord := proc(display: Dynamic, key: UPtr, shift: Bool = false) {
+    send(display, 65507, 1); if shift { send(display, 65505, 1) }
+    tap(display, key)
+    if shift { send(display, 65505, 0) }; send(display, 65507, 0); sleep_ms(70)
+}
+scalar_key := proc(display: Dynamic, keycode: U32) {
+    XTestFakeKeyEvent(display, keycode, 1, 0); XTestFakeKeyEvent(display, keycode, 0, 0); XFlush(display); sleep_ms(70)
+}
+snapshot := proc(app: Cmd, pid: I64, display: Dynamic, path: Str, expected: Str) {
+    if File.exists(path) { File.remove(path) }
+    tap(display, 65478)
+    for _ in 0..200 {
+        BeginDrawing(); EndDrawing() // Answer clipboard requests.
+        if File.exists(path) { if File.readfile(path) == expected { return } }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, false, format("Unicode document did not become: ", expected))
+}
+rendered := proc(app: Cmd, pid: I64, display: Dynamic, window: UPtr, reference: UPtr, font: Font, text: Str, left: I32, prompt: Bool) {
+    mut paper := Color(r = 30, g = 30, b = 40, a = 255); mut ink := Color(r = 220, g = 220, b = 220, a = 255)
+    if prompt { paper = Color(r = 24, g = 28, b = 42, a = 255); ink = Color(r = 240, g = 230, b = 190, a = 255) }
+    BeginDrawing(); ClearBackground(paper)
+    DrawTextEx(font, text.c_str, Vector2(x = 0, y = 0), 28, 0, ink)
+    EndDrawing()
+    width := MeasureTextEx(font, text.c_str, 28, 0).x.to_i64().to_i32()
+    mut found := false
+    for _ in 0..100 {
+        if has_rendered_row(display, window, reference, width, left, 28) { found = true; break }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, found, format("Unicode glyphs were not rendered: ", text))
+}
+main := proc() {
+    home := format(get_cwd_str(), "/tmp/unicode-gui-", process_id().to_str()); assert(mkdir_p(format(home, "/.tiled")) == 0)
+    file := format(home, "/text.txt"); other := format(home, "/é界.txt"); state := format(home, "/state")
+    File.writefile(file, ""); File.writefile(other, "OTHER")
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace:charset=00e9"); query.capture_out(); query.run_checked()
+    path := query.out()
+    File.writefile(format(home, "/.tiled/init.til"), format(
+        "mode lib\nobserve := proc(mut e: EditorState) { e.edit_boundary(); File.writefile(\"", state, "\", e.buffers[e.nodes[e.focused].view.buffer].text) }\n",
+        "mark := func(mut e: EditorState) { e.insert(\"!\") }\n",
+        "open_other := proc(mut e: EditorState) { e.show_buffer(\"", other, "\", File.readfile(\"", other, "\")) }\n",
+        "init := func(mut c: TiledConfig) { c.tile_left = false; c.font_path = \"", path, "\"; c.commands.command(\"observe\", observe); c.commands.bind(\"text\", \"F9\", \"observe\"); ",
+        "c.commands.command(\"café\", mark); c.commands.command(\"open-other\", open_other); c.commands.bind(\"text\", \"F7\", \"open-other\") }\n"))
+    // Only this driver's private Xvfb display is remapped; actual GLFW character
+    // callbacks must deliver these scalars, including combining and ZWJ input.
+    InitWindow(960, 80, "Unicode reference".c_str); SetWindowPosition(0, 1100); SetExitKey(0)
+    // Keep a client connected while remapping: Xvfb resets when its last client
+    // disconnects, which would discard a mapping set before window creation.
+    Cmd.new("xmodmap", "-e", "keycode 200 = U00E9", "-e", "keycode 201 = U754C", "-e", "keycode 202 = U0301",
+        "-e", "keycode 203 = U1F469", "-e", "keycode 204 = U200D", "-e", "keycode 205 = U1F4BB").run_checked()
+    reference := find_window("Unicode reference")
+    mut codes := Vec(I32).new(); for code in 32..127 { codes.push(own code.to_i32()) }
+    codes.push(own I64.to_i32(233)); codes.push(own I64.to_i32(0x301))
+    font := LoadFontEx(path.c_str, 28, Option(ref I32).Some(codes[0]), codes.len().to_i32())
+    SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR)
+    assert(GetGlyphInfo(font, 233).value == 233)
+    shortened := minibuffer_tail(font, "aaaaaaaaé", 28, text_measure(font, "...é", 28))
+    assert(shortened == "...é" && unicode_valid(shortened))
+    display_name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(display_name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    app := Cmd.new("./bin/tiled", file); app.env("HOME", home).env("LC_ALL", "C.UTF-8").env("XMODIFIERS", "")
+    app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    pid := app.start(); window := wait_window(app, pid, "Tiled - text.txt"); sleep_ms(250)
+    XSetInputFocus(display, window, 2, 0); XFlush(display)
+    scalar_key(display, 200); scalar_key(display, 201); tap(display, 101); scalar_key(display, 202)
+    scalar_key(display, 203); scalar_key(display, 204); scalar_key(display, 205)
+    text := "é界é👩‍💻"
+    snapshot(app, pid, display, state, text)
+    gutter := MeasureTextEx(font, "1".c_str, 28, 0).x.to_i64().to_i32() + 20
+    rendered(app, pid, display, window, reference, font, "é", gutter, false)
+    tap(display, 65288); snapshot(app, pid, display, state, "é界é")
+    chord(display, 122); snapshot(app, pid, display, state, text)
+    tap(display, 65361); tap(display, 65288); snapshot(app, pid, display, state, "é界👩‍💻")
+    chord(display, 122); tap(display, 65535); snapshot(app, pid, display, state, "é界é")
+    chord(display, 122)
+    tap(display, 65360); send(display, 65505, 1); tap(display, 65363); send(display, 65505, 0)
+    chord(display, 99); tap(display, 65367); chord(display, 118)
+    snapshot(app, pid, display, state, format(text, "é"))
+    chord(display, 122); snapshot(app, pid, display, state, text)
+    send(display, 65513, 1); tap(display, 120); send(display, 65513, 0)
+    type_keys(display, "caf"); scalar_key(display, 200)
+    rendered(app, pid, display, window, reference, font, "M-x café", 8, true)
+    tap(display, 65288); scalar_key(display, 200); tap(display, 65293)
+    snapshot(app, pid, display, state, format(text, "!")); chord(display, 115)
+    tap(display, 65476); wait_window(app, pid, "Tiled - é界.txt")
+    chord(display, 120); tap(display, 98); type_text(display, "text.txt"); wait_window(app, pid, "Tiled - text.txt")
+    chord(display, 120); tap(display, 98); scalar_key(display, 200); scalar_key(display, 201); type_text(display, ".txt")
+    wait_window(app, pid, "Tiled - é界.txt")
+    close_app(app, pid, display, window)
+    assert(File.readfile(file) == format(text, "!") && File.readfile(other) == "OTHER")
+    marker := format(home, "/terminal-callback")
+    File.writefile(format(home, "/.tilminal.til"), format(
+        "mode lib\nmark := proc(mut terminal: Terminal, mut viewport: TerminalViewport) { viewport.selection.clear(); terminal.event(233, 0, 3); File.writefile(\"", marker, "\", \"called\") }\n",
+        "init := func(mut c: TilminalConfig) { c.session.enabled = false; c.font_path = \"", path, "\"; c.commands.command(\"café\", mark) }\n"))
+    terminal := Cmd.new("./bin/tilminal"); terminal.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "").env("LC_ALL", "C.UTF-8").env("XMODIFIERS", "")
+    terminal.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    terminal_pid := terminal.start(); terminal_window := wait_window(terminal, terminal_pid, "tilminal"); sleep_ms(250)
+    XSetInputFocus(display, terminal_window, 2, 0); XFlush(display)
+    send(display, 65513, 1); tap(display, 120); send(display, 65513, 0)
+    type_keys(display, "caf"); scalar_key(display, 200)
+    rendered(terminal, terminal_pid, display, terminal_window, reference, font, "M-x café", 8, true)
+    tap(display, 65288); scalar_key(display, 200); tap(display, 65293)
+    for _ in 0..100 { if File.exists(marker) || terminal.poll() { break }; sleep_ms(50) }
+    require(terminal, terminal_pid, File.exists(marker), "Unicode command was not invoked in tilminal")
+    close_app(terminal, terminal_pid, display, terminal_window)
+    XCloseDisplay(display); UnloadFont(font); CloseWindow()
+    println("PASS: real Unicode input, grapheme editing, undo, clipboard, Unicode filenames and both hosts' prompts")
+}

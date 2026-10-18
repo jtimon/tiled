@@ -293,6 +293,9 @@ resizable and movable by the surrounding desktop.
 
 ** Font
 
+See [[file:unicode.org][Unicode editing and rendering]] for grapheme-aware movement/deletion,
+non-ASCII prompt input, dynamic glyph loading and current shaping/font limits.
+
 By default, Tiled uses the system's =monospace= font, resolved with
 =fc-match= from fontconfig, with =font_size= set to =28= pixels. On the initial
 development machine this selects DejaVu Sans Mono. Set =font_path= to a

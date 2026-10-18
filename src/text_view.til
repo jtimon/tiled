@@ -1,0 +1,78 @@
+mode lib
+import("minibuffer")
+
+// GUI policy is separate from the pure Unicode module. Load encountered scalars
+// from the configured font; finite fonts use raylib's '?' missing-glyph marker.
+// This is scalar rendering with combining marks, not a shaping/bidi engine.
+TextFont := struct {
+    font : Font
+    path : Str
+    size : I32
+    codes := Set(I32).new()
+    dirty := false
+namespace:
+    new := proc(path: Str, size: I32) returns TextFont {
+        font := LoadFontEx(path.c_str, size, Option(ref I32).None, 0)
+        if !IsFontValid(font) || font.texture.id == GetFontDefault().texture.id { panic("cannot load text font: ", path) }
+        SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR)
+        mut result := TextFont(font = font, path = path.clone(), size = size)
+        for c in 32..127 { result.codes.add(own c.to_i32()) }
+        return result
+    }
+    include := func(mut f: TextFont, text: Str) {
+        mut pos : USize = 0
+        while pos < text.len() {
+            scalar := unicode_read(text, pos); pos = scalar.end
+            if scalar.value < 127 { continue }
+            code := scalar.value.to_i32()
+            if !f.codes.has(code) { f.codes.add(own code); f.dirty = true }
+        }
+    }
+    prompt := func(mut f: TextFont, mini: Minibuffer) {
+        if !mini.active { return }
+        f.include(mini.label); f.include(mini.input); f.include(mini.help); f.include(mini.hint)
+        for choice : MinibufferChoice in mini.choices { f.include(choice.name); f.include(choice.marker); f.include(choice.detail) }
+    }
+    refresh := proc(mut f: TextFont) {
+        if !f.dirty { return }
+        mut codes := Vec(I32).new()
+        for code : I32 in f.codes { codes.push(own code.clone()) }
+        font := LoadFontEx(f.path.c_str, f.size, Option(ref I32).Some(codes[0]), codes.len().to_i32())
+        if !IsFontValid(font) || font.texture.id == GetFontDefault().texture.id { panic("cannot load text glyphs: ", f.path) }
+        SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR)
+        UnloadFont(f.font); f.font = font; f.dirty = false
+    }
+    close := proc(f: TextFont) { UnloadFont(f.font) }
+}
+text_glyph_advance := func(font: Font, code: I64, size: I32) returns F32 {
+    if code == 13 || unicode_ignorable(code) != 0 { return 0 }
+    glyph := GetGlyphInfo(font, code.to_i32())
+    scale := size.to_f32() / font.baseSize.to_f32()
+    if glyph.advanceX != 0 { return glyph.advanceX.to_f32() * scale }
+    if unicode_grapheme_property(code) == 4 && glyph.value == code.to_i32() { return 0 }
+    return (GetGlyphAtlasRec(font, code.to_i32()).width + glyph.offsetX.to_f32()) * scale
+}
+text_measure := func(font: Font, text: Str, size: I32) returns I32 {
+    mut pos : USize = 0; mut pen : F32 = 0; mut width : F32 = 0
+    while pos < text.len() {
+        scalar := unicode_read(text, pos); pos = scalar.end
+        if scalar.value == 10 { if pen > width { width = pen }; pen = 0 }
+        else if scalar.value == 9 { pen = pen + text_glyph_advance(font, 32, size) * 4 }
+        else { pen = pen + text_glyph_advance(font, scalar.value, size) }
+    }
+    if pen > width { width = pen }
+    return width.to_i64().to_i32()
+}
+text_draw := proc(font: Font, text: Str, x: I32, y: I32, size: I32, color: Color) {
+    mut pos : USize = 0; mut pen := x.to_f32(); mut row := y.to_f32()
+    while pos < text.len() {
+        scalar := unicode_read(text, pos); pos = scalar.end
+        code := scalar.value
+        if code == 10 { pen = x.to_f32(); row = row + size.to_f32() }
+        else if code == 9 { pen = pen + text_glyph_advance(font, 32, size) * 4 }
+        else if code != 13 && unicode_ignorable(code) == 0 {
+            DrawTextCodepoint(font, code.to_i32(), Vector2(x = pen, y = row), size.to_f32(), color)
+            pen = pen + text_glyph_advance(font, code, size)
+        }
+    }
+}

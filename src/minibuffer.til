@@ -1,4 +1,5 @@
 mode lib
+import("../lib/libunicode/unicode")
 
 // Prompt mechanics are independent of editor commands and rendering.
 MinibufferChoice := struct {
@@ -62,24 +63,27 @@ namespace:
     insert := func(mut self: Minibuffer, text: Str) {
         self.input = format(self.input.substr(0, self.cursor), text,
             self.input.substr(self.cursor, self.input.len() - self.cursor))
-        self.cursor = self.cursor + text.len()
+        self.cursor = unicode_ceil(self.input, self.cursor + text.len())
         self.refresh()
     }
 
     key := func(mut self: Minibuffer, key: I32, shift: Bool) {
-        if key == 263 && self.cursor > 0 { self.cursor-- }
-        if key == 262 && self.cursor < self.input.len() { self.cursor++ }
+        if key == 263 { self.cursor = unicode_previous(self.input, self.cursor) }
+        if key == 262 { self.cursor = unicode_next(self.input, self.cursor) }
         if key == 268 { self.cursor = 0 }
         if key == 269 { self.cursor = self.input.len() }
         if key == 259 && self.cursor > 0 {
-            self.input = format(self.input.substr(0, self.cursor - 1),
+            previous := unicode_previous(self.input, self.cursor)
+            self.input = format(self.input.substr(0, previous),
                 self.input.substr(self.cursor, self.input.len() - self.cursor))
-            self.cursor--
+            self.cursor = unicode_floor(self.input, previous)
             self.refresh()
         }
         if key == 261 && self.cursor < self.input.len() {
+            next := unicode_next(self.input, self.cursor)
             self.input = format(self.input.substr(0, self.cursor),
-                self.input.substr(self.cursor + 1, self.input.len() - self.cursor - 1))
+                self.input.substr(next, self.input.len() - next))
+            self.cursor = unicode_floor(self.input, self.cursor)
             self.refresh()
         }
         matches := self.matches()

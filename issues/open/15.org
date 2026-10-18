@@ -1,14 +1,50 @@
 # priority: medium
 # category: features
-** OPEN #15 Coordinate reusable Unicode support with Til std
+** OPEN #15 Extract locally validated Unicode support to Til std
 
-Unicode support is useful to other Til applications. A separate session should
-inventory the shared primitives, coordinate an implementation/design issue in
-Til, and migrate Tiled consumers once the installed library supplies them.
-This issue tracks that handoff and the application migration; no Til-side issue
-or implementation has been created as part of filing it.
+*** Local implementation completed
 
-*** Existing source and gaps
+The local-first phase is implemented and verified. =lib/libunicode/unicode.til=
+provides UTF-8 encoding/validation/streaming decode and Unicode 17.0 extended
+grapheme boundaries without GUI or native dependencies. Versioned property data,
+license and the official conformance corpus are checked in; the Til generator
+in =examples/unicode_tables.til= regenerates them. Balanced range lookups avoid
+the slow interpreted linear-table scan encountered during development.
+
+Editor and minibuffer input now accepts Unicode scalar events. Movement,
+selection, deletion, label truncation, logical columns and recovered cursor
+positions respect grapheme boundaries. Undo/checkpoints remain byte-based.
+The GUI loads encountered font glyphs and measures/draws zero-advance combining
+marks consistently. Full shaping, bidi layout and font fallback are separate
+rendering work; see =doc/unicode.org= for the supported behavior and limits.
+
+Verification:
+- Both hosts built with =./make.til=.
+- =test/unicode.til=: all 766 official Unicode 17.0 grapheme cases, forward,
+  backward and byte-position clamping, plus malformed/truncated UTF-8; compiled
+  ASAN and interpreted runs passed.
+- =test/unicode_editing.til=: editor/prompt regions, deletion, undo, columns,
+  CRLF and saved-point recovery passed compiled ASAN and interpreted.
+- ASAN regressions: =editor_selection=, =undo_tree=, =buffers=, =layout=,
+  =keymap=, =command_discovery=, =session_model= and =tabs= passed.
+- Xvfb: =unicode_gui=, =command_discovery_gui=, =terminal_font_gui=,
+  =clipboard_gui=, =session_optin_gui= and =undo_gui= passed. Unicode GUI tests
+  use private HOME/Xvfb fixtures, real character events, independent glyph
+  pixel comparisons, clipboard/undo, Unicode filenames and both hosts' prompts.
+
+Remaining: coordinate the eventual Til std API/extraction, reuse the local
+tests, and consolidate terminal/editor primitives against the installed API.
+No Til repository or system installation was changed in this phase.
+
+*** Local-first decision
+
+Implement and validate the reusable primitives locally first, as requested.
+Move them to Til std only after the editor integration is working; no parallel
+compiler changes or repeated cross-repository handoffs are required now.
+Preserve byte-offset storage, undo and checkpoints while making interactive
+editing respect Unicode grapheme boundaries. Track the later extraction here.
+
+*** Initial source inventory (before local implementation)
 
 - =lib/libterminal/text.til=: UTF-8 scalar encoding/streaming decoding and
   Unicode 17.0 scalar terminal-width tables. Decoding distinguishes incomplete

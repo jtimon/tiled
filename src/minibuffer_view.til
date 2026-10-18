@@ -1,12 +1,12 @@
 mode lib
 import("minibuffer")
+import("text_view")
 
 minibuffer_width := func(font: Font, text: Str, size: I32) returns I32 {
-    terminated := text.clone()
-    return MeasureTextEx(font, terminated.c_str, size.to_f32(), 0).x.to_i64().to_i32()
+    return text_measure(font, text, size)
 }
 minibuffer_text := proc(font: Font, text: Str, x: I32, y: I32, size: I32, color: Color) {
-    DrawTextEx(font, text.c_str, Vector2(x = x.to_f32(), y = y.to_f32()), size.to_f32(), 0, color)
+    text_draw(font, text, x, y, size, color)
 }
 minibuffer_tail := func(font: Font, text: Str, size: I32, width: I32) returns Str {
     if minibuffer_width(font, text, size) <= width { return text.clone() }
@@ -14,7 +14,7 @@ minibuffer_tail := func(font: Font, text: Str, size: I32, width: I32) returns St
     while first < text.len() {
         shortened := format("...", text.substr(first, text.len() - first))
         if minibuffer_width(font, shortened, size) <= width { return shortened }
-        first++
+        first = unicode_next(text, first)
     }
     return "..."
 }

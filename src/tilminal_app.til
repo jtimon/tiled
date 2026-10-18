@@ -122,6 +122,7 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
     SetTargetFPS(60)
     font_path := tilminal_font_path(config)
     mut view := TerminalView.new(font_path, config.font_size)
+    mut text_font := TextFont.new(font_path, config.font_size)
     footer_h := view.cell_height + 8
     mut key_state := KeyState()
     mut discovery := CommandDiscovery()
@@ -254,6 +255,9 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
             SetWindowTitle(title.c_str)
             last_title = title
         }
+        text_font.prompt(discovery.mini); text_font.include(notice)
+        for id : USize in tabs.order.items { text_font.include(tabs.slots[id].label) }
+        text_font.refresh()
         BeginDrawing()
         ClearBackground(Color(r = 16, g = 18, b = 24, a = 255))
         if drawn_id != entry.id { view.bells = entry.terminal.screen.bells; view.bell_until = 0.0; drawn_id = entry.id }
@@ -267,20 +271,21 @@ start_tilminal := proc(config: TilminalConfig, args: ..Str) {
                 else if tab.terminal.ended { label = format(tab.label, " [exit ", tab.terminal.session.status().to_str(), "]") }
                 captions.push(own TabCaption(name = label))
             }
-            draw_tab_bar(tabs.order, tabs.current, captions, view.font, view.font_size, 0, 0, width.to_i32(), footer_h.to_i32())
+            draw_tab_bar(tabs.order, tabs.current, captions, text_font.font, view.font_size, 0, 0, width.to_i32(), footer_h.to_i32())
         }
         if discovery.active() {
-            draw_minibuffer(discovery.mini, view.font, view.font_size, view.cell_height.to_i32(), width.to_i32(), height.to_i32(), footer_h.to_i32())
+            draw_minibuffer(discovery.mini, text_font.font, view.font_size, view.cell_height.to_i32(), width.to_i32(), height.to_i32(), footer_h.to_i32())
         } else if notice.len() > 0 && GetTime() < notice_until {
             DrawRectangle(0, (height - footer_h).to_i32(), width.to_i32(), footer_h.to_i32(), Color(r = 24, g = 28, b = 42, a = 255))
             BeginScissorMode(8, (height - footer_h).to_i32(), (width - 16).to_i32(), footer_h.to_i32())
-            minibuffer_text(view.font, notice, 8, (height - footer_h + 4).to_i32(), view.font_size, Color(r = 240, g = 230, b = 190, a = 255))
+            minibuffer_text(text_font.font, notice, 8, (height - footer_h + 4).to_i32(), view.font_size, Color(r = 240, g = 230, b = 190, a = 255))
             EndScissorMode()
         }
         EndDrawing()
     }
     tabs.close()
     view.close()
+    text_font.close()
     window_close_input()
     CloseWindow()
 }

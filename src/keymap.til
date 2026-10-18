@@ -1,4 +1,10 @@
 mode lib
+import("../lib/libunicode/unicode")
+
+// Character callbacks carry scalars, independently of physical shortcut keys.
+key_text_event := func(code: I32, mods: I32, action: I32) returns Bool {
+    return action == 3 && mods.band(14) == 0 && unicode_scalar(code.cast(I64)) && code >= 32 && !(code >= 127 && code < 160)
+}
 
 // Host-neutral key resolution. Commands are names, never recursively generated
 // key events. GLFW mapped modifiers: Shift=1, Control=2, Alt=4, Super=8.
