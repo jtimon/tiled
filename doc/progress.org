@@ -4,7 +4,7 @@
 
 ** Implemented and exercised
 
-- [[file:../make.til][make.til]] targets installed Til =0.0.1-f24e6004c= to build Tiled and
+- [[file:../make.til][make.til]] uses the [[file:til-dependency.org][recorded installed Til]] to build Tiled and
   tilminal. The editor is imported by Tiled, with no separate editor example
   or build target.
 - Application, build-script, example and test imports use =std/sys= following

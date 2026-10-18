@@ -9,7 +9,7 @@ There is one terminal implementation and two hosts. See
 
 ** Running
 
-Build both applications with installed Til =0.0.1-f24e6004c=:
+Build both applications with installed Til (see [[file:til-dependency.org][Til build dependency]]):
 
 #+begin_src sh
 til interpret make.til

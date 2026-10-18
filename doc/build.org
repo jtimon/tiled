@@ -4,8 +4,8 @@
 
 ** Requirements
 
-Tiled currently targets installed Til version =0.0.1-f24e6004c= (check with
-=til -v=). The =til= executable must be on =PATH=, with its standard library
+The generated [[file:til-dependency.org][Til build dependency]] records the compiler used by the
+last successful full build. The =til= executable must be on =PATH=, with its standard library
 and GUI support installed. Til's native build also requires a C compiler.
 
 The build driver is Til code: =make.til=, not a GNU Makefile. GNU Make is not

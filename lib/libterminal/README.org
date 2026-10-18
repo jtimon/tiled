@@ -7,7 +7,7 @@ event loop. See [[file:../../doc/terminal.org][terminal development]] and [[file
 
 ** Building and selecting linkage
 
-From the repository root, using installed Til =0.0.1-f24e6004c=:
+From the repository root, using installed Til (see [[file:../../doc/til-dependency.org][Til build dependency]]):
 
 #+begin_src sh
 til interpret make.til library --opt=2

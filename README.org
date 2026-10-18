@@ -9,7 +9,8 @@ Inspired by [[https://www.gnu.org/software/emacs/][Emacs]] and [[https://neovim.
 
 ** Getting started
 
-Targets installed Til =0.0.1-f24e6004c= with natural core/std imports (#413).
+Uses installed Til with natural core/std imports (#413).
+See the generated [[file:doc/til-dependency.org][Til build dependency]].
 See [[file:doc/build.org][build requirements and details]].
 From the repository root:
 

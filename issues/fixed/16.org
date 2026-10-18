@@ -1,0 +1,17 @@
+# priority: medium
+# category: cleanups
+** FIXED #16 Generate one Til dependency record
+
+The build driver now generates doc/til-dependency.org after both hosts build
+successfully, using the installed compiler's version output. Current dependency
+claims link there instead of repeating a manually maintained revision. Partial
+library builds, summary generation, clean, and failed builds do not update it.
+The record describes build provenance, not a minimum version or test result.
+
+Verification: ./make.til built both hosts; terminal_model.til and undo_tree.til
+passed in interpreted and compiled execution. The generated record identifies
+the compiler used. Historical upgrade and benchmark records remain unchanged.
+
+Generate doc/til-dependency.org from the installed compiler after successful
+full builds, and link current dependency claims to that single record.
+Keep historical upgrade and benchmark results as historical observations.
