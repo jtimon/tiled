@@ -131,6 +131,15 @@ typed error. Further buffer/model extraction remains coordinated with #4.
 
 *** Installed Til compatibility feedback
 
+The next agreed SDK handoff is a host-supplied named source prelude, reusing
+mode auto-import machinery. This removes the user-facing generated binding
+path without introducing =mode config= yet. =doc/tilvm.org= specifies scope,
+origins/import bases, diagnostics, ownership and installed-host acceptance tests.
+After the public SDK support is installed, Tiled will supply its API prelude
+and test init/helper files with no explicit application API import. Runtime
+packaging remains separate; no loader or mode changes are implemented by this
+documentation plan.
+
 The installed d3ae8b3f1 SDK passed both host builds, all five embedding/ownership
 drivers under ASAN, and seven targeted GUI drivers. No application source
 changes were required. Native configuration string ownership and candidate-VM

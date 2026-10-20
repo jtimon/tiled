@@ -2,6 +2,110 @@
 
 [[file:keybindings.org][Commands]] | [[file:../issues/open/5.org][Integration tracking]]
 
+** Planned handoff to Til #370: host-supplied prelude
+
+*** Goal and first slice
+
+Let a compiled application supply its guest-facing API before loading user
+configuration, so =~/.tiled/init.til= does not import a checkout-specific
+=gen/tiled_startup_api= path. The host knows where its installed runtime and
+bindings live; the user should only write ordinary Til configuration and
+relative imports of their own helper modules.
+
+Add an optional, per-VM/per-load host prelude to the public =std/tilvm= API.
+The desired input is source text with a logical module name/origin and an
+explicit base directory for relative imports/links. It can contain generated
+=ext_func=/=ext_proc= declarations, required record/signature declarations,
+=link(...)= directives and small Til wrappers. It may also import a packaged
+binding module rather than embed all declarations. Do not hand-maintain a
+second ABI description when generated bindings already provide it.
+
+This is one entry-module load with an additional implicit dependency, not a
+request for arbitrary incremental eval or a second successful =load_file= on
+an already sealed VM. Preserve the existing load/lookup/callback lifecycle.
+Choose the smallest public API spelling consistent with the SDK; the spelling
+is not prescribed here and should be confirmed in the Til session before
+introducing a new public surface.
+
+*** Existing machinery to reuse
+
+- =src/core/modes.til= defines GUI as
+  =Mode(needs_main=true, auto_import="src/modes/gui", decls_only=false)=.
+- =src/std/mode_type.til= supplies the =Mode= record; =auto_import= is a module
+  path, not a special native-registration mechanism.
+- =src/modes/gui.til= is an ordinary module containing imports, native links,
+  declarations and helper functions.
+- =src/self/loader.til=: =resolve_mode_import= creates an implicit dependency
+  before typing; =load_import_unit= shares import deduplication and cycle
+  handling. =load_mode_file= resolves auto-import paths relative to their
+  defining mode file.
+- Current public =TilVm.load_file= accepts one successful =mode lib= entry,
+  passes an empty extra-modes list, and exposes no source/prelude loading API.
+  The loader separately rejects embedded entry modes other than =lib=.
+
+Use that import/program machinery for the host prelude rather than concatenate
+text onto init or generate a temporary wrapper entry point. Merely opening a
+native library is insufficient: the declarations must also be available during
+name resolution and type checking.
+
+*** Required semantics
+
+- Prelude public declarations are available to init without a user-written API
+  import. Specify the scope for imported user helpers too: they should be able
+  to use the application API without repeated absolute imports. Do not globally
+  redefine SDK/core =mode lib= or inject the application API into its own prelude.
+- Keep original user filenames and line/column positions. Relative user imports
+  remain relative to the importing user file; prelude imports/links resolve from
+  the host-provided origin/base. Prelude failures identify the prelude itself.
+- Treat the prelude as a named module with normal visibility and import identity
+  rules. Define collisions explicitly; do not silently overwrite guest symbols.
+  Reuse existing deduplication and cycle handling instead of a separate registry.
+- Retain source/AST/code for the VM/callback lifetime; the host must be able to
+  release its input Str after loading. Errors and results remain owned values.
+- Failure must return structured diagnostics, leave retry semantics intact and
+  not terminate the host. A failed candidate must not invalidate another VM's
+  retained callbacks. Native side effects are still not universally rolled back.
+- Loading and later invocation require no compiler executable, generated entry
+  source or writes into the user's configuration directory.
+
+*** Acceptance tests for the Til session
+
+Build a separate ASAN host against an isolated installed SDK. It should create
+the user config after host compilation, supply the API prelude and run with an
+empty PATH and private HOME. Verify:
+
+- init with no explicit API import can call a generated native binding and
+  observe the same library-owned state as the compiled host;
+- a relative user helper can use the intended prelude visibility;
+- prelude and user errors have the correct origins and unchanged line numbers;
+- relative imports/links, duplicate imports, collisions and missing dependencies
+  have defined behavior;
+- releasing the original prelude Str does not invalidate later guest callbacks;
+- independent VMs, failed-load retry, candidate rejection and teardown preserve
+  the existing ownership/error contracts;
+- the existing no-prelude =load_file= API and its tests continue to work.
+
+*** Tiled adoption and packaging
+
+Once installed, Tiled will supply its generated binding/checked-wrapper prelude
+and remove the absolute API import from the user example. Keep =~/.tiled/init.til=,
+its zero-argument =init()= and relative helper imports. Add a real-executable
+regression with no API import and no compiler on PATH before changing the loader.
+
+The application package must still ship its matching runtime assets and native
+library; hiding the import does not make a copied executable self-contained.
+Ownership of those assets and discovery of their installed locations belongs
+to Tiled's packaging work, not to user configuration or a Tiled-specific SDK
+builtin. The current build-time paths remain until that work is implemented.
+
+=mode config= is a possible later convenience using auto-imports and an explicit
+entry-point/policy contract. It is not necessary for this first slice. Neither
+a mode name nor a prelude alone establishes isolation from native code. Revisit
+mode/script syntax and restrictions separately when their requirements are
+clear; keep =mode lib= for the existing module-plus-init protocol for now.
+
+** Current implementation
+
 Tiled uses TilVm for startup configuration and live general/selected-text commands.
 =src/guest_transform.til= applies checked guest results to editor state;
 =src/guest_commands.til= retains and dispatches those typed handles without
