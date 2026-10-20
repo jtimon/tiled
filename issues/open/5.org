@@ -129,6 +129,24 @@ See =doc/live-buffers.org= and #20 for the ABI split and verification. Library
 results carry explicit errors; the common Til wrapper raises the caller-local
 typed error. Further buffer/model extraction remains coordinated with #4.
 
+*** Installed Til compatibility feedback
+
+The installed d3ae8b3f1 SDK passed both host builds, all five embedding/ownership
+drivers under ASAN, and seven targeted GUI drivers. No application source
+changes were required. Native configuration string ownership and candidate-VM
+reload coverage are useful advances; Tiled keeps its snapshots and typed guest
+registry.
+
+Rechecking the avoided paths still reproduced native command capture UAF,
+missing owned-capture clone emission, throwing-index C codegen failure,
+generated enum failure, mismatched native throws IDs and model-binding
+composition errors. =doc/tilvm.org= records the shapes/results and feedback for
+#370. A callable-retention contract, stable error ABI and composable bindings
+remain higher priority for our extraction than switching to raw mutable config
+references. Import roots would remove the absolute-binding-path setup. Reload
+publication/side-effect policy remains host work; our startup reset is not a
+transactional reload implementation.
+
 *** Earlier native command composition findings
 
 The small adapter exposed three additional composition problems on installed

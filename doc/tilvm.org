@@ -223,3 +223,90 @@ the escape, rather than depending on a local keep-alive call. The
 GUI now resolves named keys and invokes separately retained typed guest handles.
 Routing these through captured native EditorAction closures should still wait
 for that ownership contract to be settled and regression-tested.
+
+** Feedback to Til #370: installed d3ae8b3f1
+
+This audit used installed Til, not the development binary. Both applications
+built without source changes. The five ASAN embedding drivers
+(=live_buffers_model=, =guest_commands_model=, =init_model=, =guest_transform=
+and =guest_shared=) passed with empty compiler PATH during host execution.
+Seven Xvfb drivers passed: =live_buffers_gui=, =guest_commands_gui=, =init_gui=,
+=session_gui=, =clipboard_gui=, =keymap_gui= and =command_discovery_gui=.
+
+The native-record provenance/string materialization fix is useful: native
+fields must not retain VM literals or borrowed views after VM destruction,
+even when layouts match. The SDK reload tests also exercise the right lifetime
+sequence: validate a separate candidate, retain old callbacks on rejection,
+then destroy old callbacks before their VM when publishing the replacement.
+
+*** Remaining failures reproduced on this version
+
+These are diagnostic probes of paths Tiled currently avoids, not failures of
+the production integration tests above.
+
+| Probe | Observed result |
+|-------+-----------------|
+| Owning an EditorGuestTransform capture in EditorAction | Generated closure clone calls missing =EditorGuestTransform_clone=; C compilation fails. |
+| Borrow-capturing an adapter through EditorCommands.command | ASAN heap-use-after-free in =EditorCommands_invoke=; the closure box was freed after registration. |
+| Explicit =callback.clone()= on an EditorAction parameter | Rejected with =no method 'clone' for type 'unknown'=. |
+| Vector indexing inside a genuinely throwing function | C bounds failure still assigns =_err_kind = 1= to an =I64 *=. |
+| Generated enum binding | Importing a two-case exported enum panics at =core/ast.til:41=, unwrap of None. |
+| Typed native throw into a larger host | Library emits error ID 5; host compares against 6 and misses the catch. |
+| Direct EditorState export plus existing model imports | Duplicate terminal/tab/undo/model declarations and invalid positional nested defaults remain. |
+
+The owned/borrowed adapter shapes are shown above. In both probes the VM
+outlived the command table; the borrowed adapter was explicitly destroyed only
+after the table. We need a supported ownership contract for captured callables
+stored in ordinary struct/Vec command tables. This may require a Tiled API
+change; passing the runtime callable-slot corpus alone does not establish that
+our registration pattern is sound. Keep the typed guest registry meanwhile.
+
+Minimal indexing shape, including a real throw so the declaration is valid:
+
+#+begin_src til
+Problem := struct {}
+indexing := func(values: Vec(I64)) returns I64 throws Problem {
+    if values.len() == 0 { throw Problem() }
+    return values[0].clone()
+}
+#+end_src
+
+Minimal enum library: building succeeds, but translating a consumer of its
+generated binding fails:
+
+#+begin_src til
+mode lib
+ProbeOperation := enum { Read, Write }
+probe_operation := func() returns ProbeOperation { return ProbeOperation.Read }
+#+end_src
+
+For the error-ID probe, a library function throws =NativeProbeError(code=7)=.
+A host importing =std/tilvm= plus the generated binding creates/loads a VM,
+then calls that function with =? catch (err: NativeProbeError)=. Generated
+library code writes 5 into the hidden error-kind slot; generated host code tests
+6, skipping the catch. Our live-buffer ABI therefore retains explicit reply
+errors and raises typed errors in caller-local Til wrappers.
+
+Full local scratch repros: =tmp/tilvm_d3_capture.til=,
+=tmp/tilvm_d3_borrowed.til=, =tmp/tilvm_d3_clone_slot.til=,
+=tmp/tilvm_d3_throw.til=, =tmp/tilvm_d3_enum{,_host}.til= and
+=tmp/tilvm_d3_error{,_host,_prepare}.til=. The model export log is
+=tmp/d3_model_export.log=. These are disposable; the shapes/results above
+remain after clean.
+
+*** Priorities and design feedback
+
+- Prioritize cross-library error ABI and generated-binding composition,
+  including enums/nested defaults. They constrain moving the model into a DLL.
+- Clarify/test captured callable retention in real command-table shapes;
+  the recent mutable-slot fixes do not close this case.
+- Application-supplied import roots/module resolution would let init use a
+  stable Tiled import rather than a generated absolute binding path.
+- Mutable native config references should be an option, not a reason to
+  abandon snapshots/staging. Our cold-start loader resets shared settings and
+  registrations; it is not a drop-in reload transaction. Reload must publish
+  validated settings, bindings and callbacks together.
+- Keep the distinction between callback replacement and native side effects.
+  A candidate can edit a live buffer or write a file before failing. Tiled
+  should stage configuration and restrict live-buffer writes during candidate
+  initialization; TilVm should not claim universal rollback.
