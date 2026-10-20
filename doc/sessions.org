@@ -7,9 +7,13 @@ in through =~/.tiled/init.til=:
 
 #+begin_src til
 mode lib
-init := func(mut config: TiledConfig) {
+// Copy gen/tiled_init.til first; it contains the binding path for your build.
+import("/path/to/tiled/gen/tiled_startup_api")
+init := proc() {
+    mut config := tiled_options()
     config.session.enabled = true
     config.session.restore = true
+    tiled_configure(config)
 }
 #+end_src
 
@@ -98,15 +102,18 @@ session. An explicit =--session NAME= opts a one-shot invocation into persistenc
 
 ** Configuration and storage
 
-In either host's existing Til =init= function:
+In Tiled's =init()=, edit the snapshot from =tiled_options()= and publish it
+with =tiled_configure(config)=. In tilminal, edit the passed =config= directly:
 
 #+begin_src til
 config.session.enabled = true
 config.session.restore = true
 config.session.name = "default"
 config.session.interval_ms = 2000 // Minimum 100 ms.
-// config.commands.bind("global", "F12", "session-save")
 #+end_src
+
+Tiled can bind a checkpoint key with =tiled_bind("global", "F12", "session-save")=;
+tilminal uses =config.commands.bind= with the same arguments.
 
 The example enables saving/restoration: Tiled defaults both flags to =false=,
 while tilminal defaults both to =true=. Name and interval are defaults in both

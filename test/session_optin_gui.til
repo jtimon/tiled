@@ -1,5 +1,6 @@
 mode gui
 import("terminal_gui_helpers")
+import("config_helpers")
 import("../src/editor_session")
 
 tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
@@ -14,16 +15,14 @@ launch := proc(home: Str, args: ..Str) returns Cmd {
     return app
 }
 quoted := func(path: Str) returns Str { return format("\"", path.replace("\\", "\\\\").replace("\"", "\\\""), "\"") }
-write_init := proc(home: Str, first: Str, second: Str) {
+write_init := proc(home: Str, first: Str) {
     File.writefile(format(home, "/.tiled/init.til"), format(
-        "mode lib\nimport(\"session_settings\")\n",
-        "open_second := proc(mut editor: EditorState) { editor.show_buffer(", quoted(second), ", File.readfile(", quoted(second), ")) }\n",
-        "init := func(mut config: TiledConfig) { configure_sessions(config); config.tile_left = false; config.initial_file = ", quoted(first), "; ",
-        "config.commands.command(\"open-second\", open_second); config.commands.bind(\"text\", \"F6\", \"open-second\") }\n"))
+        "mode lib\n", fixture_api(), "import(\"session_settings\")\n",
+        "init := proc() { mut config := tiled_options(); configure_sessions(config); config.tile_left = false; config.initial_file = ", quoted(first), "; tiled_configure(config) }\n"))
 }
 write_settings := proc(home: Str, enabled: Bool, restore: Bool) {
     File.writefile(format(home, "/.tiled/session_settings.til"), format(
-        "mode lib\nconfigure_sessions := func(mut config: TiledConfig) { config.session.enabled = ", enabled.to_str(),
+        "mode lib\n", fixture_api(), "configure_sessions := func(mut config: TiledSettings) { config.session.enabled = ", enabled.to_str(),
         "; config.session.restore = ", restore.to_str(), "; config.session.interval_ms = 100 }\n"))
 }
 main := proc() {
@@ -47,10 +46,15 @@ main := proc() {
     println("PASS: directory init only; no supported init starts fresh without creating session storage")
 
     assert(mkdir_p(format(home, "/.tiled")) == 0)
-    write_init(home, first, second); write_settings(home, true, true)
+    write_init(home, first); write_settings(home, true, true)
     app := launch(home); pid := app.start()
     window := wait_window(app, pid, "Tiled - first.txt"); focus(display, window)
-    tap(display, 65475) // F6 opens the second fixture through an imported init.
+    chord(display, 111)
+    dialog := wait_window(app, pid, "Open file"); focus(display, dialog)
+    chord(display, 108); type_text(display, second)
+    for _ in 0..100 { if find_window("Open file") == 0 { break }; sleep_ms(50) }
+    require(app, pid, find_window("Open file") == 0, "second fixture file dialog did not close")
+    focus(display, window)
     wait_window(app, pid, "Tiled - second file.txt")
     tap(display, 65363); tap(display, 65363); tap(display, 65363)
     close_app(app, pid, display, window)
@@ -74,7 +78,7 @@ main := proc() {
     defaults_window := wait_window(defaults, defaults_pid, "Tiled - *draft*"); focus(display, defaults_window)
     close_app(defaults, defaults_pid, display, defaults_window)
     assert(File.readfile(path) == baseline && File.readfile(format(path, ".previous")) == previous)
-    write_init(home, first, second); write_settings(home, false, true)
+    write_init(home, first); write_settings(home, false, true)
     disabled := launch(home, "--session", "default"); disabled_pid := disabled.start()
     disabled_window := wait_window(disabled, disabled_pid, "Tiled - first.txt"); focus(display, disabled_window)
     close_app(disabled, disabled_pid, display, disabled_window)

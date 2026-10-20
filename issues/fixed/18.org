@@ -1,0 +1,41 @@
+# priority: medium
+# category: features
+** FIXED #18 Interpret Tiled startup configuration through a shared Til library
+
+Tiled now interprets =init()= in-process using the installed TilVm. The new
+=lib/libtiled/tiled_startup.til= library owns option snapshots and built-in
+binding overrides; native and guest code import the same generated shared
+binding. The host adopts settings after success and destroys the startup VM.
+Failures return owned diagnostics, reset staged state and stop startup.
+
+The build emits =gen/tiled_startup_api.til=, the matching SDK location in
+=gen/tiled_runtime.til=, and ready-to-copy =gen/tiled_init.til=. Generated paths
+are explicit until TilVm supports application import roots. Native callback
+GUI tests now compile their fixtures explicitly rather than using user init.
+Tilminal's compiled loader and native command API remain available separately.
+
+Verification:
+- =./make.til= built the library and both hosts.
+- ASAN =test/init_model.til= passed with empty PATH: owned snapshots, binding
+  application, failed-init rollback, retained diagnostics, retry and the
+  generated default config.
+- =test/init_gui.til= passed under Xvfb with empty PATH: configs created after
+  host compilation, relative imports, same init/GUI PID, window/draft/session
+  settings, built-in bindings, initial file, bad/legacy init and version bypass.
+- Xvfb regressions passed: =session_optin_gui=, =session_gui=, =tabs_gui=,
+  =terminal_font_gui=, =draft_save_gui=, =keymap_gui=, =command_discovery_gui=,
+  =undo_gui=, =unicode_gui=, =exit_input=, =clipboard_gui= and
+  =terminal_fullscreen_gui=.
+
+*** Request
+
+Replace Tiled's compiled init launcher with in-process TilVm loading of
+=~/.tiled/init.til=. The new zero-argument =init()= uses generated bindings
+to a shared library owning startup settings and built-in keymap overrides.
+Compiled Tiled reads the same library instance before opening its window.
+
+Verify settings/imports, failure handling and a config created after the host
+build, with compiler executables unavailable at runtime. Keep tests isolated
+from personal HOME/configuration. Update defaults, documentation and relevant
+GUI fixtures. Live guest commands remain subsequent work in #5; tilminal's
+existing compiled loader is outside this first startup milestone.

@@ -1,5 +1,6 @@
 mode gui
 import("terminal_gui_helpers")
+import("config_helpers")
 import("../src/editor_session")
 import("../src/tilminal_session")
 
@@ -40,7 +41,7 @@ launch := proc(home: Str, host: Str) returns Cmd {
 main := proc() {
     root := get_cwd_str()
     home := format(root, "/tmp/tabs-gui-", process_id().to_str()); assert(mkdir_p(format(home, "/.tiled")) == 0)
-    File.writefile(format(home, "/.tiled/init.til"), "mode lib\ninit := func(mut c: TiledConfig) { c.tile_left = false; c.width = 960; c.height = 640; c.session.enabled = true; c.session.restore = true; c.session.interval_ms = 100 }\n")
+    fixture_tiled_init(home, "config.tile_left = false; config.width = 960; config.height = 640; config.session.enabled = true; config.session.restore = true; config.session.interval_ms = 100")
     File.writefile(format(home, "/.tilminal.til"), "mode lib\ninit := func(mut c: TilminalConfig) { c.session.interval_ms = 100 }\n")
     display_name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(display_name.c_str)
     if is_null(display) { panic("run under xvfb-run") }

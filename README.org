@@ -25,8 +25,9 @@ compiler bootstrap is needed here. =./make.til clean= removes build outputs
 and =tmp/=, preserving reference repositories under =.inspirations/=.
 
 Tiled starts fresh by default. Opt in to saving/restoring opened files and tabs
-in =~/.tiled/init.til=; see [[file:doc/sessions.org][saved sessions]]. The working
-config [[file:defaults/init.til][defaults/init.til]] includes the settings to enable it.
+in =~/.tiled/init.til=; see [[file:doc/sessions.org][saved sessions]]. After building, copy
+=gen/tiled_init.til= to that path. It is generated from [[file:defaults/init.til][defaults/init.til]] with
+the shared-library binding path filled in. Tiled interprets it in-process.
 Use =--no-session= to bypass persistence for one launch.
 
 ** Documentation
@@ -43,4 +44,4 @@ Use =--no-session= to bypass persistence for one launch.
 - [[file:doc/architecture.org][Buffers, windows, frames and desktop hosting]]
 - [[file:doc/keybindings.org][Commands, configurable keymaps and future extensions]]
 - [[file:doc/unicode.org][Unicode input, grapheme editing and rendering]]
-- [[file:doc/tilvm.org][TilVm text-command and shared-library integration checks]]
+- [[file:doc/tilvm.org][TilVm startup, text-command and shared-library integration]]

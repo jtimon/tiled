@@ -1,0 +1,63 @@
+mode gui
+import("terminal_gui_helpers")
+import("config_helpers")
+import("../src/editor_session")
+
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
+checkpoint := proc(app: Cmd, pid: I64, path: Str, expected: Str) returns EditorCheckpoint {
+    for _ in 0..200 {
+        mut error : I32 = 0; bytes := workspace_read(path, error)
+        if error == 0 {
+            value := EditorCheckpoint.decode(bytes)
+            if value.error == "" { if value.editor.buffers[0].text == expected { return value } }
+        }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, false, "interpreted settings did not produce the expected checkpoint")
+    return EditorCheckpoint()
+}
+main := proc() {
+    // The actual application was built before any of these guest files exist.
+    home := format(get_cwd_str(), "/tmp/init-gui-", process_id().to_str()); assert(mkdir_p(format(home, "/.tiled")) == 0)
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace"); query.capture_out(); query.run_checked()
+    font_path := query.out()
+    File.writefile(format(home, "/.tiled/options.til"), format("mode lib\nimport(\"std/sys\")\n", fixture_api(),
+        "configure := proc() { mut settings := tiled_options(); settings.width = 900; settings.height = 640; settings.tile_left = false; ",
+        "settings.font_path = ", fixture_quote(font_path), "; settings.draft_text = format(\"INTERPRETED:\", process_id().to_str()); settings.tabs_visible = false; ",
+        "settings.session.enabled = true; settings.session.restore = false; settings.session.name = \"init-check\"; settings.session.interval_ms = 100; tiled_configure(settings) }\n"))
+    File.writefile(format(home, "/.tiled/init.til"), format("mode lib\n", fixture_api(), "import(\"options\")\n",
+        "init := proc() { configure(); tiled_unbind(\"text\", \"Enter\"); tiled_bind(\"text\", \"F8\", \"newline\") }\n"))
+    app := Cmd.new("./bin/tiled"); app.env("HOME", home).env("PATH", "")
+    app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    pid := app.start(); window := wait_window(app, pid, "Tiled - *draft*")
+    name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    sleep_ms(250); XSetInputFocus(display, window, 2, 0); XFlush(display)
+    path := format(home, "/.tiled/sessions/init-check.session")
+    expected := format("INTERPRETED:", pid.to_str())
+    saved := checkpoint(app, pid, path, expected)
+    require(app, pid, !saved.editor.tabs_visible && saved.frame.width == 900 && saved.frame.height == 640,
+        "window/tab settings were not read from the shared configuration library")
+    tap(display, 65293); tap(display, 65477) // Enter unbound; F8 inserts one newline.
+    checkpoint(app, pid, path, format("\n", expected))
+    request_close(display, window); sleep_ms(150); type_text(display, "keep")
+    for _ in 0..100 { if app.poll() { break }; sleep_ms(50) }
+    require(app, pid, app.poll(), "interpreted-config editor did not exit"); assert(app.wait() == 0)
+    println("PASS: in-process interpreted imports, shared settings and built-in bindings with empty compiler PATH")
+
+    file := format(home, "/notes.txt"); File.writefile(file, "FILE")
+    fixture_tiled_init(home, format("config.tile_left = false; config.font_path = ", fixture_quote(font_path), "; config.initial_file = ", fixture_quote(file)))
+    again := Cmd.new("./bin/tiled"); again.env("HOME", home).env("PATH", "").stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    again_pid := again.start(); again_window := wait_window(again, again_pid, "Tiled - notes.txt")
+    sleep_ms(200); close_app(again, again_pid, display, again_window)
+    for bad : Str in array(Str, "mode lib\ninit := func(value: Str) { assert(value.len() == 0) }\n", "mode lib\ninit := proc() { noop_proc(); panic(\"bad init\") }\n", "mode lib\nthis is invalid\n") {
+        File.writefile(format(home, "/.tiled/init.til"), bad)
+        rejected := Cmd.new("./bin/tiled"); rejected.env("HOME", home).env("PATH", "").capture()
+        assert(rejected.run() != 0)
+        assert(rejected.out().contains("init") || rejected.err().contains("init"))
+    }
+    version := Cmd.new("./bin/tiled", "-v"); version.env("HOME", home).env("PATH", "").capture()
+    assert(version.run() == 0 && version.out().starts_with("0.0.1-"))
+    XCloseDisplay(display)
+    println("PASS: interpreted initial file, rejected bad/legacy init and version bypass without compiler PATH")
+}

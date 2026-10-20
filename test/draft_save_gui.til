@@ -1,5 +1,6 @@
 mode gui
 import("terminal_gui_helpers")
+import("config_helpers")
 
 tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
 chord := proc(display: Dynamic, key: UPtr, modifier: UPtr = 65507) {
@@ -37,10 +38,10 @@ main := proc() {
         assert(mkdir_p(format(home, "/.tiled")) == 0)
         mut suffix := ""
         if variant == "legacy" {
-            File.writefile(format(home, "/.tiled/init.til"), "mode lib\ninit := func(mut c: TiledConfig) { c.scratch_text = \"LEGACY\" }\n")
+            fixture_tiled_init(home, "config.scratch_text = \"LEGACY\"")
             suffix = "LEGACY"
         } else if variant == "preferred" {
-            File.writefile(format(home, "/.tiled/init.til"), "mode lib\ninit := func(mut c: TiledConfig) { c.scratch_text = \"LEGACY\"; c.draft_text = \"DRAFT\" }\n")
+            fixture_tiled_init(home, "config.scratch_text = \"LEGACY\"; config.draft_text = \"DRAFT\"")
             suffix = "DRAFT"
         }
         app := Cmd.new(format(root, "/bin/tiled"), "--no-session")

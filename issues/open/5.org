@@ -22,11 +22,14 @@ Using the same language does not by itself provide a live embedding API.
   commands, bind/rebind/unbind, multi-key prefixes, selection-specific maps,
   minibuffer precedence, explicit forwarding and repeat/text-event policy.
 - Tiled loads =~/.tiled/init.til= and tilminal loads =~/.tilminal.til=.
-  Both expose =config.commands=; their shared development loader compiles a
-  GUI child. User callbacks execute against its live editor/terminal state.
-- The installed host binary need not be rebuilt by the user, but startup
-  still compiles the generated child and requires installed Til and source.
-  No embedded interpreter or live reload is implemented.
+  Tiled now interprets a zero-argument =init()= through TilVm and reads a shared
+  startup settings library (see #18). Its guest API exposes options and built-in
+  keymap overrides. Tilminal retains the compiled GUI-child loader and
+  =config.commands=. Native Tiled callbacks still use =TiledConfig.commands=;
+  registering live guest commands through init remains to be implemented.
+- Tiled startup needs the matching installed SDK assets and generated native
+  binding/library, but no compiler executable or replacement GUI process.
+  No live reload is implemented.
 - M-x now searches/runs built-in and registered user commands through the same
   executor as keybindings. Effective shortcuts account for selection and prefix
   shadowing. Describe-key reports the actual winning map/command without executing
@@ -36,7 +39,7 @@ Using the same language does not by itself provide a live embedding API.
 - [[file:../../doc/keybindings.org][The implemented API]] and working default configs are documented;
   [[file:../../doc/keybindings.til][the earlier broader API sketch]] remains a proposal.
 - Verification: compiled/interpreted =test/keymap.til=; =test/keymap_gui.til=
-  loads real user configs in both hosts, invokes callbacks after startup,
+  uses explicit native Tiled fixtures and tilminal user config, invokes callbacks after startup,
   saves a live edited buffer, changes paste to Ctrl-V, forwards Ctrl-Shift-V,
   overrides prompt cancellation and diagnoses an unknown command. Existing
   clipboard, mapped-input, terminal lifecycle, scrollback and exit GUI checks
@@ -58,8 +61,8 @@ panic/exit recovery with unchanged editor text/selection, named key resolution,
 and result/diagnostic lifetime after callback and VM teardown. The test passed.
 The SDK root is an explicit argument, not a machine-specific source dependency.
 
-This is a headless integration seam and upgrade regression, not yet a default
-GUI command or replacement for =~/.tiled/init.til=. See
+This text-command adapter remains a headless integration seam and upgrade
+regression. Production startup settings use a separate shared library. See
 [[file:../../doc/tilvm.org][the prototype contract and next-upgrade findings]].
 
 *** Remaining Til dependency and integration findings
@@ -69,8 +72,8 @@ and scalar/string interchange. It also permits prebuilt native-library imports,
 providing a generated-binding route to shared functionality without dynamic
 host-function registration. Passing the existing mutable =TiledConfig=/
 =EditorState= records directly through callbacks still needs an explicit type/
-ownership contract. Keep the compiled startup loader while the editor API
-boundary is developed.
+ownership contract. Tiled's settings milestone uses a zero-argument init instead
+of passing that native record. Tilminal retains its compiled startup loader.
 
 *** Shared native library proof
 
@@ -88,7 +91,8 @@ transform test, and passed ASAN =unicode=, =unicode_editing=, =undo_tree=,
 =unicode_editing=; and Xvfb =unicode_gui=, =keymap_gui= and =session_optin_gui=.
 The build driver regenerated the compiler dependency record automatically.
 
-Next: choose the smallest real shared editor API with one owner of buffer/undo
+The shared startup API is now used by the actual Tiled executable. Next: choose
+the smallest live editor API with one owner of buffer/undo
 state. Avoid a static host copy plus a guest-loaded dynamic copy, and do not
 promise that editor undo rolls back arbitrary native side effects.
 
@@ -111,6 +115,14 @@ registry integration:
 The earlier stored-procedure effect/mutability limitations have been fixed in
 Til; existing native wrappers still contain their older explicit effect/local
 callable spelling. No compiler files were changed in this phase.
+
+Startup integration also exposed two compiler edges: a nested record default
+was emitted as a positional aggregate in generated Til bindings, and rethrowing
+a caught error emitted an unknown-statement placeholder in C. The startup API
+uses fully populated snapshots from a native getter (no nested record default
+in the exported type), and the loader returns an owned optional error to its
+caller. ASAN and actual-startup tests verify errors are reported, staged values
+are reset, and a failed init never silently launches with defaults.
 
 *** Scope
 

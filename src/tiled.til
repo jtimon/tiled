@@ -2,7 +2,7 @@ mode gui
 
 import("std/sys")
 import("editor")
-import("config_loader")
+import("tiled_init")
 
 BASE_VERSION := "0.0.1-"
 
@@ -28,10 +28,14 @@ main := proc(args: ..Str) {
         path := format(home, "/.tiled/init.til")
         if File.exists(path) {
             println("Loading ", path)
-            load_user_config("tiled", "editor", "TiledConfig", "start_editor", path, ..args)
+            failure := tiled_load_init(path)
+            if failure.is_some() { err := failure.unwrap(); println(err.to_str()); exit(1) }
+            config := tiled_startup_config()
+            start_editor(config, ..args)
             return
         }
     }
     println("No ~/.tiled/init.til file found; using defaults.")
-    start_editor(TiledConfig(), ..args)
+    config := tiled_startup_config()
+    start_editor(config, ..args)
 }

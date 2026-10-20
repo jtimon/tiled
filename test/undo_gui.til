@@ -1,5 +1,6 @@
 mode gui
 import("terminal_gui_helpers")
+import("config_helpers")
 
 tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
 chord := proc(display: Dynamic, key: UPtr, shift: Bool = false) {
@@ -25,7 +26,7 @@ main := proc() {
     home := format(root, "/tmp/undo-gui-", process_id().to_str()); assert(mkdir_p(format(home, "/.tiled")) == 0)
     file := format(home, "/notes.txt"); File.writefile(file, "")
     state := format(home, "/state")
-    File.writefile(format(home, "/.tiled/init.til"), format(
+    editor_binary := fixture_native_editor(home, format(
         "mode lib\n",
         "observe := proc(mut e: EditorState) { e.edit_boundary(); ref b : EditorBuffer = e.buffers[e.nodes[e.focused].view.buffer]; mut mark := \"clean:\"; if b.dirty { mark = \"dirty:\" }; File.writefile(\"", state, "\", format(mark, b.text)) }\n",
         "compound := func(mut e: EditorState) { e.insert(\"END\"); e.move_cursor(268); e.insert(\"START\") }\n",
@@ -33,7 +34,7 @@ main := proc() {
     InitWindow(960, 80, "undo test clipboard".c_str); SetWindowPosition(0, 1100); SetExitKey(0)
     name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(name.c_str)
     if is_null(display) { panic("run under xvfb-run") }
-    app := Cmd.new("./bin/tiled", file); app.env("HOME", home)
+    app := Cmd.new(editor_binary, file); app.env("HOME", home)
     app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
     pid := app.start(); window := wait_window(app, pid, "Tiled - notes.txt"); sleep_ms(250)
     XSetInputFocus(display, window, 2, 0); XFlush(display)

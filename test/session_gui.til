@@ -1,5 +1,6 @@
 mode gui
 import("terminal_gui_helpers")
+import("config_helpers")
 import("../src/editor_session")
 
 XMoveResizeWindow := ext_proc(display: Dynamic, shallow window: UPtr, shallow x: I32, shallow y: I32, shallow width: U32, shallow height: U32) returns shallow I32 {}
@@ -45,9 +46,7 @@ checkpoint := proc(app: Cmd, pid: I64, path: Str, text: Str) returns EditorCheck
 main := proc() {
     root := get_cwd_str()
     home := format(root, "/tmp/session-gui-", process_id().to_str()); assert(mkdir_p(format(home, "/.tiled")) == 0)
-    // Configured startup launches a compiled GUI child. Record its PID so the
-    // crash and writer-lock tests target that child, not the waiting launcher.
-    File.writefile(format(home, "/.tiled/init.til"), "mode lib\ninit := proc(mut config: TiledConfig) { config.session.enabled = true; config.session.restore = true; File.writefile(format(get_env(\"HOME\"), \"/gui-pid\"), process_id().to_str()) }\n")
+    fixture_tiled_init(home, "config.session.enabled = true; config.session.restore = true")
     file := format(home, "/notes.txt"); File.writefile(file, "ORIGINAL")
     name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(name.c_str)
     if is_null(display) { panic("run under xvfb-run") }
@@ -91,8 +90,7 @@ main := proc() {
     crashed := app_for(home, "crash", crash_file); crashed_pid := crashed.start()
     crash_window := wait_window(crashed, crashed_pid, "Tiled - crash.txt"); focus(display, crash_window)
     type_keys(display, "CRASH_"); checkpoint(crashed, crashed_pid, crash_path, "CRASH_BASE")
-    child_pid := File.readfile(format(home, "/gui-pid"))
-    Cmd.new("kill", "-KILL", child_pid).run_checked(); crashed.wait()
+    Cmd.new("kill", "-KILL", crashed_pid.to_str()).run_checked(); crashed.wait()
     recovered := app_for(home, "crash"); recovered_pid := recovered.start()
     recovery_window := wait_window(recovered, recovered_pid, "Tiled - crash.txt"); focus(display, recovery_window)
     checkpoint(recovered, recovered_pid, crash_path, "CRASH_BASE")
@@ -119,9 +117,8 @@ main := proc() {
     one_window := wait_window(one, one_pid, "Tiled - one.txt")
     two := app_for(home, "shared", two_file); two_pid := two.start()
     two_window := wait_window(two, two_pid, "Tiled - two.txt")
-    two_child := File.readfile(format(home, "/gui-pid"))
     checkpoint(one, one_pid, format(home, "/.tiled/sessions/shared.session"), "ONE")
-    checkpoint(two, two_pid, format(home, "/.tiled/sessions/shared-", two_child, "-1.session"), "TWO")
+    checkpoint(two, two_pid, format(home, "/.tiled/sessions/shared-", two_pid.to_str(), "-1.session"), "TWO")
     request_close(display, two_window); finished(two, two_pid)
     request_close(display, one_window); finished(one, one_pid)
     XCloseDisplay(display)

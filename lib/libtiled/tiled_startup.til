@@ -1,0 +1,38 @@
+mode lib
+
+// One native owner of startup options, shared by the compiled host and TilVm.
+// These are value snapshots; the GUI adopts the final snapshot before startup.
+TiledSessionSettings := struct {
+    enabled := false
+    restore := false
+    name := "default"
+    interval_ms : I64 = 2000
+}
+TiledSettings := struct {
+    width : I32 = 800
+    height : I32 = 600
+    maximized := false
+    tile_left := true
+    initial_file := ""
+    draft_text := ""
+    scratch_text := ""
+    font_path := ""
+    font_size : I32 = 28
+    tabs_visible := true
+    session : TiledSessionSettings
+}
+TiledBinding := struct { map := ""; keys := ""; command := ""; repeat := false; remove := false }
+priv mut settings := TiledSettings(session = TiledSessionSettings())
+priv mut bindings := Vec(TiledBinding).new()
+
+tiled_reset := proc() { noop_proc(); settings = TiledSettings(session = TiledSessionSettings()); bindings = Vec(TiledBinding).new() }
+tiled_options := proc() returns TiledSettings { noop_proc(); return settings.clone() }
+tiled_configure := proc(value: TiledSettings) { noop_proc(); settings = value.clone() }
+tiled_bind := proc(map: Str, keys: Str, command: Str, repeat: Bool = false) {
+    noop_proc(); bindings.push(own TiledBinding(map = map.clone(), keys = keys.clone(), command = command.clone(), repeat = repeat))
+}
+tiled_unbind := proc(map: Str, keys: Str) {
+    noop_proc(); bindings.push(own TiledBinding(map = map.clone(), keys = keys.clone(), remove = true))
+}
+tiled_binding_count := proc() returns USize { noop_proc(); return bindings.len() }
+tiled_binding := proc(index: USize) returns TiledBinding { noop_proc(); return bindings[index].clone() }

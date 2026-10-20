@@ -1,5 +1,6 @@
 mode gui
 import("terminal_gui_helpers")
+import("config_helpers")
 
 tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
 chord := proc(display: Dynamic, key: UPtr, shift: Bool = false) {
@@ -25,7 +26,7 @@ main := proc() {
     home := format(root, "/tmp/keymap-gui-", process_id().to_str())
     assert(mkdir_p(format(home, "/.tiled")) == 0)
     document := format(home, "/notes.txt"); File.writefile(document, "")
-    File.writefile(format(home, "/.tiled/init.til"), format(
+    editor_binary := fixture_native_editor(home, format(
         "mode lib\nmarker := func(mut editor: EditorState) { editor.insert(\"KEYMAP_OK\") }\ninit := func(mut config: TiledConfig) {\n"
         " config.tile_left = false\n config.commands.command(\"marker\", marker)\n"
         " config.commands.bind(\"text\", \"F6 a b\", \"marker\")\n"
@@ -50,7 +51,9 @@ main := proc() {
     name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(name.c_str)
     if is_null(display) { panic("run under xvfb-run") }
     for host : Str in array(Str, "tiled", "tilminal") {
-        app := Cmd.new(format("./bin/", host))
+        mut binary := format("./bin/", host)
+        if host == "tiled" { binary = editor_binary.clone() }
+        app := Cmd.new(binary)
         if host == "tiled" { app.arg(document) }
         app.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
         app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
@@ -91,7 +94,7 @@ main := proc() {
             for _ in 0..100 { if app.poll() { break }; sleep_ms(50) }
             require(app, pid, app.poll(), "configured Tiled did not close"); assert(app.wait() == 0)
         } else { close_app(app, pid, display, window) }
-        println("PASS: ", host, " compiled user config, named commands, prefixes, rebinding and forwarding")
+        println("PASS: ", host, " native commands, prefixes, rebinding and forwarding")
     }
     File.writefile(format(home, "/.tilminal.til"),
         "mode lib\ninit := func(mut config: TilminalConfig) { config.commands.bind(\"terminal\", \"C-v\", \"missing-command\") }\n")

@@ -10,7 +10,7 @@ quote_path := func(path: Str) returns Str {
     return format("\"", escaped, "\"")
 }
 
-// Interim compiled configuration: user callbacks live in the actual GUI child,
+// Tilminal's interim compiled configuration: callbacks live in the GUI child,
 // with its live state. This is not an embedded interpreter or hot reload.
 load_user_config := proc(program: Str, module: Str, config_type: Str, start: Str, path: Str, args: ..Str) {
     tmp_dir := format(SOURCE_ROOT, "/tmp")

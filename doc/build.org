@@ -85,8 +85,9 @@ This builds =libterminal= independently and statically links =bin/tiled= and
 =bin/tilminal= sequentially, using the installed compiler. Defaults are
 =--cpu=baseline --usize=64 --opt=0=. Generated C, bindings and libraries go
 under =gen/=. These build outputs
-are ignored by Git. User configs can now register compiled Til commands and
-override [[file:keybindings.org][keymaps]] at startup; the older =keybindings.til= API sketch remains a proposal.
+are ignored by Git. Tiled's interpreted init configures shared startup options
+and built-in [[file:keybindings.org][keymaps]]; tilminal still supports compiled init callbacks.
+The older =keybindings.til= API sketch remains a proposal.
 
 #+begin_src sh
 ./bin/tiled
@@ -117,6 +118,20 @@ before compiling a consumer or test. Shared binaries require the selected
 library location to remain available; static executables do not load
 =libterminal.so= at runtime. Til may still load its twin for compile-time or
 interpreted evaluation. See [[file:../lib/libterminal/README.org][library API/install requirements]].
+
+Full builds also compile =lib/libtiled/tiled_startup.til= as a shared library,
+even when terminal linking is static or source-based. Tiled and its interpreted
+init use the same explicit shared-object path via =gen/tiled_startup_api.til=.
+=gen/tiled_runtime.til= records the matching SDK beside the selected installed
+compiler (=<prefix>/bin/til= and =<prefix>/lib/til=). The build generates
+=gen/tiled_init.til= as a ready-to-copy example with the binding path filled in.
+The library-only terminal target does not build these startup assets.
+
+At runtime Tiled needs that SDK's source assets, the generated binding and
+shared library, but no Til/C compiler executable. The current development
+layout uses build-time absolute paths; rebuild and update the config's binding
+import if the build is moved. Tilminal's compiled init loader still needs the
+compiler and source checkout. See [[file:configuration.org][configuration and migration]].
 
 To use an already installed library rather than rebuilding its implementation:
 

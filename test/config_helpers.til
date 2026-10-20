@@ -1,0 +1,25 @@
+mode lib
+import("std/sys")
+import("std/file")
+
+get_cwd_str := ext_proc() returns Str {}
+fixture_quote := func(path: Str) returns Str { return format("\"", path.replace("\\", "\\\\").replace("\"", "\\\""), "\"") }
+fixture_api := proc() returns Str {
+    return format("import(", fixture_quote(format(get_cwd_str(), "/gen/tiled_startup_api")), ")\n")
+}
+fixture_tiled_init := proc(home: Str, body: Str) {
+    assert(mkdir_p(format(home, "/.tiled")) == 0)
+    File.writefile(format(home, "/.tiled/init.til"), format("mode lib\n", fixture_api(),
+        "init := proc() { mut config := tiled_options(); ", body, "; tiled_configure(config) }\n"))
+}
+// Native command/renderer tests still need compiled EditorState callbacks.
+// Compile those fixtures explicitly in the test setup, not via user init.
+fixture_native_editor := proc(home: Str, source: Str) returns Str {
+    work := format(home, "/native-fixture"); assert(mkdir_p(work) == 0)
+    File.writefile(format(work, "/config.til"), source)
+    File.writefile(format(work, "/main.til"), format("mode gui\nimport(", fixture_quote(format(get_cwd_str(), "/src/editor")), ")\n",
+        "import(\"config\")\nmain := proc(args: ..Str) { mut config := TiledConfig(); init(config); start_editor(config, ..args) }\n"))
+    binary := format(work, "/editor")
+    Cmd.new("til", "build", "--usize=64", "-o", binary, "-c", format(work, "/main.c"), format(work, "/main.til")).run_checked()
+    return binary
+}

@@ -1,0 +1,34 @@
+mode lib
+import("std/tilvm")
+import("editor")
+import("../gen/tiled_runtime")
+startup := import("../gen/tiled_startup_api")
+
+tiled_startup_config := proc() returns TiledConfig {
+    options := startup.tiled_options()
+    mut config := TiledConfig(width = options.width, height = options.height,
+        maximized = options.maximized, tile_left = options.tile_left,
+        initial_file = options.initial_file.clone(), draft_text = options.draft_text.clone(),
+        scratch_text = options.scratch_text.clone(), font_path = options.font_path.clone(),
+        font_size = options.font_size, tabs_visible = options.tabs_visible,
+        session = SessionConfig(enabled = options.session.enabled, restore = options.session.restore,
+            name = options.session.name.clone(), interval_ms = options.session.interval_ms))
+    for i in 0..startup.tiled_binding_count() {
+        binding := startup.tiled_binding(i)
+        if binding.remove { config.commands.unbind(binding.map, binding.keys) }
+        else { config.commands.bind(binding.map, binding.keys, binding.command, binding.repeat) }
+    }
+    return config
+}
+priv tiled_eval_init := proc(path: Str) throws TilVmError {
+    mut vm := TilVm.new(TILED_SDK)
+    vm.load_file(path)?
+    mut callback := vm.lookup("init")?
+    callback.call()?
+}
+tiled_load_init := proc(path: Str) returns Option(TilVmError) {
+    startup.tiled_reset()
+    tiled_eval_init(path)?
+    catch (err: TilVmError) { startup.tiled_reset(); return Option(TilVmError).Some(err) }
+    return Option(TilVmError).None
+}

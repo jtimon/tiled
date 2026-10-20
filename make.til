@@ -29,6 +29,33 @@ library := proc(opt: Str) {
         "-c", "gen/terminal.c", "lib/libterminal/terminal.til").run_checked()
 }
 
+startup_library := proc(opt: Str) {
+    compiler := Cmd.new("sh", "-c", "command -v til")
+    compiler.capture_out(); compiler.run_checked()
+    output := compiler.out()
+    executable := realpath_str(output.trim())
+    bindir := executable.substr(0, executable.rfind("/").to_usize()).clone()
+    prefix := bindir.substr(0, bindir.rfind("/").to_usize()).clone()
+    sdk := format(prefix, "/lib/til")
+    if !File.is_file(format(sdk, "/src/std/tilvm.til")) { panic("installed Til SDK not found beside compiler: ", sdk) }
+    File.writefile("gen/tiled_runtime.til", format("mode lib\n// Generated installed SDK location; rebuild after changing the Til installation.\nTILED_SDK := \"",
+        sdk.replace("\\", "\\\\").replace("\"", "\\\""), "\"\n"))
+    Cmd.new("til", "build", "--cpu=baseline", "--usize=64", opt,
+        "-c", "gen/tiled_startup.c", "lib/libtiled/tiled_startup.til").run_checked()
+    mut suffix := ".so"
+    if host_os() == "macos" { suffix = ".dylib" }
+    if host_os() == "windows" { suffix = ".dll" }
+    library := format(get_cwd_str(), "/gen/lib/libtiled_startup", suffix)
+    if !File.is_file(library) { panic("missing startup library: ", library) }
+    binding := File.readfile("gen/til/tiled_startup.til")
+    File.writefile("gen/tiled_startup_api.til", format("mode lib\n",
+        binding.replace("link(\"tiled_startup\")", format("link(\"", library.replace("\\", "\\\\").replace("\"", "\\\""), "\")"))))
+    // A ready-to-copy config uses the built binding, not editor implementation
+    // sources. TilVm currently resolves imports relative to the guest/SDK only.
+    api := format(get_cwd_str(), "/gen/tiled_startup_api").replace("\\", "\\\\").replace("\"", "\\\"")
+    File.writefile("gen/tiled_init.til", File.readfile("defaults/init.til").replace("../gen/tiled_startup_api", api))
+}
+
 select_api := proc(mode: Str, prefix: Str = "") {
     if mode == "source" {
         // Control build: derive one source API from the canonical modules.
@@ -125,6 +152,7 @@ main := proc(args: ..Str) {
     if mode == "library" { select_api("shared"); return }
     select_api(mode, prefix)
     terminal_profile()
+    startup_library(opt)
     build("tiled", "src/tiled.til", opt)
     build("tilminal", "src/tilminal.til", opt)
     record_til_dependency()

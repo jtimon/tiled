@@ -14,8 +14,13 @@
 - Startup checks only =~/.tiled/init.til=, with imports for modular config.
   A missing file prints the defaults notice; Tiled starts fresh unless session
   saving/restoration is explicitly enabled. A working config lives at
-  [[file:../defaults/init.til][defaults/init.til]]. Isolated GUI fixtures verify file/tab restoration,
+  [[file:../defaults/init.til][defaults/init.til]]; the build's ready-to-copy version is =gen/tiled_init.til=.
+  Tiled now interprets =init()= in-process against a shared startup settings
+  library. Isolated GUI fixtures verify file/tab restoration,
   imported settings, ignored =~/.tiled.til=, and preservation of disabled sessions.
+- Startup integration tests pass with empty compiler PATH, checking settings,
+  imported modules, same-process identity, built-in bindings, rejected bad init,
+  and version bypass. An ASAN model test checks rollback, owned snapshots and retry.
 - Startup checks exercised the copied example, configured window size and
   initial file, command-line file precedence, failing init code, and version
   output bypassing init. An init path containing spaces worked.

@@ -1,5 +1,6 @@
 mode gui
 import("terminal_gui_helpers")
+import("config_helpers")
 
 tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
 chord := proc(display: Dynamic, key: UPtr, modifier: UPtr = 65507) {
@@ -49,7 +50,7 @@ main := proc() {
     root := get_cwd_str()
     home := format(root, "/tmp/discovery-", process_id().to_str()); assert(mkdir_p(format(home, "/.tiled")) == 0)
     file := format(home, "/notes.txt"); File.writefile(file, "")
-    File.writefile(format(home, "/.tiled/init.til"), format(
+    editor_binary := fixture_native_editor(home, format(
         "mode lib\nmarker := func(mut editor: EditorState) { editor.insert(\"DISCOVERY_OK\") }\n",
         "init := func(mut config: TiledConfig) { config.tile_left = false; config.session.enabled = false; ",
         "config.commands.command(\"marker\", marker); config.commands.bind(\"text\", \"F8\", \"save-buffer\") }\n"))
@@ -68,7 +69,9 @@ main := proc() {
         size : I32 = 28; footer : I32 = 42
         font := LoadFontEx(font_path.c_str, size, Option(ref I32).None, 0)
         SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR)
-        app := Cmd.new(format("./bin/", host)); if is_editor { app.arg(file) }
+        mut binary := format("./bin/", host)
+        if is_editor { binary = editor_binary.clone() }
+        app := Cmd.new(binary); if is_editor { app.arg(file) }
         app.env("HOME", home).env("SHELL", "/bin/sh").env("ENV", "").env("PS1", "$ ")
         app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
         pid := app.start()

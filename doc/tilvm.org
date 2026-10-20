@@ -1,14 +1,41 @@
-* TilVm text-command and shared-library integration
+* TilVm startup, text-command and shared-library integration
 
 [[file:keybindings.org][Commands]] | [[file:../issues/open/5.org][Integration tracking]]
 
-The optional host-side adapter =src/guest_transform.til= demonstrates one
+Tiled now uses TilVm for real startup configuration. The optional host-side
+adapter =src/guest_transform.til= separately demonstrates one
 in-process guest operation: transform a selected text region. It imports the
-installed public =std/tilvm= module. The regular GUI hosts still use their
-compiled init loader; this first slice does not add startup settings or a new
-command-registration API.
+installed public =std/tilvm= module. Live guest command registration remains
+future work; standalone tilminal still uses its compiled init loader.
 
-** Contract
+** Interpreted startup
+
+=lib/libtiled/tiled_startup.til= owns startup settings and built-in keymap
+overrides in one shared library. Both the GUI executable and the interpreted
+init import =gen/tiled_startup_api.til=, which names that same shared object.
+=src/tiled_init.til= loads =~/.tiled/init.til= and calls its zero-argument
+=init()= in-process. The host adopts the final snapshot and releases the VM
+before opening its GUI; failed init resets staged settings and stops startup.
+
+The user API is =tiled_options()= / =tiled_configure(settings)= plus
+=tiled_bind= / =tiled_unbind= for existing commands. Obtain settings from
+=tiled_options()= rather than constructing a partially populated record.
+The build generates =gen/tiled_init.til= with the binding's explicit path, ready
+to copy into the config directory. See [[file:configuration.org][configuration and migration]].
+
+=test/init_gui.til= runs the actual executable with config files created after
+the build and an empty PATH. It checks imported settings, window/draft/session
+values, bindings, init/GUI process identity, errors and version bypass.
+=test/init_model.til= checks owned snapshots, error rollback and retry under ASAN.
+
+#+begin_src sh
+./make.til
+til build --usize=64 --asan -o tmp/check_init_model -c tmp/check_init_model.c test/init_model.til
+env PATH= ./tmp/check_init_model
+xvfb-run -a -s "-screen 0 1600x1200x24" til run --usize=64 -o tmp/check_init_gui -c tmp/check_init_gui.c test/init_gui.til
+#+end_src
+
+** Text-transform prototype contract
 
 - The host creates/owns a =TilVm= with its matching installed SDK root, loads
   one guest module, and calls =EditorGuestTransform.lookup(vm, name)=.

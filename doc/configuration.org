@@ -208,9 +208,13 @@ Tiled's [[file:sessions.org][workspace persistence]] is opt-in. Enable it in =~/
 
 #+begin_src til
 mode lib
-init := func(mut config: TiledConfig) {
+// Use the binding import from gen/tiled_init.til for your build.
+import("/path/to/tiled/gen/tiled_startup_api")
+init := proc() {
+    mut config := tiled_options()
     config.session.enabled = true
     config.session.restore = true
+    tiled_configure(config)
 }
 #+end_src
 
@@ -221,18 +225,23 @@ automatic saving/restoration defaults. Both config types expose
 =--fresh= bypasses restoration and =--no-session= disables persistence for that launch.
 Dirty-buffer exit prompts offer =keep= when a session checkpoint is available.
 
-[[file:../defaults/init.til][defaults/init.til]] is the working configuration to copy when ready.
+The build generates a ready-to-copy =gen/tiled_init.til= from
+[[file:../defaults/init.til][defaults/init.til]], filling in the generated binding's absolute path.
 From the repository root:
 
 #+begin_src sh
+./make.til
 mkdir -p ~/.tiled
-cp defaults/init.til ~/.tiled/init.til
+cp gen/tiled_init.til ~/.tiled/init.til
 #+end_src
 
-It defines =init(mut config: TiledConfig)=, which runs before the editor
-opens. The supported fields are =width=, =height=, =maximized=, =tile_left=, =draft_text=,
-=initial_file=, =font_path=, =font_size=, =tabs_visible=, =session= and =commands=. The latter registers
-Til callbacks and overrides the default [[file:keybindings.org][named commands and contextual keymaps]]. A command-line filename takes
+It defines a zero-argument =init()=, interpreted before the editor opens.
+=tiled_options()= returns an owned =TiledSettings= snapshot. Change its fields,
+then call =tiled_configure(config)= to publish them to the shared startup library.
+The supported fields are =width=, =height=, =maximized=, =tile_left=, =draft_text=,
+=initial_file=, =font_path=, =font_size=, =tabs_visible= and =session=.
+=tiled_bind= and =tiled_unbind= configure built-in [[file:keybindings.org][commands and keymaps]].
+A command-line filename takes
 precedence over =initial_file= on a fresh startup. A restored workspace keeps
 its existing focus unless a command-line file is supplied; with neither,
 Tiled opens a draft. The old =scratch_text= field remains a compatibility alias:
@@ -249,14 +258,20 @@ under =~/.tiled/=, using relative imports from =init.til=. For example:
 #+begin_src til
 // ~/.tiled/init.til
 mode lib
+import("/path/to/tiled/gen/tiled_startup_api")
 import("session_settings")
-init := func(mut config: TiledConfig) { configure_sessions(config) }
+init := proc() {
+    mut config := tiled_options()
+    configure_sessions(config)
+    tiled_configure(config)
+}
 #+end_src
 
 #+begin_src til
 // ~/.tiled/session_settings.til
 mode lib
-configure_sessions := func(mut config: TiledConfig) {
+import("/path/to/tiled/gen/tiled_startup_api")
+configure_sessions := func(mut config: TiledSettings) {
     config.session.enabled = true
     config.session.restore = true
 }
@@ -267,15 +282,16 @@ Standalone tilminal loads =~/.tilminal.til=, defining
 copy [[file:../defaults/tilminal.til][defaults/tilminal.til]] as a starting point. Embedded terminal panes
 use Tiled's command configuration instead of separately loading this file.
 
-For example, in either host's =init=:
+For example, in Tiled's =init()=:
 
 #+begin_src til
-config.commands.bind("terminal", "C-v", "paste")
-config.commands.bind("terminal", "C-S-v", "forward-key", true)
+tiled_bind("terminal", "C-v", "paste")
+tiled_bind("terminal", "C-S-v", "forward-key", true)
 #+end_src
 
 See [[file:keybindings.org][keymap precedence, prefixes and callback examples]]. The separate
 [[file:keybindings.til][keybindings.til]] retains the older, broader future API sketch.
+Tilminal continues using =config.commands.bind(...)= in its compiled init.
 
 ** Window size
 
@@ -335,12 +351,26 @@ backups are distinct from auto-save/recovery of unsaved buffer edits.
 
 ** Current loading implementation
 
-For now, loading an init file uses the installed =til run=: either host generates
-a temporary entry point under this checkout's ignored =tmp/= directory,
-imports its application module and user config, and compiles/runs them in a child
-process. It removes that entry point, generated C and executable on return.
-Keep the source checkout at its build-time location; this development
-loader requires the installed compiler at startup. Compiled callbacks run
-against live application state in that child, but configuration changes require
-a restart. Invalid configuration stops startup with a diagnostic. Lua-style in-process
-embedding is tracked in [[https://github.com/jtimon/til/blob/master/issues/open/370.org][Til issue #370]].
+Tiled loads the file through =TilVm= inside the existing process and invokes
+=init()=. No compiler executable, generated entry-point program or replacement
+GUI process is used. A native shared library owns startup settings and keymap
+overrides; the compiled host reads that same instance after init succeeds.
+The VM is then destroyed before opening the GUI. Errors stop startup with
+diagnostics and reset staged settings; partial settings are not adopted.
+
+Runtime assets are the matching installed Til SDK sources, generated startup
+binding and shared library. Their locations are fixed by the build. TilVm
+currently has no application import-root setting, so the example uses an
+explicit binding path; rebuild and update that import after moving the build.
+The build records the SDK next to the selected installed compiler; user startup
+does not search PATH for Til. Fontconfig is still used unless =font_path= is set.
+
+The old Tiled =init(mut config: TiledConfig)= signature is no longer loaded.
+Live guest command registration and hot reload remain follow-ups in
+[[file:../issues/open/5.org][#5]]; =TiledConfig.commands= is still the native host/developer API, not an
+interpreted init API. Tests of native callbacks compile their own explicit
+fixtures; startup tests exercise the real executable and interpreter.
+
+Standalone tilminal still uses the interim =til run= loader: it generates a
+temporary entry point under =tmp/= and runs the configured GUI child. That
+loader requires the installed compiler and source checkout at runtime.

@@ -1,9 +1,12 @@
 mode lib
+import("../gen/tiled_startup_api")
 
-// Default user configuration: copy this file to ~/.tiled/init.til.
-// Tiled supplies TiledConfig and calls init(config) before opening its window.
+// Run ./make.til, then copy gen/tiled_init.til to ~/.tiled/init.til.
+// The generated copy has the correct binding path for this build.
+// Tiled interprets init() in-process before opening its window.
 // The command-line filename takes precedence over config.initial_file.
-init := func(mut config: TiledConfig) {
+init := proc() {
+    mut config := tiled_options()
     config.maximized = false
     config.tile_left = true
     // Dimensions used when both maximized and tile_left are false.
@@ -19,13 +22,14 @@ init := func(mut config: TiledConfig) {
     // config.session.name = "work"
     // config.session.interval_ms = 2000
     // Commands/keymaps are ordinary Til configuration; see doc/keybindings.org.
-    // config.commands.bind("terminal", "C-v", "paste")
-    // config.commands.bind("terminal", "C-S-v", "forward-key", true)
-    // config.commands.unbind("text-selection", "C-x") // Always use C-x as prefix.
+    // tiled_bind("terminal", "C-v", "paste")
+    // tiled_bind("terminal", "C-S-v", "forward-key", true)
+    // tiled_unbind("text-selection", "C-x") // Always use C-x as prefix.
     // Empty means the system monospace font, resolved through fontconfig.
     // config.font_path = "/path/to/your/monospace.ttf"
     config.draft_text = "Welcome to Tiled!\n\nC-x t: new terminal\nC-x b: switch buffer\nC-x C-b: list buffers\nC-x k: kill buffer\nC-x 2: split top/bottom\nC-x 3: split side by side\nC-x o: focus next view\nC-x 0: close view\nC-x 1: keep only this view\nC-x C-f / Ctrl+O: open a file\nC-x C-s / Ctrl+S: save text buffer\nC-x C-c: exit Tiled\n"
 
     // Optionally open a file instead of *draft*:
     // config.initial_file = "/path/to/notes.org"
+    tiled_configure(config)
 }

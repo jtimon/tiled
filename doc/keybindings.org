@@ -2,46 +2,50 @@
 
 [[file:../README.org][Tiled]] | [[file:build.org][Build and run]] | [[file:configuration.org][Startup and configuration]]
 
-** Implemented first step
+** Startup keymap configuration
 
-Both hosts now resolve keyboard input through named commands and contextual
-keymaps. Configure =config.commands= in =~/.tiled/init.til= or
-=~/.tilminal.til=. Defaults are installed before =init= runs. User commands
-are compiled Til callbacks, invoked against live state in the GUI process.
+Both hosts resolve keyboard input through named commands and contextual
+keymaps. Tiled's interpreted =~/.tiled/init.til= records overrides through
+=tiled_bind= and =tiled_unbind= in its shared startup library. Tilminal's
+compiled =~/.tilminal.til= uses =config.commands=. Overrides are applied to
+the native default maps before opening the GUI.
 See [[file:configuration.org][startup configuration]] and [[file:../defaults/tilminal.til][the standalone terminal sample]].
 
-For either host, these lines in =init= change terminal paste to plain Ctrl-V
+For Tiled, these lines in =init()= change terminal paste to plain Ctrl-V
 and retain explicit forwarding of Ctrl-V to the foreground program:
 
 #+begin_src til
-config.commands.bind("terminal", "C-v", "paste")
-config.commands.bind("terminal", "C-S-v", "forward-key", true)
+tiled_bind("terminal", "C-v", "paste")
+tiled_bind("terminal", "C-S-v", "forward-key", true)
 #+end_src
 
-A complete Tiled configuration with a custom command:
+A Tiled configuration using built-in commands (copy the binding import from
+=gen/tiled_init.til=):
 
 #+begin_src til
 mode lib
-insert_greeting := func(mut editor: EditorState) {
-    editor.insert("Hello from Til!")
-}
-init := func(mut config: TiledConfig) {
-    config.commands.command("insert-greeting", insert_greeting)
-    config.commands.bind("text", "C-k h", "insert-greeting")
-    config.commands.bind("text", "F8", "save-buffer")
-    config.commands.unbind("text-selection", "C-x") // Always keep C-x as prefix.
+import("/path/to/tiled/gen/tiled_startup_api")
+init := proc() {
+    tiled_bind("text", "F8", "save-buffer")
+    tiled_unbind("text-selection", "C-x") // Always keep C-x as prefix.
 }
 #+end_src
 
-=command(name, callback)= registers or replaces a callback; register before
-binding its name. Tiled callbacks have signature =proc(mut EditorState)=
+For native host code, =config.commands.command(name, callback)= registers or
+replaces a compiled callback; register before binding its name. Tiled's native
+callbacks have signature =proc(mut EditorState)=
 (pure =func= callbacks also work). Standalone callbacks have signature
 =proc(mut Terminal, mut TerminalViewport)=. They borrow the receiving host's
 live state for the duration of the call. Top-level functions can come from
-imported user modules. Callbacks may override built-in command names, except
+imported modules. Callbacks may override built-in command names, except
 =forward-key=, whose dispatch-bypass meaning is reserved.
+Tilminal can still register these through its compiled init. Tiled's new
+interpreted init currently supports startup options and built-in key bindings;
+live guest command registration is the next integration stage in [[file:tilvm.org][the TilVm work]].
 
-=bind(map, sequence, command, repeat=false)= replaces an existing binding.
+=tiled_bind(map, sequence, command, repeat=false)= replaces an existing binding.
+=tiled_unbind(map, sequence)= removes it and its prefix descendants. The native
+=config.commands.bind/unbind= methods have the same semantics.
 =unbind(map, sequence)= removes it and any descendants of that prefix in
 that map, exposing lower-precedence bindings. =ignore= consumes a key without
 an action; =forward-key= bypasses host maps and sends the original event to
@@ -106,10 +110,10 @@ tilminal footer. Selection/screen-mode changes are reflected when resolving keys
 Both discovery commands are ordinary named commands and can be rebound, e.g.:
 
 #+begin_src til
-config.commands.bind("global", "F4", "execute-command")
-config.commands.bind("global", "F1 k", "describe-key")
+tiled_bind("global", "F4", "execute-command")
+tiled_bind("global", "F1 k", "describe-key")
 // Restore Alt-X forwarding in terminal panes if preferred:
-// config.commands.unbind("global", "M-x")
+// tiled_unbind("global", "M-x")
 #+end_src
 
 *** Built-in command names
@@ -141,10 +145,10 @@ built-in command invocation from callbacks remains follow-up work. Tiled
 callbacks currently receive editor state, not the native
 terminal pool or prompt machinery. Mouse gestures remain host-defined.
 
-This is still the compiled startup loader: it needs installed Til and the
-source checkout and launches a generated GUI child. It does not provide hot
-reload, an embedded interpreter, or recovery from arbitrary callback failures.
-Those depend on [[https://github.com/jtimon/til/blob/master/issues/open/370.org][Til #370]].
+Tiled now interprets startup configuration in-process through TilVm and reads
+its shared settings library. Tilminal retains the compiled loader and needs
+installed Til plus the source checkout. Live interpreted commands and hot
+reload are still separate milestones; see [[file:configuration.org][startup configuration]].
 
 *** Verification
 
@@ -161,13 +165,15 @@ xvfb-run -a -s "-screen 0 1600x1200x24" ./tmp/check_command_discovery_gui
 #+end_src
 
 The model checks map precedence, prefixes, repeat policy, unbinding, character
-suppression and callback mutation. The GUI check loads both actual user-config
-paths, edits/saves a live buffer via a user command, rebinds prompt cancellation
+suppression and callback mutation. The GUI check uses an explicit native Tiled
+fixture and tilminal's compiled user config, edits/saves a live buffer via a user command, rebinds prompt cancellation
 and paste, checks bytes delivered to a PTY child, and rejects an unknown command.
 Discovery tests additionally check effective bindings through shadowed prefixes,
 selection precedence, command availability, rendered prompts/results, executing
 unbound callbacks by name, nested prompt preservation and inspection without
 file writes, application exit or terminal input leakage.
+=test/init_gui.til= separately exercises the actual Tiled startup path, including
+interpreted built-in bindings with the compiler unavailable on PATH.
 
 ** Future API sketch
 
