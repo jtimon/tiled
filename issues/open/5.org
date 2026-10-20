@@ -42,23 +42,50 @@ Using the same language does not by itself provide a live embedding API.
   clipboard, mapped-input, terminal lifecycle, scrollback and exit GUI checks
   pass. =test/make_clean.til= also verifies scratch cleanup preserves references.
 
-*** Remaining Til dependency
+*** First local TilVm integration slice
 
-At installed Til =f24e6004c=, =std/tilvm= provides =TilVm.new=, =load_file=,
-structured load/evaluation errors and destruction. Host-function registration,
-guest value exchange and retained callable handles are still pending in #370.
-Keep the existing compiled config loader for now, as agreed; no TilVm
-integration is required for ongoing Tiled work. Compatibility checks with this
-compiler pass for both hosts and the current loader, including all ten GUI
-drivers, compiled/interpreted models, ASAN checkpoints and installed consumers.
+=src/guest_transform.til= uses only the installed public =std/tilvm= API to
+retain a checked =proc(Str) returns Str= guest transform. It passes a copy of
+the selected text, applies a successful result through the existing editor
+replacement/undo methods, and propagates structured call errors before editing.
+The caller owns the VM and keeps it alive until the adapter is destroyed.
 
-The embedding acceptance checks below remain open. Previously, installed
-Til =b444d7223= did not infer procedure effects through a stored proc pointer:
-the host invocation boundary currently uses =noop_proc()= to remain explicitly
-effectful. Calling a stored callback through a local variable also preserves
-the mutable-argument analysis, unlike directly calling the field. Til agents
-should include stored callable effect/mutability tests in the #370 work; this
-session has not modified the compiler.
+=test/guest_transform.til= compiles an ASAN host, then runs it in a private
+directory with private HOME and empty PATH. That already compiled host creates
+its guest and imported helper. Tests cover signature rejection, retained
+captures/repeated calls, guest symbol rebinding, Unicode text, one-step undo,
+panic/exit recovery with unchanged editor text/selection, named key resolution,
+and result/diagnostic lifetime after callback and VM teardown. The test passed.
+The SDK root is an explicit argument, not a machine-specific source dependency.
+
+This is a headless integration seam and upgrade regression, not yet a default
+GUI command or replacement for =~/.tiled/init.til=. See
+[[file:../../doc/tilvm.org][the prototype contract and next-upgrade findings]].
+
+*** Remaining Til dependency and integration findings
+
+The installed SDK now supplies checked =lookup=, retained =TilVmCallback.call=
+and scalar/string interchange. Host-type/function registration remains needed
+for the existing mutable =TiledConfig=/=EditorState= interfaces. Keep the
+compiled startup loader while that boundary is developed.
+
+The small adapter exposed three additional composition problems on installed
+Til =fcbe4e79a=; the TilVm session should investigate them before native command
+registry integration:
+- Capturing an =EditorGuestTransform= by value in an =EditorAction= closure
+  generated a call to missing =EditorGuestTransform_clone= (C compilation error).
+- Vector indexing directly inside a procedure throwing =TilVmError= generated
+  an assignment to =_err_kind= rather than its pointee (C compilation error).
+  The adapter takes its host snapshot in a non-throwing helper instead.
+- Borrow-capturing an adapter in an ordinary native command and registering it
+  through =EditorCommands.command= compiled, but ASAN found heap-use-after-free
+  on invocation: the closure box was freed after registration while the registry
+  retained its pointer. The working probe dispatches a typed guest handle after
+  key resolution, without routing it through a captured native =EditorAction=.
+
+The earlier stored-procedure effect/mutability limitations have been fixed in
+Til; existing native wrappers still contain their older explicit effect/local
+callable spelling. No compiler files were changed in this phase.
 
 *** Scope
 

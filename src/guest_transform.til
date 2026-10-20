@@ -1,0 +1,41 @@
+mode lib
+import("std/tilvm")
+import("editor_model")
+
+// Small embedding seam: the guest receives a text snapshot, never EditorState.
+// The caller owns the VM; this retained callback must be destroyed before it.
+GuestTextTransform := proc(Str) returns Str
+EditorGuestSelection := struct { text : Str; start : USize; count : USize }
+editor_guest_selection := func(editor: EditorState) returns Option(EditorGuestSelection) {
+    ref view : EditorView = editor.nodes[editor.focused].view
+    if editor.buffers[view.buffer].terminal >= 0 || !view.selected() { return Option(EditorGuestSelection).None }
+    return Option(EditorGuestSelection).Some(EditorGuestSelection(text = editor.selected_text(),
+        start = view.selection_start(), count = view.selection_end() - view.selection_start()))
+}
+EditorGuestTransform := struct {
+    // Throw lowering needs an empty return value; TilVmCallback's default
+    // represents absence and reports an error if invoked.
+    callback := TilVmCallback()
+    name := ""
+namespace:
+    lookup := proc(mut vm: TilVm, name: Str) returns EditorGuestTransform throws TilVmError {
+        callback := vm.lookup(name, GuestTextTransform)?
+        return EditorGuestTransform(callback = callback, name = name.clone())
+    }
+    apply := proc(mut transform: EditorGuestTransform, mut editor: EditorState) returns Bool throws TilVmError {
+        selection := editor_guest_selection(editor)
+        if selection.is_none() { return false }
+        selected := selection.unwrap()
+        mut arguments := Tuple.new()
+        arguments.push(Str, own selected.text.clone())
+        result := transform.callback.call(arguments)?
+        ref replacement : Str = result.get(0)
+        // Call failures leave text, selection and undo state untouched. Only a
+        // successful result enters the normal editor mutation/undo boundary.
+        started := editor.undo_token == 0
+        if started { editor.begin_edit_command(transform.name) }
+        editor.replace(selected.start, selected.count, replacement)
+        if started { editor.end_edit_command() }
+        return true
+    }
+}

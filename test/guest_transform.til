@@ -1,0 +1,21 @@
+mode cli
+import("std/sys")
+import("std/file")
+
+get_cwd_str := ext_proc() returns Str {}
+realpath_str := ext_proc(path: Str) returns Str {}
+
+// Supply the matching installed SDK root explicitly; no machine-specific
+// compiler checkout, HOME or installation prefix is assumed by the test.
+main := proc(support_root: Str) {
+    sdk := realpath_str(support_root)
+    assert(File.is_file(format(sdk, "/src/std/tilvm.til")))
+    root := get_cwd_str()
+    work := format(root, "/tmp/guest-transform-", process_id().to_str())
+    assert(mkdir_p(work) == 0)
+    binary := format(work, "/host")
+    Cmd.new("til", "build", "--usize=64", "--asan", "-o", binary, "-c", format(work, "/host.c"), "test/guest_transform_host.til").run_checked()
+    host := Cmd.new(binary, sdk)
+    host.cwd(work).env("HOME", work).env("PATH", "")
+    host.run_checked()
+}

@@ -1,0 +1,97 @@
+mode cli
+import("../src/guest_transform")
+import("../src/editor_commands")
+import("std/file")
+
+select_all := func(mut editor: EditorState) { editor.move_cursor(268); editor.select_move(269, true) }
+main := proc(support_root: Str) {
+    // This source is written by the already compiled host with an empty PATH.
+    File.writefile("guest_helpers.til", "mode lib\nprefix := func() returns Str { return \"guest:\" }\n")
+    File.writefile("guest.til", format(
+        "mode lib\nimport(\"guest_helpers\")\nTransform := proc(Str) returns Str\n",
+        "make_transform := func(label: Str) returns Transform { saved := label.clone(); calls := 0; return proc(text: Str) returns Str [own saved, own mut calls] {\n",
+        "noop_proc(); calls = calls + 1; if text == \"fail\" { panic(\"guest transform failed\") }; if text == \"exit\" { exit(0) }; return format(saved, text, \"#\", calls.to_str()) } }\n",
+        "mut transform := make_transform(prefix())\n",
+        "reset := proc() { noop_proc(); transform = make_transform(\"new:\") }\n",
+        "wrong := func(value: I64) returns I64 { return value }\n"))
+    mut vm := TilVm.new(support_root)
+    vm.load_file("guest.til")!
+    mut mismatch := false
+    EditorGuestTransform.lookup(vm, "wrong")?
+    catch (err: TilVmError) { mismatch = true; assert(err.phase == "lookup" && err.to_str().contains("signature mismatch")) }
+    assert(mismatch)
+
+    mut transform := EditorGuestTransform.lookup(vm, "transform")!
+    mut editor := EditorState.new("", "é界")
+    // No region means no call. Later invocation must still be capture count 1.
+    assert(!transform.apply(editor)!)
+    mut terminal_editor := EditorState.new("", "terminal")
+    select_all(terminal_editor)
+    ref mut terminal_buffer : EditorBuffer = terminal_editor.buffers[0]
+    terminal_buffer.terminal = 0
+    assert(!transform.apply(terminal_editor)!)
+    select_all(editor)
+    assert(transform.apply(editor)!)
+    assert(editor.buffers[0].text == "guest:é界#1")
+    assert(editor.undo_edit()); assert(editor.buffers[0].text == "é界" && !editor.buffers[0].dirty)
+    assert(editor.redo_edit()); assert(editor.buffers[0].text == "guest:é界#1")
+    select_all(editor); assert(transform.apply(editor)!)
+    assert(editor.buffers[0].text == "guest:guest:é界#1#2")
+    assert(editor.undo_edit()); assert(editor.buffers[0].text == "guest:é界#1")
+    // Retained captures survive rebinding the exported guest symbol.
+    mut reset := vm.lookup("reset")!; reset.call()!
+    select_all(editor); assert(transform.apply(editor)!)
+    assert(editor.buffers[0].text == "guest:guest:é界#1#3")
+
+    mut failed_editor := EditorState.new("", "fail")
+    select_all(failed_editor)
+    mut diagnostic := ""
+    transform.apply(failed_editor)?
+    catch (err: TilVmError) {
+        diagnostic = err.to_str()
+        assert(err.phase == "call" && err.diagnostics.len() > 0)
+        assert(err.diagnostics[0].path.ends_with("guest.til") && err.diagnostics[0].line > 0)
+    }
+    assert(diagnostic.contains("guest transform failed"))
+    assert(failed_editor.buffers[0].text == "fail" && !failed_editor.buffers[0].dirty)
+    assert(failed_editor.nodes[0].view.selected() && failed_editor.buffers[0].undo.nodes.len() == 0)
+    assert(failed_editor.undo_token == 0)
+    failed_editor.insert("exit"); select_all(failed_editor)
+    before := failed_editor.buffers[0].undo.current
+    mut exited := false
+    transform.apply(failed_editor)?
+    catch (err: TilVmError) { exited = true; assert(err.exit_status.unwrap() == 0) }
+    assert(exited && failed_editor.buffers[0].text == "exit" && failed_editor.nodes[0].view.selected())
+    assert(failed_editor.buffers[0].undo.current == before && failed_editor.undo_token == 0)
+    failed_editor.insert("ok"); select_all(failed_editor)
+    assert(transform.apply(failed_editor)!)
+    assert(failed_editor.buffers[0].text == "guest:ok#6")
+
+    // Resolve an ordinary named binding, then dispatch its typed guest handle.
+    // A guest handle is not stored in the native EditorAction pointer slot.
+    mut commands := EditorCommands.new()
+    mut command_transform := EditorGuestTransform.lookup(vm, "transform")!
+    commands.keys.declare("guest-transform")
+    commands.bind("text", "F8", "guest-transform")
+    mut keys := KeyState()
+    dispatch := keys.event(commands.keys, "text", true, true, 297, 0, 1)
+    assert(dispatch.command == "guest-transform")
+    mut commanded := EditorState.new("", "buffer")
+    select_all(commanded)
+    if dispatch.kind == 1 && dispatch.command == "guest-transform" { assert(command_transform.apply(commanded)!) }
+    assert(commanded.buffers[0].text == "new:buffer#1")
+    assert(commanded.undo_edit()); assert(commanded.buffers[0].text == "buffer")
+    select_all(commanded); commanded.insert("fail"); select_all(commanded)
+    mut command_error := ""
+    command_transform.apply(commanded)?
+    catch (err: TilVmError) { command_error = err.to_str() }
+    assert(command_error.contains("guest transform failed"))
+    assert(commanded.buffers[0].text == "fail" && commanded.undo_token == 0)
+    // Host-owned result text and diagnostics remain usable after all callback
+    // handles, their containing commands and finally the VM are destroyed.
+    own commands.delete(); own command_transform.delete(); own reset.delete(); own transform.delete(); own vm.delete()
+    assert(editor.buffers[0].text == "guest:guest:é界#1#3")
+    assert(diagnostic.contains("guest transform failed"))
+    assert(failed_editor.undo_edit()); assert(failed_editor.buffers[0].text == "ok")
+    println("PASS: retained TilVm text command, captures, undo, errors, exit recovery and teardown without compiler PATH")
+}

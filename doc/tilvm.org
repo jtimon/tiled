@@ -1,0 +1,97 @@
+* Small TilVm text-command integration
+
+[[file:keybindings.org][Commands]] | [[file:../issues/open/5.org][Integration tracking]]
+
+The optional host-side adapter =src/guest_transform.til= demonstrates one
+in-process guest operation: transform a selected text region. It imports the
+installed public =std/tilvm= module. The regular GUI hosts still use their
+compiled init loader; this first slice does not add startup settings or a new
+command-registration API.
+
+** Contract
+
+- The host creates/owns a =TilVm= with its matching installed SDK root, loads
+  one guest module, and calls =EditorGuestTransform.lookup(vm, name)=.
+- The guest symbol must match =proc(Str) returns Str= exactly. Using a proc
+  permits retained mutable capture state; a pure func signature is distinct.
+- =transform.apply(editor)= acts on a nonempty region in the focused text
+  buffer. Without a region, or in a terminal buffer, it returns false without
+  calling the guest. Guest code receives a copied string, not editor pointers.
+- A successful call replaces the region as one undo step, or joins the host's
+  already-open command transaction. The result is copied into editor-owned text.
+- A failed lookup/call throws =TilVmError=. The adapter does not alter editor
+  text, selection, dirty state or undo history on call failure. Guest effects
+  such as changes to its captures can remain; this is not VM rollback.
+- Retain the typed adapter for repeated invocation. Destroy it before its VM.
+  Returned editor text and owned diagnostics remain usable after teardown.
+
+** Reproducible upgrade check
+
+The test compiles a headless ASAN host against the installed SDK. Only after
+compilation does that host write its guest and imported helper under a private
+=tmp/= directory. It runs with a private HOME and an empty PATH, demonstrating
+that guest loading/calls do not launch the Til or C compiler. Existing editor
+state, selection, undo and key-resolution code is used directly.
+
+#+begin_src sh
+./make.til
+# Supply the matching installed SDK root; adjust for a nondefault prefix.
+til run --usize=64 -o tmp/check_guest_transform -c tmp/check_guest_transform.c test/guest_transform.til /usr/local/lib/til
+#+end_src
+
+Expected: a PASS line covering retained commands, captures, undo, error/exit
+recovery and teardown. The two intentional guest panics may also print their
+diagnostics; the host catches their structured errors and continues.
+
+** Findings for the next TilVm/compiler upgrade
+
+These were observed while composing the prototype with native command slots
+on Til =fcbe4e79a=. They are not failures of the direct typed guest-call path.
+
+*** Owning adapter capture: missing generated clone
+
+This closure shape failed C compilation with an implicit declaration of
+=EditorGuestTransform_clone= in the generated closure-clone function:
+
+#+begin_src til
+make_command := proc(mut vm: TilVm) returns EditorAction {
+    transform := EditorGuestTransform.lookup(vm, "transform")!
+    return proc(mut editor: EditorState) [own mut transform] {
+        transform.apply(editor)?
+        catch (err: TilVmError) { println(err.to_str()) }
+    }
+}
+#+end_src
+
+The compiler should account for clone calls introduced by closure generation,
+and the integration needs an explicit ownership contract for stored actions.
+
+*** Bounds checking inside a throwing procedure
+
+Indexing =editor.nodes[editor.focused]= and =editor.buffers[view.buffer]= inside
+the throwing =apply= procedure generated bounds-failure expressions assigning
+=_err_kind = 1= even though that function's hidden error argument is =I64 *=.
+The C compiler rejected the integer-to-pointer assignment. Host selection
+snapshotting now has its own non-throwing helper, separate from guest invocation.
+
+*** Borrowed native command capture: dangling closure box
+
+This local capture compiled, but invoking the registered action failed ASAN:
+
+#+begin_src til
+mut transform := EditorGuestTransform.lookup(vm, "transform")!
+action := proc(mut editor: EditorState) [mut transform] {
+    transform.apply(editor)?
+    catch (err: TilVmError) { println(err.to_str()) }
+}
+commands.command("guest-transform", action)
+commands.invoke("guest-transform", editor)
+#+end_src
+
+Generated registration assigned the callable pointer to the command field;
+the caller then freed the closure box, and =EditorCommands.invoke= read it.
+The registry/callable ownership boundary must retain the closure or reject
+the escape, rather than depending on a local keep-alive call. The successful
+prototype resolves a named key and invokes its separately retained typed guest
+handle. Broader registry/GUI integration should wait for this contract to be
+settled and regression-tested.
