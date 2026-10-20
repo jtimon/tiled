@@ -1,0 +1,83 @@
+mode gui
+import("../src/tiled_init")
+import("../gen/tiled_runtime")
+import("config_helpers")
+
+select_all := func(mut editor: EditorState) { editor.move_cursor(268); editor.select_move(269, true) }
+bad_init := proc(home: Str, body: Str, expected: Str) {
+    fixture_tiled_init(home, body)
+    mut vm := TilVm.new(TILED_SDK); mut guests := EditorGuestCommands()
+    failure := tiled_load_init(vm, guests, format(home, "/.tiled/init.til"))
+    assert(failure.is_some())
+    error := failure.unwrap(); assert(error.to_str().contains(expected))
+    assert(guests.names().len() == 0 && tiled_startup_config().width == 800)
+    own guests.delete(); own vm.delete()
+    assert(error.to_str().contains(expected))
+}
+main := proc() {
+    home := format(get_cwd_str(), "/tmp/guest-commands-model-", process_id().to_str())
+    assert(mkdir_p(format(home, "/.tiled")) == 0)
+    File.writefile(format(home, "/.tiled/init.til"), format("mode lib\n", fixture_api(),
+        "Transform := proc(Str) returns Str\nmake := func() returns Transform { calls := 0; return proc(text: Str) returns Str [own mut calls] { ",
+        "noop_proc(); calls = calls + 1; if text == \"fail\" { panic(\"guest failed\") }; if text == \"exit\" { exit(0) }; return format(\"[\", text, \":\", calls.to_str(), \"]\") } }\n",
+        "transform := make()\ninit := proc() { tiled_text_command(\"tag-region\", \"missing\"); tiled_text_command(\"tag-region\", \"transform\"); tiled_bind(\"text\", \"F8\", \"tag-region\") }\n"))
+    mut vm := TilVm.new(TILED_SDK); mut guests := EditorGuestCommands()
+    assert(tiled_load_init(vm, guests, format(home, "/.tiled/init.til")).is_none())
+    config := tiled_startup_config()
+    assert(guests.names().len() == 1)
+    mut keys := KeyState()
+    assert(keys.event(config.commands.keys, "text", true, true, 297, 0, 1).command == "tag-region")
+    mut editor := EditorState.new("", "é界"); mut message := ""
+    assert(guests.invoke("tag-region", editor, false, message))
+    assert(message.contains("Select a text region") && !editor.buffers[0].dirty)
+    select_all(editor)
+    assert(guests.invoke("tag-region", editor, true, message))
+    assert(message.contains("minibuffer") && editor.selected_text() == "é界")
+    assert(guests.invoke("tag-region", editor, false, message))
+    assert(editor.buffers[0].text == "[é界:1]")
+    assert(editor.buffers[0].undo.nodes[editor.buffers[0].undo.current].label == "tag-region")
+    assert(editor.undo_edit()); assert(editor.buffers[0].text == "é界" && !editor.buffers[0].dirty)
+    assert(editor.redo_edit()); select_all(editor)
+    assert(guests.invoke("tag-region", editor, false, message))
+    assert(editor.buffers[0].text == "[[é界:1]:2]")
+    select_all(editor); editor.insert("fail"); select_all(editor)
+    before := editor.buffers[0].undo.current
+    assert(guests.invoke("tag-region", editor, false, message))
+    assert(message.contains("guest failed") && editor.selected_text() == "fail")
+    assert(editor.buffers[0].undo.current == before && editor.undo_token == 0)
+    diagnostic := message.clone()
+    editor.insert("exit"); select_all(editor)
+    assert(guests.invoke("tag-region", editor, false, message))
+    assert(editor.selected_text() == "exit" && editor.undo_token == 0)
+    editor.insert("ok"); select_all(editor)
+    assert(guests.invoke("tag-region", editor, false, message))
+    assert(editor.buffers[0].text == "[ok:5]")
+    mut terminal := EditorState.new("", "shell")
+    select_all(terminal)
+    ref mut buffer : EditorBuffer = terminal.buffers[0]; buffer.terminal = 0
+    assert(guests.invoke("tag-region", terminal, false, message))
+    assert(message.contains("terminal") && terminal.buffers[0].text == "shell")
+    assert(!guests.invoke("unknown", editor, false, message))
+
+    mut discovery := CommandDiscovery()
+    discovery.begin(config.commands.keys, "owner", "text", true, true, true, Vec(Str).new(), false, guests.names())
+    assert(discovery.available("tag-region") && discovery.details(config.commands.keys, "tag-region").contains("F8"))
+    discovery.refresh(config.commands.keys, "owner", "text", false, true); assert(!discovery.available("tag-region"))
+    discovery.refresh(config.commands.keys, "owner", "terminal", true, true); assert(!discovery.available("tag-region"))
+    discovery.refresh(config.commands.keys, "owner", "minibuffer", true, true); assert(!discovery.available("tag-region"))
+    own guests.delete(); own vm.delete()
+    assert(diagnostic.contains("guest failed") && editor.undo_edit() && editor.buffers[0].text == "ok")
+
+    bad_init(home, "config.width = 999; tiled_text_command(\"save-buffer\", \"init\")", "already registered")
+    bad_init(home, "config.width = 999; tiled_text_command(\"\", \"init\")", "empty")
+    bad_init(home, "config.width = 999; tiled_text_command(\"missing-command\", \"missing\")", "not found")
+    bad_init(home, "config.width = 999; tiled_text_command(\"wrong-signature\", \"init\")", "signature mismatch")
+    File.writefile(format(home, "/.tiled/init.til"), format("mode lib\n", fixture_api(),
+        "valid := proc(text: Str) returns Str { noop_proc(); return text.clone() }\n",
+        "init := proc() { tiled_text_command(\"first-command\", \"valid\"); tiled_text_command(\"second-command\", \"missing\") }\n"))
+    mut partial_vm := TilVm.new(TILED_SDK); mut partial := EditorGuestCommands()
+    failure := tiled_load_init(partial_vm, partial, format(home, "/.tiled/init.til"))
+    assert(failure.is_some() && partial.names().len() == 0)
+    own partial.delete(); own partial_vm.delete()
+    println("PASS: retained guest registry, registration validation, selection/context guards, discovery, undo and error recovery")
+}

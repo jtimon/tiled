@@ -1,0 +1,40 @@
+# priority: medium
+# category: features
+** FIXED #19 Run retained guest text commands in the live editor
+
+Implemented =tiled_text_command(name, symbol)= and a separate typed guest
+registry. Init registrations are validated before applying bindings/opening the
+GUI; duplicate guest names replace earlier registrations, while empty/built-in
+names and bad symbols/signatures fail startup. Partial handles and staged
+settings are cleared on failure. The main process retains the VM through the
+editor loop, destroying command handles before the VM.
+
+Keybindings and M-x invoke the same retained callbacks. Discovery and dispatch
+require a nonempty text region and reject terminal/minibuffer contexts. Results
+use the ordinary replacement/undo path; guest errors leave text/selection intact,
+display status feedback, and allow subsequent commands. Captures remain live.
+
+Verification:
+- =./make.til= built both hosts and the expanded shared startup library.
+- ASAN =guest_commands_model= and =init_model= passed with empty PATH,
+  including capture lifetime, error/exit recovery, partial-load cleanup,
+  registration validation, owned snapshots and teardown.
+- ASAN =command_discovery=, =keymap= and =undo_tree= passed; interpreted
+  =command_discovery= also passed.
+- Xvfb =guest_commands_gui= passed against the actual executable with private
+  HOME/empty PATH: keys and M-x, Unicode, repeated captures, undo/redo,
+  panic/exit survival, terminal isolation and startup rejection.
+- Xvfb regressions =init_gui=, =session_optin_gui=, =command_discovery_gui=,
+  =keymap_gui= and =undo_gui= passed.
+
+*** Request
+
+Register named selected-text transforms during interpreted init, retain their
+typed TilVm callbacks and VM through the GUI lifetime, and dispatch them through
+normal keymaps and M-x. Use the already-tested =proc(Str) returns Str= contract;
+do not route guest handles through captured native EditorAction pointers.
+
+Verify startup lookup errors, retained captures, context/selection availability,
+Unicode edits, one-step undo, guest error/exit recovery and orderly teardown
+with isolated HOME fixtures and no runtime compiler. Broader live buffer APIs
+and reload remain in #5.

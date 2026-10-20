@@ -1,7 +1,6 @@
 mode lib
 import("std/tilvm")
 import("editor")
-import("../gen/tiled_runtime")
 startup := import("../gen/tiled_startup_api")
 
 tiled_startup_config := proc() returns TiledConfig {
@@ -13,6 +12,10 @@ tiled_startup_config := proc() returns TiledConfig {
         font_size = options.font_size, tabs_visible = options.tabs_visible,
         session = SessionConfig(enabled = options.session.enabled, restore = options.session.restore,
             name = options.session.name.clone(), interval_ms = options.session.interval_ms))
+    for i in 0..startup.tiled_text_command_count() {
+        command := startup.tiled_text_command_at(i)
+        config.commands.keys.declare(command.name)
+    }
     for i in 0..startup.tiled_binding_count() {
         binding := startup.tiled_binding(i)
         if binding.remove { config.commands.unbind(binding.map, binding.keys) }
@@ -20,15 +23,26 @@ tiled_startup_config := proc() returns TiledConfig {
     }
     return config
 }
-priv tiled_eval_init := proc(path: Str) throws TilVmError {
-    mut vm := TilVm.new(TILED_SDK)
+priv tiled_eval_init := proc(mut vm: TilVm, mut guests: EditorGuestCommands, path: Str) throws TilVmError {
     vm.load_file(path)?
     mut callback := vm.lookup("init")?
     callback.call()?
+    mut commands := EditorCommands.new()
+    for i in 0..startup.tiled_text_command_count() {
+        command := startup.tiled_text_command_at(i)
+        if command.name.len() == 0 || commands.keys.known(command.name) {
+            mut err := TilVmError(phase = "commands")
+            err.diagnostics.push(own TilVmDiagnostic(path = path.clone(), message = format("Guest command name is empty or already registered: ", command.name)))
+            throw err
+        }
+        guests.add(vm, command.name, command.symbol)?
+        commands.keys.declare(command.name)
+    }
 }
-tiled_load_init := proc(path: Str) returns Option(TilVmError) {
+tiled_load_init := proc(mut vm: TilVm, mut guests: EditorGuestCommands, path: Str) returns Option(TilVmError) {
+    guests.clear()
     startup.tiled_reset()
-    tiled_eval_init(path)?
-    catch (err: TilVmError) { startup.tiled_reset(); return Option(TilVmError).Some(err) }
+    tiled_eval_init(vm, guests, path)?
+    catch (err: TilVmError) { guests.clear(); startup.tiled_reset(); return Option(TilVmError).Some(err) }
     return Option(TilVmError).None
 }

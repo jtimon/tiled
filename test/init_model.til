@@ -1,19 +1,28 @@
 mode gui
 import("../src/tiled_init")
+import("../gen/tiled_runtime")
 import("config_helpers")
+
+load_options := proc(path: Str) returns Option(TilVmError) {
+    mut vm := TilVm.new(TILED_SDK)
+    mut guests := EditorGuestCommands()
+    result := tiled_load_init(vm, guests, path)
+    own guests.delete(); own vm.delete()
+    return result
+}
 
 main := proc() {
     home := format(get_cwd_str(), "/tmp/init-model-", process_id().to_str())
     fixture_tiled_init(home, "config.width = 910; config.draft_text = format(\"owned \", \"config\"); config.session.enabled = true; config.session.restore = true; tiled_bind(\"text\", \"F8\", \"save-buffer\")")
     path := format(home, "/.tiled/init.til")
-    assert(tiled_load_init(path).is_none())
+    assert(load_options(path).is_none())
     config := tiled_startup_config()
     assert(config.width == 910 && config.draft_text == "owned config" && config.session.enabled && config.session.restore)
     mut keys := KeyState()
     assert(keys.event(config.commands.keys, "text", false, true, 297, 0, 1).command == "save-buffer")
     File.writefile(path, format("mode lib\n", fixture_api(),
         "init := proc() { mut config := tiled_options(); config.draft_text = \"partial\"; tiled_configure(config); tiled_bind(\"text\", \"F8\", \"newline\"); panic(\"init failure\") }\n"))
-    failure := tiled_load_init(path)
+    failure := load_options(path)
     assert(failure.is_some())
     error := failure.unwrap()
     assert(error.phase == "call" && error.to_str().contains("init failure"))
@@ -23,15 +32,15 @@ main := proc() {
     keys.cancel()
     assert(keys.event(defaults.commands.keys, "text", false, true, 297, 0, 1).kind == 0)
     fixture_tiled_init(home, "config.width = 920; config.draft_text = \"repaired\"")
-    assert(tiled_load_init(path).is_none())
+    assert(load_options(path).is_none())
     repaired := tiled_startup_config()
     assert(repaired.width == 920 && repaired.draft_text == "repaired")
     assert(config.draft_text == "owned config" && error.to_str().contains("init failure"))
-    assert(tiled_load_init(format(get_cwd_str(), "/gen/tiled_init.til")).is_none())
+    assert(load_options(format(get_cwd_str(), "/gen/tiled_init.til")).is_none())
     example := tiled_startup_config()
     assert(example.width == 1000 && example.height == 700 && example.draft_text.starts_with("Welcome to Tiled!"))
     File.writefile(path, "mode lib\nvalue := 1\n")
-    missing := tiled_load_init(path)
+    missing := load_options(path)
     assert(missing.is_some() && missing.unwrap().phase == "lookup")
     assert(tiled_startup_config().draft_text == "")
     println("PASS: shared startup snapshots, bindings, failed-init rollback, owned diagnostics and retry")

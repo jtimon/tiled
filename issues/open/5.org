@@ -24,9 +24,9 @@ Using the same language does not by itself provide a live embedding API.
 - Tiled loads =~/.tiled/init.til= and tilminal loads =~/.tilminal.til=.
   Tiled now interprets a zero-argument =init()= through TilVm and reads a shared
   startup settings library (see #18). Its guest API exposes options and built-in
-  keymap overrides. Tilminal retains the compiled GUI-child loader and
+  keymap overrides and retained selected-text commands (see #19). Tilminal retains the compiled GUI-child loader and
   =config.commands=. Native Tiled callbacks still use =TiledConfig.commands=;
-  registering live guest commands through init remains to be implemented.
+  broader live guest buffer APIs remain to be implemented.
 - Tiled startup needs the matching installed SDK assets and generated native
   binding/library, but no compiler executable or replacement GUI process.
   No live reload is implemented.
@@ -61,8 +61,8 @@ panic/exit recovery with unchanged editor text/selection, named key resolution,
 and result/diagnostic lifetime after callback and VM teardown. The test passed.
 The SDK root is an explicit argument, not a machine-specific source dependency.
 
-This text-command adapter remains a headless integration seam and upgrade
-regression. Production startup settings use a separate shared library. See
+The text-command adapter now also backs the live GUI guest registry. Production
+startup settings and registration descriptors use a shared library. See
 [[file:../../doc/tilvm.org][the prototype contract and next-upgrade findings]].
 
 *** Remaining Til dependency and integration findings
@@ -95,6 +95,19 @@ The shared startup API is now used by the actual Tiled executable. Next: choose
 the smallest live editor API with one owner of buffer/undo
 state. Avoid a static host copy plus a guest-loaded dynamic copy, and do not
 promise that editor undo rolls back arbitrary native side effects.
+
+*** Live selected-text command registration
+
+=tiled_text_command(name, symbol)= now registers public guest procedures matching
+=proc(Str) returns Str=. After init, typed handles are validated and stored in
+=EditorGuestCommands=; the caller keeps their VM alive through the editor loop
+and destroys handles before the VM. The normal keymaps/M-x discover and invoke
+them, with nonempty-text-region restrictions and error recovery. No capturing
+native EditorAction bridge is used.
+
+The scoped implementation and verification are tracked in #19. General buffer
+operations, runtime registration and hot reload remain open; the selected-text
+contract intentionally exposes copied text rather than native editor pointers.
 
 *** Earlier native command composition findings
 

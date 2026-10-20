@@ -1,0 +1,42 @@
+mode lib
+import("guest_transform")
+
+EditorGuestCommand := struct { name : Str; transform : EditorGuestTransform }
+EditorGuestCommands := struct {
+    entries := Vec(EditorGuestCommand).new()
+namespace:
+    clear := func(mut commands: EditorGuestCommands) { commands.entries.clear() }
+    add := proc(mut commands: EditorGuestCommands, mut vm: TilVm, name: Str, symbol: Str) throws TilVmError {
+        mut transform := EditorGuestTransform.lookup(vm, symbol)?
+        transform.name = name.clone()
+        commands.entries.push(own EditorGuestCommand(name = name.clone(), transform = transform))
+    }
+    names := func(commands: EditorGuestCommands) returns Vec(Str) {
+        mut names := Vec(Str).new()
+        for entry : EditorGuestCommand in commands.entries { names.push(own entry.name.clone()) }
+        return names
+    }
+    invoke := proc(mut commands: EditorGuestCommands, name: Str, mut editor: EditorState,
+        prompting: Bool, mut message: Str) returns Bool {
+        for i in 0..commands.entries.len() {
+            ref mut entry : EditorGuestCommand = commands.entries[i]
+            if entry.name != name { continue }
+            if prompting { message = format("Unavailable in minibuffer: ", name); return true }
+            if editor.buffers[editor.nodes[editor.focused].view.buffer].terminal >= 0 {
+                message = format("Unavailable in terminal: ", name); return true
+            }
+            mut applied := false
+            applied = entry.transform.apply(editor)?
+            catch (err: TilVmError) {
+                message = format(name, ": ", err.phase)
+                for diagnostic : TilVmDiagnostic in err.diagnostics { message = format(name, ": ", diagnostic.message); break }
+                println(err.to_str())
+                return true
+            }
+            if applied { message = format("Applied ", name) }
+            else { message = format("Select a text region to run ", name) }
+            return true
+        }
+        return false
+    }
+}

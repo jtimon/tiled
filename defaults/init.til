@@ -5,6 +5,13 @@ import("../gen/tiled_startup_api")
 // The generated copy has the correct binding path for this build.
 // Tiled interprets init() in-process before opening its window.
 // The command-line filename takes precedence over config.initial_file.
+// Optional selected-text transform. The callback contract is proc(Str) -> Str;
+// noop_proc keeps this otherwise pure example explicitly effectful.
+bracket_region := proc(text: Str) returns Str {
+    noop_proc()
+    return format("[", text, "]")
+}
+
 init := proc() {
     mut config := tiled_options()
     config.maximized = false
@@ -25,6 +32,8 @@ init := proc() {
     // tiled_bind("terminal", "C-v", "paste")
     // tiled_bind("terminal", "C-S-v", "forward-key", true)
     // tiled_unbind("text-selection", "C-x") // Always use C-x as prefix.
+    // tiled_text_command("bracket-region", "bracket_region")
+    // tiled_bind("text", "C-k b", "bracket-region")
     // Empty means the system monospace font, resolved through fontconfig.
     // config.font_path = "/path/to/your/monospace.ttf"
     config.draft_text = "Welcome to Tiled!\n\nC-x t: new terminal\nC-x b: switch buffer\nC-x C-b: list buffers\nC-x k: kill buffer\nC-x 2: split top/bottom\nC-x 3: split side by side\nC-x o: focus next view\nC-x 0: close view\nC-x 1: keep only this view\nC-x C-f / Ctrl+O: open a file\nC-x C-s / Ctrl+S: save text buffer\nC-x C-c: exit Tiled\n"

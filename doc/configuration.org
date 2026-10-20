@@ -241,6 +241,8 @@ then call =tiled_configure(config)= to publish them to the shared startup librar
 The supported fields are =width=, =height=, =maximized=, =tile_left=, =draft_text=,
 =initial_file=, =font_path=, =font_size=, =tabs_visible= and =session=.
 =tiled_bind= and =tiled_unbind= configure built-in [[file:keybindings.org][commands and keymaps]].
+=tiled_text_command(name, symbol)= registers a live guest selected-text transform;
+see [[file:tilvm.org][the callback contract and example]].
 A command-line filename takes
 precedence over =initial_file= on a fresh startup. A restored workspace keeps
 its existing focus unless a command-line file is supplied; with neither,
@@ -355,8 +357,10 @@ Tiled loads the file through =TilVm= inside the existing process and invokes
 =init()=. No compiler executable, generated entry-point program or replacement
 GUI process is used. A native shared library owns startup settings and keymap
 overrides; the compiled host reads that same instance after init succeeds.
-The VM is then destroyed before opening the GUI. Errors stop startup with
-diagnostics and reset staged settings; partial settings are not adopted.
+Registered text commands are checked after init returns. Their typed callbacks
+and VM remain alive through the GUI loop; callbacks are destroyed before the
+VM at shutdown. Startup errors stop with diagnostics and reset staged settings
+and registrations; partial results are not adopted.
 
 Runtime assets are the matching installed Til SDK sources, generated startup
 binding and shared library. Their locations are fixed by the build. TilVm
@@ -366,9 +370,10 @@ The build records the SDK next to the selected installed compiler; user startup
 does not search PATH for Til. Fontconfig is still used unless =font_path= is set.
 
 The old Tiled =init(mut config: TiledConfig)= signature is no longer loaded.
-Live guest command registration and hot reload remain follow-ups in
-[[file:../issues/open/5.org][#5]]; =TiledConfig.commands= is still the native host/developer API, not an
-interpreted init API. Tests of native callbacks compile their own explicit
+Guest selected-text commands now run through normal keybindings and M-x.
+Broader live editor APIs and hot reload remain follow-ups in [[file:../issues/open/5.org][#5]].
+=TiledConfig.commands= is the native host/developer API, not an interpreted
+init API. Tests of native callbacks compile their own explicit
 fixtures; startup tests exercise the real executable and interpreter.
 
 Standalone tilminal still uses the interim =til run= loader: it generates a

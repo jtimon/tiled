@@ -3,6 +3,7 @@ mode gui
 import("std/sys")
 import("editor")
 import("tiled_init")
+import("../gen/tiled_runtime")
 
 BASE_VERSION := "0.0.1-"
 
@@ -28,10 +29,14 @@ main := proc(args: ..Str) {
         path := format(home, "/.tiled/init.til")
         if File.exists(path) {
             println("Loading ", path)
-            failure := tiled_load_init(path)
+            mut vm := TilVm.new(TILED_SDK)
+            mut guests := EditorGuestCommands()
+            failure := tiled_load_init(vm, guests, path)
             if failure.is_some() { err := failure.unwrap(); println(err.to_str()); exit(1) }
             config := tiled_startup_config()
-            start_editor(config, ..args)
+            start_editor_with_guests(config, guests, ..args)
+            own guests.delete()
+            own vm.delete()
             return
         }
     }

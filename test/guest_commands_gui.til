@@ -1,0 +1,68 @@
+mode gui
+import("terminal_gui_helpers")
+import("config_helpers")
+
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
+chord := proc(display: Dynamic, key: UPtr, shift: Bool = false) {
+    send(display, 65507, 1); if shift { send(display, 65505, 1) }
+    tap(display, key)
+    if shift { send(display, 65505, 0) }; send(display, 65507, 0); sleep_ms(70)
+}
+select_all := proc(display: Dynamic) { tap(display, 65367); send(display, 65505, 1); tap(display, 65360); send(display, 65505, 0); sleep_ms(70) }
+mx := proc(display: Dynamic, name: Str) {
+    send(display, 65513, 1); tap(display, 120); send(display, 65513, 0); type_text(display, name); sleep_ms(100)
+}
+saved := proc(app: Cmd, pid: I64, display: Dynamic, path: Str, expected: Str) {
+    tap(display, 65478) // F9: builtin save-buffer.
+    for _ in 0..100 {
+        if File.readfile(path) == expected { return }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, false, format("guest command did not produce: ", expected))
+}
+main := proc() {
+    home := format(get_cwd_str(), "/tmp/guest-commands-gui-", process_id().to_str()); assert(mkdir_p(format(home, "/.tiled")) == 0)
+    file := format(home, "/notes.txt"); File.writefile(file, "é界")
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace"); query.capture_out(); query.run_checked()
+    font := query.out()
+    File.writefile(format(home, "/.tiled/transforms.til"), format("mode lib\n",
+        "Transform := proc(Str) returns Str\nmake := func() returns Transform { calls := 0; return proc(text: Str) returns Str [own mut calls] { noop_proc(); calls = calls + 1; return format(\"[\", text, \":\", calls.to_str(), \"]\") } }\n",
+        "tag := make()\nexplode := proc(text: Str) returns Str { noop_proc(); if text.len() > 0 { panic(\"guest boom\") }; return text.clone() }\n",
+        "leave := proc(text: Str) returns Str { noop_proc(); if text.len() > 0 { exit(0) }; return text.clone() }\n"))
+    File.writefile(format(home, "/.tiled/init.til"), format("mode lib\n", fixture_api(), "import(\"transforms\")\n",
+        "init := proc() { mut config := tiled_options(); config.tile_left = false; config.font_path = ", fixture_quote(font), "; tiled_configure(config); ",
+        "tiled_text_command(\"tag-region\", \"tag\"); tiled_text_command(\"explode-region\", \"explode\"); tiled_text_command(\"exit-region\", \"leave\"); ",
+        "tiled_bind(\"global\", \"F8\", \"tag-region\"); tiled_bind(\"text\", \"F7\", \"explode-region\"); tiled_bind(\"text\", \"F6\", \"exit-region\"); tiled_bind(\"text\", \"F9\", \"save-buffer\") }\n"))
+    app := Cmd.new("./bin/tiled", file); app.env("HOME", home).env("PATH", "").env("SHELL", "/bin/sh").env("ENV", "")
+    app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    pid := app.start(); window := wait_window(app, pid, "Tiled - notes.txt")
+    display_name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(display_name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    sleep_ms(250); XSetInputFocus(display, window, 2, 0); XFlush(display)
+    tap(display, 65477); saved(app, pid, display, file, "é界") // No selection: no guest call.
+    select_all(display); tap(display, 65477); saved(app, pid, display, file, "[é界:1]")
+    select_all(display); mx(display, "tag-region"); saved(app, pid, display, file, "[[é界:1]:2]")
+    chord(display, 122); saved(app, pid, display, file, "[é界:1]")
+    chord(display, 122, true); saved(app, pid, display, file, "[[é界:1]:2]")
+    select_all(display); tap(display, 65476); saved(app, pid, display, file, "[[é界:1]:2]")
+    tap(display, 65477); saved(app, pid, display, file, "[[[é界:1]:2]:3]") // Failure retained the region.
+    select_all(display); tap(display, 65475); saved(app, pid, display, file, "[[[é界:1]:2]:3]")
+    tap(display, 65477); saved(app, pid, display, file, "[[[[é界:1]:2]:3]:4]")
+    mx(display, "tag-region"); tap(display, 65307) // Palette refuses without a region.
+    select_all(display); tap(display, 65477); saved(app, pid, display, file, "[[[[[é界:1]:2]:3]:4]:5]")
+    // Explicitly global binding is consumed safely in a terminal, not executed.
+    chord(display, 120); tap(display, 116); wait_window(app, pid, "Tiled - *terminal-1*")
+    tap(display, 65477); mx(display, "tag-region"); tap(display, 65307)
+    request_close(display, window); sleep_ms(200); type_text(display, "terminate")
+    for _ in 0..100 { if app.poll() { break }; sleep_ms(50) }
+    require(app, pid, app.poll(), "guest-enabled editor did not exit"); assert(app.wait() == 0)
+    assert(File.readfile(file) == "[[[[[é界:1]:2]:3]:4]:5]")
+    for body : Str in array(Str, "tiled_text_command(\"broken\", \"missing\")", "tiled_text_command(\"broken\", \"init\")", "tiled_text_command(\"save-buffer\", \"init\")") {
+        fixture_tiled_init(home, body)
+        rejected := Cmd.new("./bin/tiled"); rejected.env("HOME", home).env("PATH", "").capture()
+        assert(rejected.run() != 0)
+        assert(rejected.out().contains("lookup") || rejected.out().contains("commands"))
+    }
+    XCloseDisplay(display)
+    println("PASS: live interpreted key/M-x commands, retained captures, Unicode, undo/redo, errors and terminal isolation with empty PATH")
+}

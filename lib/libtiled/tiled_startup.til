@@ -22,10 +22,12 @@ TiledSettings := struct {
     session : TiledSessionSettings
 }
 TiledBinding := struct { map := ""; keys := ""; command := ""; repeat := false; remove := false }
+TiledTextCommand := struct { name := ""; symbol := "" }
 priv mut settings := TiledSettings(session = TiledSessionSettings())
 priv mut bindings := Vec(TiledBinding).new()
+priv mut text_commands := Vec(TiledTextCommand).new()
 
-tiled_reset := proc() { noop_proc(); settings = TiledSettings(session = TiledSessionSettings()); bindings = Vec(TiledBinding).new() }
+tiled_reset := proc() { noop_proc(); settings = TiledSettings(session = TiledSessionSettings()); bindings = Vec(TiledBinding).new(); text_commands = Vec(TiledTextCommand).new() }
 tiled_options := proc() returns TiledSettings { noop_proc(); return settings.clone() }
 tiled_configure := proc(value: TiledSettings) { noop_proc(); settings = value.clone() }
 tiled_bind := proc(map: Str, keys: Str, command: Str, repeat: Bool = false) {
@@ -36,3 +38,16 @@ tiled_unbind := proc(map: Str, keys: Str) {
 }
 tiled_binding_count := proc() returns USize { noop_proc(); return bindings.len() }
 tiled_binding := proc(index: USize) returns TiledBinding { noop_proc(); return bindings[index].clone() }
+
+// Register a guest symbol by name; no interpreted callable is coerced to a
+// native function pointer. Registration is resolved after init returns.
+tiled_text_command := proc(name: Str, symbol: Str) {
+    noop_proc()
+    value := TiledTextCommand(name = name.clone(), symbol = symbol.clone())
+    for i in 0..text_commands.len() {
+        if text_commands[i].name == name { text_commands.set(i, own value)!; return }
+    }
+    text_commands.push(own value)
+}
+tiled_text_command_count := proc() returns USize { noop_proc(); return text_commands.len() }
+tiled_text_command_at := proc(index: USize) returns TiledTextCommand { noop_proc(); return text_commands[index].clone() }

@@ -2,11 +2,11 @@
 
 [[file:keybindings.org][Commands]] | [[file:../issues/open/5.org][Integration tracking]]
 
-Tiled now uses TilVm for real startup configuration. The optional host-side
-adapter =src/guest_transform.til= separately demonstrates one
-in-process guest operation: transform a selected text region. It imports the
-installed public =std/tilvm= module. Live guest command registration remains
-future work; standalone tilminal still uses its compiled init loader.
+Tiled uses TilVm for startup configuration and live selected-text commands.
+=src/guest_transform.til= applies checked guest results to editor state;
+=src/guest_commands.til= retains and dispatches those typed handles without
+coercing them to native function pointers. Standalone tilminal still uses its
+compiled init loader.
 
 ** Interpreted startup
 
@@ -14,8 +14,10 @@ future work; standalone tilminal still uses its compiled init loader.
 overrides in one shared library. Both the GUI executable and the interpreted
 init import =gen/tiled_startup_api.til=, which names that same shared object.
 =src/tiled_init.til= loads =~/.tiled/init.til= and calls its zero-argument
-=init()= in-process. The host adopts the final snapshot and releases the VM
-before opening its GUI; failed init resets staged settings and stops startup.
+=init()= in-process. The host adopts the final snapshot, validates registered
+guest commands and retains their VM throughout the GUI loop. Failed init or
+registration clears partial handles/settings and stops startup. At shutdown,
+the registry is destroyed before its VM.
 
 The user API is =tiled_options()= / =tiled_configure(settings)= plus
 =tiled_bind= / =tiled_unbind= for existing commands. Obtain settings from
@@ -35,7 +37,61 @@ env PATH= ./tmp/check_init_model
 xvfb-run -a -s "-screen 0 1600x1200x24" til run --usize=64 -o tmp/check_init_gui -c tmp/check_init_gui.c test/init_gui.til
 #+end_src
 
-** Text-transform prototype contract
+** Live guest text commands
+
+Keep the generated binding import from =gen/tiled_init.til= and add a public
+guest procedure plus its registration:
+
+#+begin_src til
+bracket_region := proc(text: Str) returns Str {
+    // The current callback contract is proc; keep a pure example effectful.
+    noop_proc()
+    return format("[", text, "]")
+}
+
+init := proc() {
+    tiled_text_command("bracket-region", "bracket_region")
+    tiled_bind("text", "C-k b", "bracket-region")
+}
+#+end_src
+
+Select text, then use the binding or =M-x bracket-region=. Registration stores
+the command name and exported guest symbol; lookup happens after init returns.
+Imported helpers can define the symbol. Missing symbols or incompatible
+signatures stop startup with diagnostics. Empty names and collisions with
+built-in command names are rejected. Re-registering a guest name during
+init replaces its earlier symbol; the last registration wins.
+
+Each registered command retains one typed callback, including its captured
+state, for repeated invocation. These are startup registrations: calling the
+registration/configuration functions later does not reconfigure the running
+editor. Hot reload and general live buffer APIs are later work.
+
+M-x lists guest commands with their effective bindings, marking them unavailable
+without a nonempty text region or inside terminal/minibuffer contexts. Bound
+invocations enforce the same restrictions without calling the guest. Successful
+replacement clears the region and creates one undo step. Panic/exit failures
+leave its text and region intact, show a status message and print full diagnostics;
+the editor remains usable. Guest capture state or native side effects already
+performed are not rolled back by either failure handling or editor undo.
+
+The integration uses a separate typed registry, not captured =EditorAction=
+closures, avoiding the native closure ownership problem documented below.
+
+#+begin_src sh
+./make.til
+til build --usize=64 --asan -o tmp/check_guest_commands_model -c tmp/check_guest_commands_model.c test/guest_commands_model.til
+env PATH= ./tmp/check_guest_commands_model
+xvfb-run -a -s "-screen 0 1600x1200x24" til run --usize=64 -o tmp/check_guest_commands_gui -c tmp/check_guest_commands_gui.c test/guest_commands_gui.til
+#+end_src
+
+The model tests registration/replacement, partial-load cleanup, captures,
+selection/context restrictions, discovery, undo and error recovery under ASAN.
+The GUI test runs the real application with private HOME and empty PATH, invokes
+commands by key and M-x after startup, checks Unicode file results and undo/redo,
+survives guest panic/exit and verifies terminal isolation and rejected registrations.
+
+** Text-transform adapter contract
 
 - The host creates/owns a =TilVm= with its matching installed SDK root, loads
   one guest module, and calls =EditorGuestTransform.lookup(vm, name)=.
@@ -162,7 +218,7 @@ commands.invoke("guest-transform", editor)
 Generated registration assigned the callable pointer to the command field;
 the caller then freed the closure box, and =EditorCommands.invoke= read it.
 The registry/callable ownership boundary must retain the closure or reject
-the escape, rather than depending on a local keep-alive call. The successful
-prototype resolves a named key and invokes its separately retained typed guest
-handle. Broader registry/GUI integration should wait for this contract to be
-settled and regression-tested.
+the escape, rather than depending on a local keep-alive call. The
+GUI now resolves named keys and invokes separately retained typed guest handles.
+Routing these through captured native EditorAction closures should still wait
+for that ownership contract to be settled and regression-tested.

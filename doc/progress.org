@@ -21,6 +21,10 @@
 - Startup integration tests pass with empty compiler PATH, checking settings,
   imported modules, same-process identity, built-in bindings, rejected bad init,
   and version bypass. An ASAN model test checks rollback, owned snapshots and retry.
+- =tiled_text_command(name, symbol)= registers retained guest selected-text
+  transforms. The VM lives through the GUI loop; keybindings and M-x use a
+  typed guest registry with context checks, one-step undo and recoverable errors.
+  Isolated ASAN/GUI checks exercise captures, Unicode, panic/exit and teardown.
 - Startup checks exercised the copied example, configured window size and
   initial file, command-line file precedence, failing init code, and version
   output bypassing init. An init path containing spaces worked.

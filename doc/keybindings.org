@@ -39,9 +39,10 @@ callbacks have signature =proc(mut EditorState)=
 live state for the duration of the call. Top-level functions can come from
 imported modules. Callbacks may override built-in command names, except
 =forward-key=, whose dispatch-bypass meaning is reserved.
-Tilminal can still register these through its compiled init. Tiled's new
-interpreted init currently supports startup options and built-in key bindings;
-live guest command registration is the next integration stage in [[file:tilvm.org][the TilVm work]].
+Tilminal can still register these through its compiled init. Tiled's interpreted
+init registers selected-text guest commands through =tiled_text_command(name, symbol)=.
+Their callbacks have the checked signature =proc(Str) returns Str=; they receive
+a snapshot and return a replacement. See [[file:tilvm.org][the live guest-command example]].
 
 =tiled_bind(map, sequence, command, repeat=false)= replaces an existing binding.
 =tiled_unbind(map, sequence)= removes it and its prefix descendants. The native
@@ -145,10 +146,10 @@ built-in command invocation from callbacks remains follow-up work. Tiled
 callbacks currently receive editor state, not the native
 terminal pool or prompt machinery. Mouse gestures remain host-defined.
 
-Tiled now interprets startup configuration in-process through TilVm and reads
-its shared settings library. Tilminal retains the compiled loader and needs
-installed Til plus the source checkout. Live interpreted commands and hot
-reload are still separate milestones; see [[file:configuration.org][startup configuration]].
+Tiled interprets startup configuration and runs retained selected-text guest
+commands in-process through TilVm. Tilminal retains the compiled loader and
+needs installed Til plus the source checkout. General live editor APIs and hot
+reload remain later milestones; see [[file:configuration.org][startup configuration]].
 
 *** Verification
 

@@ -14,6 +14,7 @@ import("minibuffer_view")
 import("file_dialogs")
 import("tab_bar")
 import("undo_prompt")
+import("guest_commands")
 
 link_c("editor_save.c")
 editor_write_file := ext_proc(path: I8, text: I8, shallow length: UPtr) returns shallow I32 {}
@@ -297,6 +298,11 @@ editor_draw_terminal := proc(mut terminals: EditorTerminals, editor: EditorState
 }
 
 start_editor := proc(config: TiledConfig, args: ..Str) {
+    mut guests := EditorGuestCommands()
+    start_editor_with_guests(config, guests, ..args)
+}
+
+start_editor_with_guests := proc(config: TiledConfig, mut guests: EditorGuestCommands, args: ..Str) {
     options := SessionArgs.parse(..args)
     mut session := SessionStore.new("tiled", config.session, options)
     font_size := config.font_size
@@ -479,10 +485,12 @@ start_editor := proc(config: TiledConfig, args: ..Str) {
                 editor.begin_edit_command(command, command == "backspace" || command == "delete")
                 if undo_prompt.mini.active && command != "execute-command" && command != "describe-key" && command != "quit" {
                     status_msg = undo_prompt.command(editor, command, command_key(command), command_mods.band(1) != 0)
+                } else if guests.invoke(command, editor, prompting, status_msg) {
+                    status_timer = 5000
                 } else if config.commands.invoke(command, editor) {
                     // Registered Til callbacks take precedence over built-ins.
                 } else if command == "execute-command" || command == "describe-key" {
-                    discovery.begin(config.commands.keys, owner, context, selected, primary, true, config.commands.user_names(), command == "describe-key")
+                    discovery.begin(config.commands.keys, owner, context, selected, primary, true, config.commands.user_names(), command == "describe-key", guests.names())
                 } else if command == "cancel" {
                     editor.nodes[editor.focused].view.clear_mark()
                     editor.nodes[editor.focused].view.terminal_viewport.selection.clear()

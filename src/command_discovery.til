@@ -14,6 +14,7 @@ CommandDiscovery := struct {
     primary := true
     editor_host := true
     custom := Vec(Str).new()
+    text_commands := Vec(Str).new()
 namespace:
     active := func(d: CommandDiscovery) returns Bool { return d.mini.active || d.reading }
     cancel := func(mut d: CommandDiscovery) {
@@ -22,6 +23,7 @@ namespace:
     available := func(d: CommandDiscovery, name: Str) returns Bool {
         if name == "forward-key" { return false } // No originating key in M-x.
         for custom : Str in d.custom { if custom == name { return true } }
+        for command : Str in d.text_commands { if command == name { return d.context == "text" && d.selected } }
         if name == "execute-command" || name == "describe-key" || name == "cancel" || name == "ignore" || name == "quit" { return true }
         if d.context == "minibuffer" { return name == "accept" || command_key(name) != 0 }
         for tab : Str in array(Str, "new-tab", "close-tab", "next-tab", "previous-tab", "move-tab-left", "move-tab-right", "toggle-tabs", "show-tabs", "hide-tabs") {
@@ -48,9 +50,10 @@ namespace:
         if !d.available(name) { return format("unavailable here; ", bindings) }
         return bindings
     }
-    begin := func(mut d: CommandDiscovery, maps: Keymaps, owner: Str, context: Str, selected: Bool, primary: Bool, editor_host: Bool, custom: Vec(Str), describe: Bool) {
+    begin := func(mut d: CommandDiscovery, maps: Keymaps, owner: Str, context: Str, selected: Bool, primary: Bool, editor_host: Bool, custom: Vec(Str), describe: Bool, text_commands: Vec(Str) = Vec(Str).new()) {
         d.cancel(); d.message = ""; d.owner = owner.clone(); d.context = context.clone()
         d.selected = selected; d.primary = primary; d.editor_host = editor_host; d.custom = custom.clone()
+        d.text_commands = text_commands.clone()
         d.sequence = ""; d.inspection = KeyState()
         mut choices := Vec(MinibufferChoice).new()
         if describe {
