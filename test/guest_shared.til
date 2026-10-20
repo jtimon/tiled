@@ -1,0 +1,35 @@
+mode cli
+import("std/sys")
+import("std/file")
+
+get_cwd_str := ext_proc() returns Str {}
+realpath_str := ext_proc(path: Str) returns Str {}
+quoted := func(path: Str) returns Str { return format("\"", path.replace("\\", "\\\\").replace("\"", "\\\""), "\"") }
+
+main := proc(support_root: Str) {
+    // The repository's shared-library staging currently targets Linux.
+    assert(host_os() == "linux")
+    sdk := realpath_str(support_root)
+    assert(File.is_file(format(sdk, "/src/std/tilvm.til")))
+    root := get_cwd_str()
+    work := format(root, "/tmp/guest-shared-", process_id().to_str())
+    assert(mkdir_p(format(work, "/gen")) == 0)
+    library_build := Cmd.new("til", "build", "--usize=64", "--asan", "-c", "gen/guest_shared_library.c", format(root, "/test/guest_shared_library.til"))
+    library_build.cwd(work); library_build.run_checked()
+    libdir := format(work, "/gen/lib")
+    library := format(libdir, "/libguest_shared_library.so")
+    assert(File.is_file(library))
+    binding := File.readfile(format(work, "/gen/til/guest_shared_library.til"))
+    // Explicit .so linking avoids host/static + guest/dynamic duplicate state.
+    File.writefile(format(work, "/shared_api.til"), format("mode lib\n",
+        binding.replace("link(\"guest_shared_library\")", format("link(", quoted(library), ")"))))
+    host_source := File.readfile("test/guest_shared_host.til").replace("import(\"../src/guest_transform\")",
+        format("import(", quoted(format(root, "/src/guest_transform")), ")"))
+    File.writefile(format(work, "/host.til"), host_source)
+    binary := format(work, "/host")
+    build := Cmd.new("til", "build", "--usize=64", "--asan", "-o", binary, "-c", format(work, "/host.c"), format(work, "/host.til"))
+    build.env("LIBRARY_PATH", libdir); build.run_checked()
+    host := Cmd.new(binary, sdk)
+    host.cwd(work).env("HOME", work).env("PATH", "").env("LD_LIBRARY_PATH", libdir)
+    host.run_checked()
+}

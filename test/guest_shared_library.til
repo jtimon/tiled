@@ -1,0 +1,17 @@
+mode lib
+
+// Test fixture, not a second editor model. One native instance must be visible
+// to the compiled host and every VM importing this library's generated binding.
+priv mut text := ""
+priv mut revision : I64 = 0
+SharedEditError := struct { code : I64 = 0 }
+
+shared_reset := proc(value: Str) { noop_proc(); text = value.clone(); revision = 0 }
+shared_read := proc() returns Str { noop_proc(); return text.clone() }
+shared_revision := proc() returns I64 { noop_proc(); return revision }
+shared_append := proc(suffix: Str) returns Str throws SharedEditError {
+    noop_proc()
+    if suffix == "reject" { throw SharedEditError(code = 7) }
+    text = format(text, suffix); revision = revision + 1
+    return text.clone()
+}

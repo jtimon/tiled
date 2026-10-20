@@ -65,9 +65,34 @@ GUI command or replacement for =~/.tiled/init.til=. See
 *** Remaining Til dependency and integration findings
 
 The installed SDK now supplies checked =lookup=, retained =TilVmCallback.call=
-and scalar/string interchange. Host-type/function registration remains needed
-for the existing mutable =TiledConfig=/=EditorState= interfaces. Keep the
-compiled startup loader while that boundary is developed.
+and scalar/string interchange. It also permits prebuilt native-library imports,
+providing a generated-binding route to shared functionality without dynamic
+host-function registration. Passing the existing mutable =TiledConfig=/
+=EditorState= records directly through callbacks still needs an explicit type/
+ownership contract. Keep the compiled startup loader while the editor API
+boundary is developed.
+
+*** Shared native library proof
+
+=test/guest_shared.til= builds a native Til text-store fixture and an ASAN host
+using Tiled editor/transform code. Generated bindings reference the same explicit
+shared-object path for the compiled host and both TilVm guests. With private
+HOME and empty PATH, the test passed shared state visibility, Unicode string
+ownership, missing-library retry, native throws propagation and VM teardown.
+Native calls continue working after both VMs are destroyed. The fixture is not
+a second editor model or a production library split.
+
+The same verification also rebuilt both GUI hosts, reran the earlier ASAN guest
+transform test, and passed ASAN =unicode=, =unicode_editing=, =undo_tree=,
+=keymap=, =command_discovery=, =session_model= and =tabs=; interpreted
+=unicode_editing=; and Xvfb =unicode_gui=, =keymap_gui= and =session_optin_gui=.
+The build driver regenerated the compiler dependency record automatically.
+
+Next: choose the smallest real shared editor API with one owner of buffer/undo
+state. Avoid a static host copy plus a guest-loaded dynamic copy, and do not
+promise that editor undo rolls back arbitrary native side effects.
+
+*** Earlier native command composition findings
 
 The small adapter exposed three additional composition problems on installed
 Til =fcbe4e79a=; the TilVm session should investigate them before native command

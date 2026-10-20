@@ -1,0 +1,64 @@
+mode cli
+import("../src/guest_transform")
+import("std/file")
+shared := import("shared_api")
+
+select_all := func(mut editor: EditorState) { editor.move_cursor(268); editor.select_move(269, true) }
+main := proc(support_root: Str) {
+    shared.shared_reset("host:")
+    // Guest code is created after this executable was compiled. The driver
+    // supplies the very same generated shared-library binding to both sides.
+    File.writefile("shared_guest.til", format(
+        "mode lib\nimport(\"shared_api\")\n",
+        "transform := proc(text: Str) returns Str { return shared_append(text)! }\n"))
+    File.writefile("missing_guest.til", "mode lib\nlink(\"./missing_shared_library.so\")\n")
+    mut first := TilVm.new(support_root)
+    mut missing := false
+    first.load_file("missing_guest.til")?
+    catch (err: TilVmError) {
+        missing = true
+        assert(err.phase == "load" && err.to_str().contains("missing_shared_library"))
+    }
+    assert(missing && shared.shared_read() == "host:" && shared.shared_revision() == 0)
+    first.load_file("shared_guest.til")!
+    mut one := EditorGuestTransform.lookup(first, "transform")!
+    mut editor := EditorState.new("", "é界")
+    select_all(editor); assert(one.apply(editor)!)
+    assert(editor.buffers[0].text == "host:é界")
+    assert(shared.shared_read() == "host:é界" && shared.shared_revision() == 1)
+    retained := shared.shared_append(":native")!
+    assert(retained == "host:é界:native" && shared.shared_revision() == 2)
+
+    mut second := TilVm.new(support_root)
+    second.load_file("shared_guest.til")!
+    mut two := EditorGuestTransform.lookup(second, "transform")!
+    assert(shared.shared_revision() == 2) // Importing again must not reset it.
+    mut peer := EditorState.new("", ":guest")
+    select_all(peer); assert(two.apply(peer)!)
+    assert(peer.buffers[0].text == "host:é界:native:guest")
+    assert(shared.shared_read() == peer.buffers[0].text && shared.shared_revision() == 3)
+    // Editor undo reverses the applied replacement, not native side effects.
+    assert(peer.undo_edit()); assert(peer.buffers[0].text == ":guest")
+    assert(shared.shared_revision() == 3)
+
+    mut rejected := EditorState.new("", "reject"); select_all(rejected)
+    mut diagnostic := ""
+    one.apply(rejected)?
+    catch (err: TilVmError) { diagnostic = err.to_str(); assert(err.phase == "call") }
+    assert(diagnostic.contains("SharedEditError"))
+    assert(rejected.buffers[0].text == "reject" && !rejected.buffers[0].dirty)
+    assert(rejected.nodes[0].view.selected() && rejected.buffers[0].undo.nodes.len() == 0)
+    assert(shared.shared_revision() == 3)
+
+    own one.delete(); own first.delete()
+    // Native code/state is process-owned: another VM and the host still use it.
+    select_all(peer); assert(two.apply(peer)!)
+    assert(shared.shared_read() == "host:é界:native:guest:guest" && shared.shared_revision() == 4)
+    own two.delete(); own second.delete()
+    after := shared.shared_append(":after-vms")!
+    assert(after == "host:é界:native:guest:guest:after-vms" && shared.shared_revision() == 5)
+    shared.shared_reset("")
+    assert(retained == "host:é界:native" && diagnostic.contains("SharedEditError"))
+    assert(editor.undo_edit()); assert(editor.buffers[0].text == "é界")
+    println("PASS: one compiled library shared by native editor code and two VMs, strings, throws and VM teardown")
+}

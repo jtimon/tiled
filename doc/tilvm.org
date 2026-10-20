@@ -1,4 +1,4 @@
-* Small TilVm text-command integration
+* TilVm text-command and shared-library integration
 
 [[file:keybindings.org][Commands]] | [[file:../issues/open/5.org][Integration tracking]]
 
@@ -43,10 +43,54 @@ Expected: a PASS line covering retained commands, captures, undo, error/exit
 recovery and teardown. The two intentional guest panics may also print their
 diagnostics; the host catches their structured errors and continues.
 
+** One compiled library, native host and interpreted guests
+
+TilVm now permits imports that link prebuilt native libraries through the
+existing FFI bridge. The compiled host and guest can consume the same generated
+Til binding; the guest does not need a separately reimplemented API or dynamic
+host-function registration for those exported library calls.
+
+=test/guest_shared.til= builds a tiny native text-store fixture and an ASAN host
+using Tiled's actual editor/guest-transform code. Both the compiled host and
+two guest VMs import its generated binding, rewritten to name the same explicit
+=.so= path. The host creates the guest source only after compilation and runs
+with private HOME and empty PATH.
+
+#+begin_src sh
+./make.til
+til run --usize=64 -o tmp/check_guest_shared -c tmp/check_guest_shared.c test/guest_shared.til /usr/local/lib/til
+#+end_src
+
+The Linux test verifies:
+- Native initialization and guest updates are visible to the compiled host.
+- A second VM sees the same state, including changes made by native calls.
+- Unicode strings cross both boundaries and become ordinary editor-owned text.
+- A missing library returns a load error; the same VM can retry successfully.
+- A native throws contract reaches the host as a structured guest-call error,
+  leaving the rejected editor selection unchanged.
+- Destroying one or both VMs does not reset/unload the library used by the
+  host; returned strings remain valid after subsequent native changes.
+
+For stateful APIs, both sides must use the same shared object. Statically
+linking a library into the host while a VM loads its dynamic counterpart can
+create two independent copies of its state. Regenerate bindings and rebuild
+against matching compiler/target/USize/ASAN settings, as with libterminal.
+Native libraries are process-lived; creating a fresh VM does not reset their
+globals. Runtime =link_c= compilation is still rejected by TilVm.
+
+This fixture proves the common-library boundary; the editor model has not yet
+been extracted into a production shared editor API. That extraction should keep
+canonical buffer state and editing/undo operations together. The current text
+adapter undoes its applied replacement, not earlier native-library side effects;
+the test checks that distinction explicitly.
+
 ** Findings for the next TilVm/compiler upgrade
 
 These were observed while composing the prototype with native command slots
 on Til =fcbe4e79a=. They are not failures of the direct typed guest-call path.
+The shared-library probe above uses that typed path and does not depend on
+capturing an adapter in a native command closure. These older findings have not
+been reclassified as fixed merely because native library loading now works.
 
 *** Owning adapter capture: missing generated clone
 
