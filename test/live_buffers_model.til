@@ -1,0 +1,99 @@
+mode gui
+import("../src/tiled_init")
+import("../gen/tiled_runtime")
+import("config_helpers")
+live := import("../gen/tiled_startup_api")
+
+select_all := func(mut editor: EditorState) { editor.move_cursor(268); editor.select_move(269, true) }
+expect_stale := proc(handle: I64) {
+    mut rejected := false
+    live.tiled_buffer_text(handle)?
+    catch (err: TiledBufferError) { rejected = true; assert(err.message.contains("Stale")) }
+    assert(rejected)
+}
+main := proc() {
+    mut absent := false
+    live.tiled_current_buffer()?
+    catch (err: TiledBufferError) { absent = true; assert(err.message.contains("No live editor")) }
+    assert(absent)
+    live_editor_begin("", "é界\nsecond")
+    ref mut editor : EditorState = live_editor_state()
+    handle := live.tiled_current_buffer()!
+    assert(handle == live.tiled_current_buffer()! && live.tiled_buffer_text(handle)! == "é界\nsecond")
+    editor.arrange(0, EditorRect(width = 1200, height = 800)); editor.move_cursor(269)
+    assert(editor.split(true, 100, 100))
+    editor.next_view(); hidden_view := editor.focused
+    other := editor.add_buffer("other", "hidden"); editor.switch_buffer(other)
+    other_handle := live.tiled_current_buffer()!
+    editor.next_view(); editor.move_cursor(268)
+    editor.begin_edit_command("native-two-edits")
+    live.tiled_buffer_replace(handle, 0, 0, "X")!
+    live.tiled_buffer_insert(handle, "Y")!
+    editor.end_edit_command()
+    assert(editor.buffers[0].text == "XYé界\nsecond" && editor.nodes[hidden_view].history[0].cursor == 7)
+    assert(editor.undo_edit()); assert(editor.buffers[0].text == "é界\nsecond" && editor.nodes[hidden_view].history[0].cursor == 5)
+    assert(editor.redo_edit()); assert(editor.buffers[0].text == "XYé界\nsecond")
+    mut invalid := false
+    live.tiled_buffer_replace(handle, 3, 0, "bad")?
+    catch (err: TiledBufferError) { invalid = true; assert(err.message.contains("grapheme")) }
+    assert(invalid && editor.buffers[0].text == "XYé界\nsecond")
+    invalid = false
+    live.tiled_buffer_replace(handle, 1000, 0, "bad")?
+    catch (err: TiledBufferError) { invalid = true; assert(err.message.contains("outside")) }
+    assert(invalid)
+    invalid = false
+    live.tiled_buffer_replace(other_handle, 0, 0, "bad")?
+    catch (err: TiledBufferError) { invalid = true; assert(err.message.contains("active")) }
+    assert(invalid && live.tiled_buffer_text(other_handle)! == "hidden")
+    editor.move_cursor(269); editor.select_move(268, true)
+    selection := live.tiled_buffer_selection(handle)!
+    assert(selection.start == 0 && selection.count == 7 && selection.text == "XYé界")
+    assert(editor.kill_buffer(other, true)); expect_stale(other_handle)
+    reused := editor.add_buffer("reused", "new"); assert(reused == other)
+    editor.switch_buffer(reused)
+    assert(live.tiled_current_buffer()! != other_handle); expect_stale(other_handle)
+    live_editor_close()
+    assert(selection.text == "XYé界") // API values are owned snapshots.
+
+    home := format(get_cwd_str(), "/tmp/live-buffers-", process_id().to_str()); assert(mkdir_p(format(home, "/.tiled")) == 0)
+    File.writefile(format(home, "/.tiled/init.til"), format("mode lib\n", fixture_api(),
+        "mut remembered : I64 = 0\nremember := proc() { remembered = tiled_current_buffer()! }\n",
+        "rewrite := proc() { h := tiled_current_buffer()!; text := tiled_buffer_text(h)!; selection := tiled_buffer_selection(h)!; assert(selection.start + selection.count <= text.len()); tiled_buffer_replace(h, 0, text.len(), format(\"(\", text, \")\"))!; tiled_buffer_insert(h, \"✓\")! }\n",
+        "stale := proc() { text := tiled_buffer_text(remembered)!; assert(text.len() >= 0) }\n",
+        "partial := proc() { tiled_buffer_insert(tiled_current_buffer()!, \"A\")!; panic(\"after edit\") }\n",
+        "bad_transform := proc(text: Str) returns Str { tiled_buffer_insert(tiled_current_buffer()!, \"BAD\")!; return text.clone() }\n",
+        "init := proc() { tiled_command(\"remember\", \"remember\"); tiled_command(\"rewrite\", \"rewrite\"); tiled_command(\"stale\", \"stale\"); tiled_command(\"partial\", \"partial\"); tiled_text_command(\"bad-transform\", \"bad_transform\") }\n"))
+    mut vm := TilVm.new(TILED_SDK); mut guests := EditorGuestCommands()
+    assert(tiled_load_init(vm, guests, format(home, "/.tiled/init.til")).is_none())
+    config := tiled_startup_config()
+    live_editor_begin("", "base")
+    ref mut current : EditorState = live_editor_state()
+    fresh_handle := live.tiled_current_buffer()!; assert(fresh_handle != handle); expect_stale(handle)
+    mut message := ""
+    assert(guests.invoke("remember", current, false, message))
+    assert(guests.invoke("rewrite", current, false, message))
+    assert(current.buffers[0].text == "(base)✓" && current.buffers[0].undo.nodes.len() == 2)
+    assert(current.undo_edit()); assert(current.buffers[0].text == "base")
+    current.move_cursor(269)
+    assert(guests.invoke("partial", current, false, message)); assert(message.contains("after edit"))
+    assert(current.buffers[0].text == "baseA" && current.undo_token == 0)
+    assert(current.undo_edit()); assert(current.buffers[0].text == "base")
+    select_all(current)
+    assert(guests.invoke("bad-transform", current, false, message))
+    assert(current.selected_text() == "base" && message.contains("TiledBufferError"))
+    assert(guests.invoke("rewrite", current, false, message)); assert(current.buffers[0].text == "(base)✓")
+
+    mut discovery := CommandDiscovery()
+    discovery.begin(config.commands.keys, "owner", "text", false, true, true, Vec(Str).new(), false,
+        guests.context_names(false), guests.context_names(true))
+    assert(discovery.available("rewrite") && !discovery.available("bad-transform"))
+    discovery.refresh(config.commands.keys, "owner", "terminal", false, true); assert(!discovery.available("rewrite"))
+    live_editor_close(); live_editor_begin("", "replacement")
+    ref mut replacement : EditorState = live_editor_state()
+    assert(guests.invoke("stale", replacement, false, message))
+    assert(message.contains("TiledBufferError") && replacement.buffers[0].text == "replacement")
+    assert(guests.invoke("rewrite", replacement, false, message)); assert(replacement.buffers[0].text == "(replacement)✓")
+    live_editor_close()
+    own guests.delete(); own vm.delete()
+    println("PASS: one live buffer owner, shared native/guest edits, view adjustment, atomic undo, partial failures and stale handles")
+}

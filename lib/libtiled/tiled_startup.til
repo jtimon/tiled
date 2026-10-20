@@ -1,4 +1,5 @@
 mode lib
+import("live_buffers")
 
 // One native owner of startup options, shared by the compiled host and TilVm.
 // These are value snapshots; the GUI adopts the final snapshot before startup.
@@ -22,12 +23,12 @@ TiledSettings := struct {
     session : TiledSessionSettings
 }
 TiledBinding := struct { map := ""; keys := ""; command := ""; repeat := false; remove := false }
-TiledTextCommand := struct { name := ""; symbol := "" }
+TiledCommand := struct { name := ""; symbol := ""; general := false }
 priv mut settings := TiledSettings(session = TiledSessionSettings())
 priv mut bindings := Vec(TiledBinding).new()
-priv mut text_commands := Vec(TiledTextCommand).new()
+priv mut commands := Vec(TiledCommand).new()
 
-tiled_reset := proc() { noop_proc(); settings = TiledSettings(session = TiledSessionSettings()); bindings = Vec(TiledBinding).new(); text_commands = Vec(TiledTextCommand).new() }
+tiled_reset := proc() { noop_proc(); settings = TiledSettings(session = TiledSessionSettings()); bindings = Vec(TiledBinding).new(); commands = Vec(TiledCommand).new() }
 tiled_options := proc() returns TiledSettings { noop_proc(); return settings.clone() }
 tiled_configure := proc(value: TiledSettings) { noop_proc(); settings = value.clone() }
 tiled_bind := proc(map: Str, keys: Str, command: Str, repeat: Bool = false) {
@@ -41,13 +42,18 @@ tiled_binding := proc(index: USize) returns TiledBinding { noop_proc(); return b
 
 // Register a guest symbol by name; no interpreted callable is coerced to a
 // native function pointer. Registration is resolved after init returns.
-tiled_text_command := proc(name: Str, symbol: Str) {
+priv tiled_register_command := proc(name: Str, symbol: Str, general: Bool) {
     noop_proc()
-    value := TiledTextCommand(name = name.clone(), symbol = symbol.clone())
-    for i in 0..text_commands.len() {
-        if text_commands[i].name == name { text_commands.set(i, own value)!; return }
+    value := TiledCommand(name = name.clone(), symbol = symbol.clone(), general = general)
+    for i in 0..commands.len() {
+        if commands[i].name == name { commands.set(i, own value)!; return }
     }
-    text_commands.push(own value)
+    commands.push(own value)
 }
-tiled_text_command_count := proc() returns USize { noop_proc(); return text_commands.len() }
-tiled_text_command_at := proc(index: USize) returns TiledTextCommand { noop_proc(); return text_commands[index].clone() }
+tiled_text_command := proc(name: Str, symbol: Str) { tiled_register_command(name, symbol, false) }
+tiled_command := proc(name: Str, symbol: Str) { tiled_register_command(name, symbol, true) }
+tiled_command_count := proc() returns USize { noop_proc(); return commands.len() }
+tiled_command_at := proc(index: USize) returns TiledCommand { noop_proc(); return commands[index].clone() }
+
+// The native boundary returns values, not compilation-unit-local throws IDs.
+tiled_native_buffer_request := proc(request: TiledBufferRequest) returns TiledBufferReply { return tiled_buffer_request(request) }

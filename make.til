@@ -48,8 +48,10 @@ startup_library := proc(opt: Str) {
     library := format(get_cwd_str(), "/gen/lib/libtiled_startup", suffix)
     if !File.is_file(library) { panic("missing startup library: ", library) }
     binding := File.readfile("gen/til/tiled_startup.til")
+    helper_source := File.readfile("lib/libtiled/live_api.til")
+    helpers := helper_source.strip_prefix("mode lib\n").replace("import(\"../../gen/til/tiled_startup\")\n", "")
     File.writefile("gen/tiled_startup_api.til", format("mode lib\n",
-        binding.replace("link(\"tiled_startup\")", format("link(\"", library.replace("\\", "\\\\").replace("\"", "\\\""), "\")"))))
+        binding.replace("link(\"tiled_startup\")", format("link(\"", library.replace("\\", "\\\\").replace("\"", "\\\""), "\")")), "\n", helpers))
     // A ready-to-copy config uses the built binding, not editor implementation
     // sources. TilVm currently resolves imports relative to the guest/SDK only.
     api := format(get_cwd_str(), "/gen/tiled_startup_api").replace("\\", "\\\\").replace("\"", "\\\"")

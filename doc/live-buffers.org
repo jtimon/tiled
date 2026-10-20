@@ -1,0 +1,115 @@
+* Live buffer API
+
+[[file:configuration.org][Configuration]] | [[file:tilvm.org][TilVm integration]] | [[file:architecture.org][State ownership]]
+
+** General guest commands
+
+=tiled_command(name, symbol)= registers a zero-argument guest callable with no
+result or throws clause. Unlike =tiled_text_command=, it does not require a
+selection. It is available through ordinary bindings and M-x in text buffers;
+terminal and minibuffer contexts remain excluded.
+
+Keep the binding import from =gen/tiled_init.til= and, for example, define:
+
+#+begin_src til
+append_newline := proc() {
+    buffer := tiled_current_buffer()!
+    text := tiled_buffer_text(buffer)!
+    tiled_buffer_replace(buffer, text.len(), 0, "\n")!
+}
+init := proc() {
+    tiled_command("append-newline", "append_newline")
+    tiled_bind("text", "C-k n", "append-newline")
+}
+#+end_src
+
+The live buffer operations are available during commands, after the host has
+adopted its workspace. Calling them during init reports that no live editor
+is attached. Settings and command registration remain startup operations.
+
+** Operations and handles
+
+All operations below can throw =TiledBufferError=, whose =message= explains the
+failure. Use =? catch (err: TiledBufferError)= to handle it; =!= turns an
+unhandled error into a guest failure reported by the editor.
+
+- =tiled_current_buffer()=: the focused text buffer's opaque =I64= handle.
+- =tiled_buffer_text(handle)=: an owned byte-for-byte text snapshot. Hidden
+  live text buffers can be read too.
+- =tiled_buffer_selection(handle)=: an owned =TiledSelection= with byte
+  =start=, =count= and =text=. With no region, start is point and count is zero.
+- =tiled_buffer_insert(handle, text)=: replace the active region, or insert at
+  point when there is no region.
+- =tiled_buffer_replace(handle, start, count, text)=: replace an explicit byte
+  range. Bounds and grapheme boundaries are checked before editing.
+
+Selection and mutation currently require that the handle identify the active
+buffer. Supporting hidden-buffer writes without changing focus is a later
+model refactor. Terminal buffers are not text buffers for this API.
+
+Handles are process-local, non-owning identities, not buffer slot indices or
+saved-session IDs. Repeated queries return the same handle while its buffer
+lives. Killing a buffer invalidates its handle even if its slot is reused;
+closing/reopening the live owner invalidates all earlier handles. Do not save
+handles for another process/session. Reading through an invalid handle reports
+an error rather than referring to a replacement buffer.
+
+** Undo and failures
+
+All native edits made by one general guest command join one undo group. They
+use the existing =EditorState.insert/replace= implementation, including dirty
+tracking, grapheme-aware points and visible/hidden view adjustment. A command
+that edits and then fails leaves its completed edits in place; one undo reverses
+those edits. External effects, such as writing files, are not rolled back.
+
+Selected-text transform commands retain their stronger snapshot behavior:
+direct buffer writes are rejected while such a callback runs, so it cannot
+invalidate the range that will receive its returned text. Buffer reads are
+allowed. The write mode is restored on both success and failure.
+
+** Incremental ownership boundary
+
+=src/live_editor.til= owns the one live =EditorState=. Startup constructs or
+restores a workspace, transfers it to that owner, and the GUI borrows it.
+Checkpoints remain value snapshots, not a second editable model.
+
+The shared library installs a typed, non-capturing native dispatcher for that
+owner. Compiled UI operations (currently newline and paste) and interpreted
+guests call the same checked API. The dispatcher delegates to the existing
+editing implementation; no guest-side editing algorithm or buffer copy exists.
+It is detached before the owner closes. Host lifecycle/dispatch entry points
+are internal infrastructure, not the user configuration API.
+
+This is deliberately an intermediate step: the canonical model and its editing
+implementation are still compiled in the host, not moved wholesale into the
+DLL. A direct model export currently re-exports terminal/tab/undo types and
+conflicts with existing imports. The small value ABI lets the frontend move
+toward library operations without that coupled type export.
+
+=lib/libtiled/live_buffers.til= defines the native request/reply boundary.
+=lib/libtiled/live_api.til= contains the checked Til wrappers, compiled by the
+host and interpreted by guests. The build combines generated native bindings
+and these wrappers into the existing =gen/tiled_startup_api.til= entry point.
+There are no handwritten native function declarations.
+
+Errors cross FFI as explicit reply values and are raised locally by those
+wrappers. Testing found that numeric native throws IDs differ between the
+library and the larger host; a local catch could otherwise miss the error.
+Internal operation codes are scalar too: the current generated enum binding
+triggered a compiler failure. These compiler findings are tracked with #20.
+
+** Verification
+
+#+begin_src sh
+./make.til
+til build --usize=64 --asan -o tmp/check_live_buffers_model -c tmp/check_live_buffers_model.c test/live_buffers_model.til
+env PATH= ./tmp/check_live_buffers_model
+xvfb-run -a -s "-screen 0 1600x1200x24" til run --usize=64 -o tmp/check_live_buffers_gui -c tmp/check_live_buffers_gui.c test/live_buffers_gui.til
+#+end_src
+
+The ASAN model checks shared native/guest state, hidden view-point adjustment,
+selection snapshots, bounds, grapheme boundaries, stale handles/slot reuse,
+owner reopening, grouped undo, partial errors, and transform write isolation.
+The private-HOME GUI test runs without compiler PATH and checks native views,
+key/M-x invocation, two-edit undo, partial-failure undo, killed-buffer handles
+and a subsequent editable draft.

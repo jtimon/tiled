@@ -1,0 +1,60 @@
+mode gui
+import("terminal_gui_helpers")
+import("config_helpers")
+
+tap := proc(display: Dynamic, key: UPtr) { send(display, key, 1); send(display, key, 0); sleep_ms(70) }
+chord := proc(display: Dynamic, key: UPtr, shift: Bool = false) {
+    send(display, 65507, 1); if shift { send(display, 65505, 1) }
+    tap(display, key)
+    if shift { send(display, 65505, 0) }; send(display, 65507, 0); sleep_ms(70)
+}
+wait_text := proc(app: Cmd, pid: I64, path: Str, expected: Str) {
+    for _ in 0..100 {
+        if File.exists(path) { if File.readfile(path) == expected { return } }
+        if app.poll() { break }; sleep_ms(50)
+    }
+    require(app, pid, false, format("unexpected live buffer result: ", expected))
+}
+save := proc(app: Cmd, pid: I64, display: Dynamic, file: Str, expected: Str) { tap(display, 65478); wait_text(app, pid, file, expected) }
+main := proc() {
+    home := format(get_cwd_str(), "/tmp/live-buffers-gui-", process_id().to_str()); assert(mkdir_p(format(home, "/.tiled")) == 0)
+    file := format(home, "/notes.txt"); report := format(home, "/report"); stale := format(home, "/stale")
+    File.writefile(file, "é界")
+    query := Cmd.new("fc-match", "--format=%{file}", "monospace"); query.capture_out(); query.run_checked()
+    font := query.out()
+    File.writefile(format(home, "/.tiled/init.til"), format("mode lib\nimport(\"std/file\")\n", fixture_api(),
+        "mut remembered : I64 = 0\nremember := proc() { remembered = tiled_current_buffer()! }\n",
+        "wrap := proc() { h := tiled_current_buffer()!; text := tiled_buffer_text(h)!; tiled_buffer_replace(h, 0, text.len(), format(\"<\", text, \">\"))!; tiled_buffer_insert(h, \"✓\")! }\n",
+        "partial := proc() { tiled_buffer_insert(tiled_current_buffer()!, \"P\")!; panic(\"partial edit\") }\n",
+        "check_stale := proc() { tiled_buffer_text(remembered)?; catch (err: TiledBufferError) { File.writefile(", fixture_quote(stale), ", err.message); panic(err.message) } }\n",
+        "fresh := proc() { tiled_buffer_insert(tiled_current_buffer()!, \"fresh\")! }\n",
+        "report := proc() { File.writefile(", fixture_quote(report), ", tiled_buffer_text(tiled_current_buffer()!)!) }\n",
+        "init := proc() { mut config := tiled_options(); config.tile_left = false; config.font_path = ", fixture_quote(font), "; tiled_configure(config); ",
+        "tiled_command(\"wrap-buffer\", \"wrap\"); tiled_command(\"remember-buffer\", \"remember\"); tiled_command(\"check-stale\", \"check_stale\"); tiled_command(\"partial-edit\", \"partial\"); tiled_command(\"fresh-buffer\", \"fresh\"); tiled_command(\"report-buffer\", \"report\"); ",
+        "tiled_bind(\"text\", \"F8\", \"wrap-buffer\"); tiled_bind(\"text\", \"F7\", \"remember-buffer\"); tiled_bind(\"text\", \"F6\", \"check-stale\"); tiled_bind(\"text\", \"F10\", \"partial-edit\"); tiled_bind(\"text\", \"F4\", \"fresh-buffer\"); tiled_bind(\"text\", \"F5\", \"report-buffer\"); tiled_bind(\"text\", \"F9\", \"save-buffer\") }\n"))
+    app := Cmd.new("./bin/tiled", file); app.env("HOME", home).env("PATH", "")
+    app.stdout_to("tmp/terminal-gui-app.log").stderr_to_stdout()
+    pid := app.start(); window := wait_window(app, pid, "Tiled - notes.txt")
+    display_name := get_env("DISPLAY"); ref display : Dynamic = XOpenDisplay(display_name.c_str)
+    if is_null(display) { panic("run under xvfb-run") }
+    sleep_ms(250); XSetInputFocus(display, window, 2, 0); XFlush(display)
+    tap(display, 65367); chord(display, 120); tap(display, 51) // Split at end; both views initially have point 5.
+    tap(display, 65360); tap(display, 65477); save(app, pid, display, file, "<é界>✓")
+    chord(display, 120); tap(display, 111); type_keys(display, "Z")
+    save(app, pid, display, file, "<é界>Z✓") // The other view's adjusted point is before the inserted checkmark.
+    chord(display, 122); save(app, pid, display, file, "<é界>✓")
+    chord(display, 122); save(app, pid, display, file, "é界") // Both guest edits undo together.
+    send(display, 65513, 1); tap(display, 120); send(display, 65513, 0); type_text(display, "wrap-buffer")
+    save(app, pid, display, file, "<é界>✓")
+    tap(display, 65479); save(app, pid, display, file, "<é界>✓P")
+    chord(display, 122); save(app, pid, display, file, "<é界>✓")
+    tap(display, 65476); chord(display, 119, true) // Remember the old handle, then close its buffer everywhere.
+    wait_window(app, pid, "Tiled - *draft*")
+    tap(display, 65475); wait_text(app, pid, stale, "Stale or invalid buffer handle")
+    tap(display, 65473); tap(display, 65474); wait_text(app, pid, report, "fresh")
+    chord(display, 122); tap(display, 65474); wait_text(app, pid, report, "")
+    close_app(app, pid, display, window)
+    assert(File.readfile(file) == "<é界>✓")
+    XCloseDisplay(display)
+    println("PASS: general guest commands edit the native buffer, adjust shared views, undo atomically and reject stale handles")
+}

@@ -1,19 +1,29 @@
 mode lib
 import("guest_transform")
+import("live_editor")
 
-EditorGuestCommand := struct { name : Str; transform : EditorGuestTransform }
+EditorGuestCommand := struct { name : Str; callback : TilVmCallback; general := false }
 EditorGuestCommands := struct {
     entries := Vec(EditorGuestCommand).new()
 namespace:
     clear := func(mut commands: EditorGuestCommands) { commands.entries.clear() }
-    add := proc(mut commands: EditorGuestCommands, mut vm: TilVm, name: Str, symbol: Str) throws TilVmError {
-        mut transform := EditorGuestTransform.lookup(vm, symbol)?
-        transform.name = name.clone()
-        commands.entries.push(own EditorGuestCommand(name = name.clone(), transform = transform))
+    add := proc(mut commands: EditorGuestCommands, mut vm: TilVm, name: Str, symbol: Str, general: Bool = false) throws TilVmError {
+        if general {
+            callback := vm.lookup(symbol)?
+            commands.entries.push(own EditorGuestCommand(name = name.clone(), callback = callback, general = true))
+        } else {
+            callback := vm.lookup(symbol, GuestTextTransform)?
+            commands.entries.push(own EditorGuestCommand(name = name.clone(), callback = callback))
+        }
     }
     names := func(commands: EditorGuestCommands) returns Vec(Str) {
         mut names := Vec(Str).new()
         for entry : EditorGuestCommand in commands.entries { names.push(own entry.name.clone()) }
+        return names
+    }
+    context_names := func(commands: EditorGuestCommands, general: Bool) returns Vec(Str) {
+        mut names := Vec(Str).new()
+        for entry : EditorGuestCommand in commands.entries { if entry.general == general { names.push(own entry.name.clone()) } }
         return names
     }
     invoke := proc(mut commands: EditorGuestCommands, name: Str, mut editor: EditorState,
@@ -25,18 +35,38 @@ namespace:
             if editor.buffers[editor.nodes[editor.focused].view.buffer].terminal >= 0 {
                 message = format("Unavailable in terminal: ", name); return true
             }
-            mut applied := false
-            applied = entry.transform.apply(editor)?
-            catch (err: TilVmError) {
-                message = format(name, ": ", err.phase)
-                for diagnostic : TilVmDiagnostic in err.diagnostics { message = format(name, ": ", diagnostic.message); break }
-                println(err.to_str())
-                return true
+            if entry.general {
+                started := editor.undo_token == 0
+                if started { editor.begin_edit_command(name) }
+                entry.callback.call()?
+                catch (err: TilVmError) {
+                    if started { editor.end_edit_command() }
+                    message = guest_command_error(name, err)
+                    return true
+                }
+                if started { editor.end_edit_command() }
+                message = format("Ran ", name)
+            } else {
+                previous_mode := live_editor_write_mode(false)
+                mut applied := false
+                applied = editor_apply_guest_transform(entry.callback, name, editor)?
+                catch (err: TilVmError) {
+                    live_editor_write_mode(previous_mode)
+                    message = guest_command_error(name, err)
+                    return true
+                }
+                live_editor_write_mode(previous_mode)
+                if applied { message = format("Applied ", name) }
+                else { message = format("Select a text region to run ", name) }
             }
-            if applied { message = format("Applied ", name) }
-            else { message = format("Select a text region to run ", name) }
             return true
         }
         return false
     }
+}
+guest_command_error := proc(name: Str, err: TilVmError) returns Str {
+    mut message := format(name, ": ", err.phase)
+    for diagnostic : TilVmDiagnostic in err.diagnostics { message = format(name, ": ", diagnostic.message); break }
+    println(err.to_str())
+    return message
 }

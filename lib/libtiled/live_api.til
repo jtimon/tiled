@@ -1,0 +1,30 @@
+mode lib
+import("../../gen/til/tiled_startup")
+
+// Shared source wrapper, compiled by the host and interpreted by guests.
+// Keep exception IDs local to the caller; the native boundary returns values.
+TiledBufferError := struct { message := "" }
+priv tiled_checked_buffer_request := proc(request: TiledBufferRequest) returns TiledBufferReply throws TiledBufferError {
+    reply := tiled_native_buffer_request(request)
+    if reply.error.len() > 0 { throw TiledBufferError(message = reply.error.clone()) }
+    return reply
+}
+tiled_current_buffer := proc() returns I64 throws TiledBufferError {
+    reply := tiled_checked_buffer_request(TiledBufferRequest())?
+    return reply.handle
+}
+tiled_buffer_text := proc(handle: I64) returns Str throws TiledBufferError {
+    reply := tiled_checked_buffer_request(TiledBufferRequest(operation = TILED_BUFFER_READ, handle = handle))?
+    return reply.text.clone()
+}
+tiled_buffer_selection := proc(handle: I64) returns TiledSelection throws TiledBufferError {
+    reply := tiled_checked_buffer_request(TiledBufferRequest(operation = TILED_BUFFER_SELECTION, handle = handle))?
+    return TiledSelection(start = reply.start, count = reply.count, text = reply.text.clone())
+}
+tiled_buffer_insert := proc(handle: I64, text: Str) throws TiledBufferError {
+    tiled_checked_buffer_request(TiledBufferRequest(operation = TILED_BUFFER_INSERT, handle = handle, text = text.clone()))?
+}
+tiled_buffer_replace := proc(handle: I64, start: USize, count: USize, text: Str) throws TiledBufferError {
+    tiled_checked_buffer_request(TiledBufferRequest(operation = TILED_BUFFER_REPLACE, handle = handle,
+        start = start, count = count, text = text.clone()))?
+}

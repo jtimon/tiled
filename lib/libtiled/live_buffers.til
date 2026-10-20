@@ -1,0 +1,38 @@
+mode lib
+
+// Small value-only ABI. The native host installs a non-capturing dispatcher;
+// the editor model remains its single state owner during this migration.
+// Internal wire opcodes, kept scalar across the current generated-binding ABI.
+TILED_BUFFER_CURRENT : I64 = 0
+TILED_BUFFER_READ : I64 = 1
+TILED_BUFFER_SELECTION : I64 = 2
+TILED_BUFFER_INSERT : I64 = 3
+TILED_BUFFER_REPLACE : I64 = 4
+TiledBufferRequest := struct {
+    operation : I64 = 0
+    handle : I64 = 0
+    start : USize = 0
+    count : USize = 0
+    text := ""
+}
+TiledBufferReply := struct {
+    error := ""
+    text := ""
+    handle : I64 = 0
+    start : USize = 0
+    count : USize = 0
+}
+TiledSelection := struct { start : USize = 0; count : USize = 0; text := "" }
+TiledHostDispatch := proc(TiledBufferRequest) returns TiledBufferReply
+priv mut host := Option(TiledHostDispatch).None
+
+// Host lifecycle only. Guest commands use the checked operations below.
+tiled_host_attach := proc(callback: TiledHostDispatch) { noop_proc(); host = Option(TiledHostDispatch).Some(callback) }
+tiled_host_detach := proc() { noop_proc(); host = Option(TiledHostDispatch).None }
+tiled_buffer_request := proc(request: TiledBufferRequest) returns TiledBufferReply {
+    noop_proc()
+    if host.is_none() { return TiledBufferReply(error = "No live editor is attached") }
+    dispatch := host.unwrap()
+    result := dispatch(request)
+    return result
+}

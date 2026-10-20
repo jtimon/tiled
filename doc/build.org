@@ -122,6 +122,9 @@ interpreted evaluation. See [[file:../lib/libterminal/README.org][library API/in
 Full builds also compile =lib/libtiled/tiled_startup.til= as a shared library,
 even when terminal linking is static or source-based. Tiled and its interpreted
 init use the same explicit shared-object path via =gen/tiled_startup_api.til=.
+That entry point combines Til-generated native bindings with the checked
+=lib/libtiled/live_api.til= wrappers. The wrappers keep typed error handling
+local to the caller while native dispatch exchanges value-only replies.
 =gen/tiled_runtime.til= records the matching SDK beside the selected installed
 compiler (=<prefix>/bin/til= and =<prefix>/lib/til=). The build generates
 =gen/tiled_init.til= as a ready-to-copy example with the binding path filled in.

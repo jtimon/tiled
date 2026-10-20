@@ -1,0 +1,85 @@
+mode lib
+import("editor_model")
+api := import("../gen/tiled_startup_api")
+
+// Canonical live model, never cloned into a VM or a second editable store.
+// Plain EditorState values remain useful for checkpoints and isolated tests.
+LiveBufferHandle := struct { token : I64; session_id : I64 }
+priv mut live_state := EditorState.new("", "")
+priv mut live_open := false
+priv mut live_writable := true
+priv mut live_handles := Vec(LiveBufferHandle).new()
+priv mut next_handle : I64 = 1
+Request := api.TiledBufferRequest
+Reply := api.TiledBufferReply
+
+priv live_index := proc(handle: I64) returns I64 {
+    noop_proc()
+    if !live_open { return -1 }
+    for record : LiveBufferHandle in live_handles {
+        if record.token != handle { continue }
+        for id : USize in live_state.live_buffers() {
+            if live_state.buffers[id].session_id == record.session_id && live_state.buffers[id].terminal < 0 { return id.to_i64() }
+        }
+        return -1
+    }
+    return -1
+}
+priv live_current := proc() returns I64 {
+    noop_proc()
+    id := live_state.nodes[live_state.focused].view.buffer
+    if live_state.buffers[id].terminal >= 0 { return 0 }
+    identity := live_state.buffers[id].session_id
+    for record : LiveBufferHandle in live_handles { if record.session_id == identity { return record.token } }
+    token := next_handle; next_handle = next_handle + 1
+    live_handles.push(own LiveBufferHandle(token = token.clone(), session_id = identity))
+    return token
+}
+priv live_dispatch := proc(request: Request) returns Reply {
+    noop_proc()
+    if !live_open { return Reply(error = "No live editor is attached") }
+    if request.operation == api.TILED_BUFFER_CURRENT {
+        handle := live_current()
+        if handle == 0 { return Reply(error = "The focused buffer is not a text buffer") }
+        return Reply(handle = handle)
+    }
+    index := live_index(request.handle)
+    if index < 0 { return Reply(error = "Stale or invalid buffer handle") }
+    id := index.to_usize()
+    if request.operation == api.TILED_BUFFER_READ { return Reply(text = live_state.buffers[id].text.clone()) }
+    if live_state.nodes[live_state.focused].view.buffer != id { return Reply(error = "This operation requires the active buffer") }
+    if request.operation == api.TILED_BUFFER_SELECTION {
+        ref view : EditorView = live_state.nodes[live_state.focused].view
+        return Reply(start = view.selection_start(), count = view.selection_end() - view.selection_start(), text = live_state.selected_text())
+    }
+    if !live_writable { return Reply(error = "Direct buffer edits require a general command, not a text transform") }
+    if request.operation == api.TILED_BUFFER_INSERT { live_state.insert(request.text); return Reply() }
+    if request.operation == api.TILED_BUFFER_REPLACE {
+        ref text : Str = live_state.buffers[id].text
+        if request.start > text.len() { return Reply(error = "Replacement start is outside the buffer") }
+        if request.count > text.len() - request.start { return Reply(error = "Replacement count is outside the buffer") }
+        if unicode_floor(text, request.start) != request.start || unicode_floor(text, request.start + request.count) != request.start + request.count {
+            return Reply(error = "Replacement offsets must be grapheme boundaries")
+        }
+        live_state.replace(request.start, request.count, request.text)
+        return Reply()
+    }
+    return Reply(error = "Unknown live buffer operation")
+}
+live_editor_adopt := proc(own editor: EditorState) {
+    assert(!live_open)
+    move(EditorState, live_state, own editor)
+    live_handles.clear(); live_writable = true; live_open = true
+    api.tiled_host_attach(live_dispatch)
+}
+live_editor_begin := proc(filename: Str, text: Str) { live_editor_adopt(own EditorState.new(filename, text)) }
+live_editor_state := proc() returns ref EditorState { noop_proc(); assert(live_open); return live_state }
+live_editor_write_mode := proc(enabled: Bool) returns Bool {
+    noop_proc(); previous := live_writable; live_writable = enabled; return previous
+}
+live_editor_close := proc() {
+    api.tiled_host_detach()
+    live_open = false; live_writable = true; live_handles.clear()
+    live_state = EditorState.new("", "")
+}
+live_editor_insert := proc(text: Str) { api.tiled_buffer_insert(api.tiled_current_buffer()!, text)! }

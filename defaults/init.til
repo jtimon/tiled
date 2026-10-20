@@ -12,6 +12,13 @@ bracket_region := proc(text: Str) returns Str {
     return format("[", text, "]")
 }
 
+// General commands need no selection and can use the live buffer API.
+append_newline := proc() {
+    buffer := tiled_current_buffer()!
+    text := tiled_buffer_text(buffer)!
+    tiled_buffer_replace(buffer, text.len(), 0, "\n")!
+}
+
 init := proc() {
     mut config := tiled_options()
     config.maximized = false
@@ -34,6 +41,8 @@ init := proc() {
     // tiled_unbind("text-selection", "C-x") // Always use C-x as prefix.
     // tiled_text_command("bracket-region", "bracket_region")
     // tiled_bind("text", "C-k b", "bracket-region")
+    // tiled_command("append-newline", "append_newline")
+    // tiled_bind("text", "C-k n", "append-newline")
     // Empty means the system monospace font, resolved through fontconfig.
     // config.font_path = "/path/to/your/monospace.ttf"
     config.draft_text = "Welcome to Tiled!\n\nC-x t: new terminal\nC-x b: switch buffer\nC-x C-b: list buffers\nC-x k: kill buffer\nC-x 2: split top/bottom\nC-x 3: split side by side\nC-x o: focus next view\nC-x 0: close view\nC-x 1: keep only this view\nC-x C-f / Ctrl+O: open a file\nC-x C-s / Ctrl+S: save text buffer\nC-x C-c: exit Tiled\n"

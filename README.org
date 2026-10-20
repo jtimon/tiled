@@ -45,3 +45,4 @@ Use =--no-session= to bypass persistence for one launch.
 - [[file:doc/keybindings.org][Commands, configurable keymaps and future extensions]]
 - [[file:doc/unicode.org][Unicode input, grapheme editing and rendering]]
 - [[file:doc/tilvm.org][TilVm startup, text-command and shared-library integration]]
+- [[file:doc/live-buffers.org][Live buffer API and general guest commands]]

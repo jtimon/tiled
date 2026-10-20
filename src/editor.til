@@ -125,7 +125,7 @@ editor_clipboard := proc(mut editor: EditorState, command: Str) returns Bool {
     }
     if command == "paste" {
         ref raw : I8 = GetClipboardText()
-        if !is_null(raw) { editor.insert(Str.from_c_str(raw).replace("\r\n", "\n").replace("\r", "\n")) }
+        if !is_null(raw) { live_editor_insert(Str.from_c_str(raw).replace("\r\n", "\n").replace("\r", "\n")) }
         return true
     }
     return false
@@ -311,17 +311,19 @@ start_editor_with_guests := proc(config: TiledConfig, mut guests: EditorGuestCom
     if !File.is_file(font_path) { panic("font file not found: ", font_path) }
     mut initial_text := config.draft_text.clone()
     if initial_text.len() == 0 { initial_text = config.scratch_text.clone() }
-    mut editor := EditorState.new("", initial_text)
-    editor.tabs_visible = config.tabs_visible
+    mut initial_editor := EditorState.new("", initial_text)
+    initial_editor.tabs_visible = config.tabs_visible
     mut frame := SessionFrame()
-    restored := editor_restore_session(session, editor, frame)
+    restored := editor_restore_session(session, initial_editor, frame)
     mut filename := options.operand.clone()
     if !options.has_operand && !restored { filename = config.initial_file.clone() }
     if filename.len() > 0 {
         filename = editor_file_path(filename)
-        if !restored { editor = EditorState.new(filename, File.readfile(filename)); editor.tabs_visible = config.tabs_visible }
-        else { editor.show_buffer(filename, File.readfile(filename)) }
+        if !restored { initial_editor = EditorState.new(filename, File.readfile(filename)); initial_editor.tabs_visible = config.tabs_visible }
+        else { initial_editor.show_buffer(filename, File.readfile(filename)) }
     }
+    live_editor_adopt(own initial_editor)
+    ref mut editor : EditorState = live_editor_state()
     mut status_msg := session.notice.clone()
     mut status_timer : I64 = 10000
     mut key_state := KeyState()
@@ -490,7 +492,7 @@ start_editor_with_guests := proc(config: TiledConfig, mut guests: EditorGuestCom
                 } else if config.commands.invoke(command, editor) {
                     // Registered Til callbacks take precedence over built-ins.
                 } else if command == "execute-command" || command == "describe-key" {
-                    discovery.begin(config.commands.keys, owner, context, selected, primary, true, config.commands.user_names(), command == "describe-key", guests.names())
+                    discovery.begin(config.commands.keys, owner, context, selected, primary, true, config.commands.user_names(), command == "describe-key", guests.context_names(false), guests.context_names(true))
                 } else if command == "cancel" {
                     editor.nodes[editor.focused].view.clear_mark()
                     editor.nodes[editor.focused].view.terminal_viewport.selection.clear()
@@ -582,7 +584,7 @@ start_editor_with_guests := proc(config: TiledConfig, mut guests: EditorGuestCom
                     if command == "undo-branch-previous" { direction = -1 }
                     if editor.buffers[current].undo.branch(direction) { status_msg = "Redo branch selected" }
                     else { status_msg = "No alternate redo branch here" }
-                } else if command == "newline" { editor.insert("\n") }
+                } else if command == "newline" { live_editor_insert("\n") }
                 else if command == "backspace" { editor.backspace(true) }
                 else if command == "delete" { editor.delete_forward(true) }
                 else {
@@ -672,6 +674,7 @@ start_editor_with_guests := proc(config: TiledConfig, mut guests: EditorGuestCom
         EndDrawing()
     }
     terminals.close()
+    live_editor_close()
     text_font.close()
     window_close_input()
     CloseWindow()

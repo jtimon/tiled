@@ -1,0 +1,62 @@
+# priority: medium
+# category: features
+** FIXED #20 Share live buffer operations with general guest commands
+
+Implemented the first live-buffer boundary. =src/live_editor.til= adopts the
+workspace using Til's ownership-transfer primitive and remains its one native
+owner. The GUI borrows that state. A shared-library dispatcher uses a typed,
+non-capturing host procedure and value-only requests/replies, delegating to the
+existing insert/replace, view-adjustment and undo implementation. Native newline
+and paste use the same API. No editor model/state is duplicated in the VM.
+
+=tiled_command= registers general zero-argument commands. The API supplies
+current-buffer handles, owned text/selection snapshots, insertion and checked
+replacement. Hidden text buffers can be read; selection/mutation currently
+requires the active buffer. Handles survive view switches but become stale on
+buffer death, slot reuse or owner reopening. General command edits form one
+undo group, including partial edits before failure. Text transforms cannot use
+direct writes to invalidate their saved range.
+
+Verification:
+- =./make.til= built both hosts and the expanded common library.
+- ASAN =live_buffers_model= passed with empty PATH, covering native/guest
+  coherence, hidden view points, undo, bounds/graphemes, stale handles, owner
+  reopening, partial errors, write isolation and teardown without leaks.
+- Xvfb =live_buffers_gui= passed with private HOME/empty PATH: key/M-x commands,
+  native view-point adjustment, grouped/partial-error undo, killed handles and
+  continued editing in a replacement draft.
+- ASAN regressions =guest_commands_model=, =init_model=, =command_discovery=,
+  =undo_tree=, =layout= and =buffers= passed.
+- Xvfb regressions =guest_commands_gui=, =init_gui=, =session_gui=, =tabs_gui=,
+  =clipboard_gui=, =undo_gui= and =command_discovery_gui= passed.
+
+Further model/DLL extraction remains in #4/#5. The incremental host-owned
+boundary and current API limits are documented in =doc/live-buffers.org=.
+
+*** Request
+
+Refactor toward one native owner of editor buffer state and undo history.
+Expose stable buffer handles, text/selection reads and insert/replace operations
+through the common compiled library, usable by native Tiled and TilVm guests.
+Add zero-argument guest commands through existing keymaps and M-x.
+
+Preserve the existing editing implementation rather than building a second
+guest model. Verify shared view adjustment, atomic command undo, stale handles,
+guest failures and lifetime/teardown with isolated model and GUI tests.
+
+*** Boundary findings
+
+Directly exporting EditorState through a compiled library re-exported all its
+terminal, tab, undo and Unicode dependencies. Importing that generated binding
+alongside existing model/terminal imports failed with duplicate struct
+declarations; nested defaults also generated invalid positional aggregates.
+The first refactor therefore keeps the canonical model/implementation in the
+host and connects one shared API to it with a non-capturing typed dispatcher.
+
+A generated enum binding triggered =EnumDef_member_name_at= / unwrap-of-None
+during compiler constant folding, so the internal request ABI uses scalar
+operation codes. More importantly, native throws IDs were compilation-unit
+local: the library emitted TiledBufferError ID 5 while the larger host caught
+ID 6. Native dispatch now returns explicit reply errors, and common Til source
+wrappers raise typed errors locally in the host or guest. No private throw IDs
+or editor layout are assumed across this ABI.

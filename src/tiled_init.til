@@ -12,8 +12,8 @@ tiled_startup_config := proc() returns TiledConfig {
         font_size = options.font_size, tabs_visible = options.tabs_visible,
         session = SessionConfig(enabled = options.session.enabled, restore = options.session.restore,
             name = options.session.name.clone(), interval_ms = options.session.interval_ms))
-    for i in 0..startup.tiled_text_command_count() {
-        command := startup.tiled_text_command_at(i)
+    for i in 0..startup.tiled_command_count() {
+        command := startup.tiled_command_at(i)
         config.commands.keys.declare(command.name)
     }
     for i in 0..startup.tiled_binding_count() {
@@ -28,14 +28,14 @@ priv tiled_eval_init := proc(mut vm: TilVm, mut guests: EditorGuestCommands, pat
     mut callback := vm.lookup("init")?
     callback.call()?
     mut commands := EditorCommands.new()
-    for i in 0..startup.tiled_text_command_count() {
-        command := startup.tiled_text_command_at(i)
+    for i in 0..startup.tiled_command_count() {
+        command := startup.tiled_command_at(i)
         if command.name.len() == 0 || commands.keys.known(command.name) {
             mut err := TilVmError(phase = "commands")
             err.diagnostics.push(own TilVmDiagnostic(path = path.clone(), message = format("Guest command name is empty or already registered: ", command.name)))
             throw err
         }
-        guests.add(vm, command.name, command.symbol)?
+        guests.add(vm, command.name, command.symbol, command.general)?
         commands.keys.declare(command.name)
     }
 }

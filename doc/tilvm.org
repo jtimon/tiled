@@ -2,7 +2,7 @@
 
 [[file:keybindings.org][Commands]] | [[file:../issues/open/5.org][Integration tracking]]
 
-Tiled uses TilVm for startup configuration and live selected-text commands.
+Tiled uses TilVm for startup configuration and live general/selected-text commands.
 =src/guest_transform.til= applies checked guest results to editor state;
 =src/guest_commands.til= retains and dispatches those typed handles without
 coercing them to native function pointers. Standalone tilminal still uses its
@@ -65,7 +65,8 @@ init replaces its earlier symbol; the last registration wins.
 Each registered command retains one typed callback, including its captured
 state, for repeated invocation. These are startup registrations: calling the
 registration/configuration functions later does not reconfigure the running
-editor. Hot reload and general live buffer APIs are later work.
+editor. Zero-argument =tiled_command= callbacks can now use the
+[[file:live-buffers.org][live buffer API]] without a selection; hot reload remains later work.
 
 M-x lists guest commands with their effective bindings, marking them unavailable
 without a nonempty text region or inside terminal/minibuffer contexts. Bound
@@ -161,11 +162,11 @@ against matching compiler/target/USize/ASAN settings, as with libterminal.
 Native libraries are process-lived; creating a fresh VM does not reset their
 globals. Runtime =link_c= compilation is still rejected by TilVm.
 
-This fixture proves the common-library boundary; the editor model has not yet
-been extracted into a production shared editor API. That extraction should keep
-canonical buffer state and editing/undo operations together. The current text
-adapter undoes its applied replacement, not earlier native-library side effects;
-the test checks that distinction explicitly.
+The production [[file:live-buffers.org][live buffer API]] now reaches one native owner through a typed
+shared-library dispatcher. The full model is not exported into the DLL yet;
+the same editing/undo implementation remains in the host. Buffer API edits made
+by one general command share an undo group, including completed edits before a
+failure. Arbitrary native-library side effects are still not automatically undone.
 
 ** Findings for the next TilVm/compiler upgrade
 

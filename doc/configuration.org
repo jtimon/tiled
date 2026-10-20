@@ -243,6 +243,8 @@ The supported fields are =width=, =height=, =maximized=, =tile_left=, =draft_tex
 =tiled_bind= and =tiled_unbind= configure built-in [[file:keybindings.org][commands and keymaps]].
 =tiled_text_command(name, symbol)= registers a live guest selected-text transform;
 see [[file:tilvm.org][the callback contract and example]].
+=tiled_command(name, symbol)= registers a zero-argument general command using
+the [[file:live-buffers.org][live buffer API]], without requiring a selection.
 A command-line filename takes
 precedence over =initial_file= on a fresh startup. A restored workspace keeps
 its existing focus unless a command-line file is supplied; with neither,
@@ -370,8 +372,8 @@ The build records the SDK next to the selected installed compiler; user startup
 does not search PATH for Til. Fontconfig is still used unless =font_path= is set.
 
 The old Tiled =init(mut config: TiledConfig)= signature is no longer loaded.
-Guest selected-text commands now run through normal keybindings and M-x.
-Broader live editor APIs and hot reload remain follow-ups in [[file:../issues/open/5.org][#5]].
+Guest selected-text and general commands run through normal keybindings and M-x.
+Further live editor operations and hot reload remain follow-ups in [[file:../issues/open/5.org][#5]].
 =TiledConfig.commands= is the native host/developer API, not an interpreted
 init API. Tests of native callbacks compile their own explicit
 fixtures; startup tests exercise the real executable and interpreter.

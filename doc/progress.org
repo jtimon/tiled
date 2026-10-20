@@ -25,6 +25,10 @@
   transforms. The VM lives through the GUI loop; keybindings and M-x use a
   typed guest registry with context checks, one-step undo and recoverable errors.
   Isolated ASAN/GUI checks exercise captures, Unicode, panic/exit and teardown.
+- General =tiled_command= callbacks use stable buffer handles and checked
+  read/selection/insert/replace operations. The GUI and guest calls reach one
+  native live owner and the existing editing/undo implementation. Tests cover
+  shared views, stale handles, grouped undo and partial failures.
 - Startup checks exercised the copied example, configured window size and
   initial file, command-line file precedence, failing init code, and version
   output bypassing init. An init path containing spaces worked.

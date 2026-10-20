@@ -43,6 +43,9 @@ Tilminal can still register these through its compiled init. Tiled's interpreted
 init registers selected-text guest commands through =tiled_text_command(name, symbol)=.
 Their callbacks have the checked signature =proc(Str) returns Str=; they receive
 a snapshot and return a replacement. See [[file:tilvm.org][the live guest-command example]].
+=tiled_command(name, symbol)= instead registers a zero-argument, no-result
+command. It can use the [[file:live-buffers.org][live buffer API]] without a selection. Both kinds are
+restricted to text context; general commands remain available when no region exists.
 
 =tiled_bind(map, sequence, command, repeat=false)= replaces an existing binding.
 =tiled_unbind(map, sequence)= removes it and its prefix descendants. The native
@@ -146,7 +149,7 @@ built-in command invocation from callbacks remains follow-up work. Tiled
 callbacks currently receive editor state, not the native
 terminal pool or prompt machinery. Mouse gestures remain host-defined.
 
-Tiled interprets startup configuration and runs retained selected-text guest
+Tiled interprets startup configuration and runs retained general/selected-text guest
 commands in-process through TilVm. Tilminal retains the compiled loader and
 needs installed Til plus the source checkout. General live editor APIs and hot
 reload remain later milestones; see [[file:configuration.org][startup configuration]].

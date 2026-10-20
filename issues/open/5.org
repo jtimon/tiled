@@ -26,7 +26,7 @@ Using the same language does not by itself provide a live embedding API.
   startup settings library (see #18). Its guest API exposes options and built-in
   keymap overrides and retained selected-text commands (see #19). Tilminal retains the compiled GUI-child loader and
   =config.commands=. Native Tiled callbacks still use =TiledConfig.commands=;
-  broader live guest buffer APIs remain to be implemented.
+  general guest commands can now use the small live buffer API (see #20).
 - Tiled startup needs the matching installed SDK assets and generated native
   binding/library, but no compiler executable or replacement GUI process.
   No live reload is implemented.
@@ -105,9 +105,29 @@ and destroys handles before the VM. The normal keymaps/M-x discover and invoke
 them, with nonempty-text-region restrictions and error recovery. No capturing
 native EditorAction bridge is used.
 
-The scoped implementation and verification are tracked in #19. General buffer
-operations, runtime registration and hot reload remain open; the selected-text
-contract intentionally exposes copied text rather than native editor pointers.
+The selected-text implementation is tracked in #19. #20 adds general commands
+and live buffer operations through stable handles, while retaining that snapshot
+contract for text transforms. Runtime registration and hot reload remain open.
+
+*** Live buffer boundary
+
+The native host now adopts one live EditorState into =src/live_editor.til= and
+the GUI borrows it. A typed, non-capturing dispatcher connects the common library
+to that owner. Guest and native calls use the same editing/undo implementation;
+newline and paste also go through the checked API. This is an incremental
+host-owned boundary, not a second editor model or a wholesale DLL extraction.
+
+=tiled_command(name, symbol)= registers zero-argument commands with no result or
+throws clause. =tiled_current_buffer=, =tiled_buffer_text=,
+=tiled_buffer_selection=, =tiled_buffer_insert= and =tiled_buffer_replace= expose
+the first live operations. Edits require the active buffer; reads can target
+other live text buffers. Handles are invalidated by buffer death/slot reuse or
+owner reopening. General command edits share one undo group, even when a later
+step fails. Direct writes are barred during selected-text transforms.
+
+See =doc/live-buffers.org= and #20 for the ABI split and verification. Library
+results carry explicit errors; the common Til wrapper raises the caller-local
+typed error. Further buffer/model extraction remains coordinated with #4.
 
 *** Earlier native command composition findings
 

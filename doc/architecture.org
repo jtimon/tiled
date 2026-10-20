@@ -6,6 +6,11 @@ The editor now has separate buffers, views and a binary split-layout tree,
 implemented in [[file:../src/editor_model.til][src/editor_model.til]]. It displays them inside one GUI window.
 Desktop window management and multiple OS-level frames remain future work.
 
+The live workspace now has a single native owner in =src/live_editor.til=;
+the GUI borrows that state. A small [[file:live-buffers.org][shared live-buffer API]] routes native and
+TilVm calls to its existing editing/undo implementation. This is an incremental
+boundary, not a duplicate guest model or a wholesale DLL export of GUI types.
+
 ** Buffers, windows and frames
 
 Use Emacs's distinction when discussing the editor:
